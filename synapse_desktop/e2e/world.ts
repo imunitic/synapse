@@ -29,6 +29,8 @@ export interface World {
   pipelinePackage: string
   // The folder the Live_Run pipeline works in: a repository with one commit.
   live: string
+  // The folder the finished fixture run worked in: a repository with what the run changed in it.
+  project: string
 }
 
 export function worldAt(root: string): World {
@@ -46,6 +48,7 @@ export function worldAt(root: string): World {
     data: join(root, 'data'),
     pipelinePackage: join(root, 'pipeline-package'),
     live: join(root, 'live-project'),
+    project: join(root, 'project'),
   }
 }
 
@@ -115,6 +118,17 @@ const ANSWERS = {
 function write(path: string, text: string): void {
   mkdirSync(join(path, '..'), { recursive: true })
   writeFileSync(path, text)
+}
+
+// Runs git in a folder, as a person named A, and answers what it printed.
+function git(folder: string, args: string[], env: NodeJS.ProcessEnv = process.env): string {
+  const made = spawnSync('git', ['-c', 'user.name=A', '-c', 'user.email=a@example.com', ...args], {
+    cwd: folder,
+    encoding: 'utf8',
+    env,
+  })
+  if (made.status !== 0) throw new Error(`git ${args[0]} failed: ${made.stderr}`)
+  return made.stdout.trim()
 }
 
 // A session of Claude that reads a file, writes another and lists the folder,
@@ -449,15 +463,7 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
     ['add', '-A'],
     ['commit', '-q', '-m', 'first'],
   ]) {
-    const made = spawnSync(
-      'git',
-      ['-c', 'user.name=A', '-c', 'user.email=a@example.com', ...args],
-      {
-        cwd: world.live,
-        encoding: 'utf8',
-      },
-    )
-    if (made.status !== 0) throw new Error(`git ${args[0]} failed: ${made.stderr}`)
+    git(world.live, args)
   }
 
   // A folder that looks like a vault: an index, three notes, git and Obsidian
@@ -505,10 +511,20 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   mkdirSync(thin, { recursive: true })
   write(join(thin, '_refs.tsv'), 'Only\tdef\tfunction\tsrc/only.adb:1\tprocedure Only is\n')
 
-  // A finished run, made by the program itself, with the transcript that a
-  // scripted run does not write put in its record.
+  // A finished run, made by the program itself in a repository of its own, with the transcript
+  // that a scripted run does not write put in its record.
+  write(join(world.project, 'notes.txt'), 'pineapple\n')
+  write(join(world.project, 'src', 'render.adb'), RENDER_BEFORE)
+  for (const args of [
+    ['init', '-q'],
+    ['add', '-A'],
+    ['commit', '-q', '-m', 'first'],
+  ]) {
+    git(world.project, args)
+  }
   const id = 'exec-fixture1'
   const run = spawnSync('synapse-pipeline', ['run', 'Fixture_Run', '--id', id], {
+    cwd: world.project,
     env: environmentFor(world, binDirs),
     encoding: 'utf8',
   })
@@ -517,9 +533,9 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   }
   const record = join(world.work, 'pipelines', id)
   const transcript = join(record, 'transcripts', '1-Work-1.jsonl')
-  write(transcript, claudeTranscript(join(world.root, 'project')))
-  // What the step changed in its folder, as a run keeps it: a file that existed, a new file with its
-  // content, and a new file whose content was past the limit.
+  write(transcript, claudeTranscript(world.project))
+  // What the step changed in its folder, as a run keeps it: a file that existed and a new file with
+  // its content, and a new file whose content was past the limit, which the patch alone has.
   write(join(record, 'patches', '1-Work-1.patch'), WORK_PATCH)
   const events = join(record, 'events.jsonl')
   writeFileSync(
@@ -529,8 +545,34 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
       `"transcript":${JSON.stringify(transcript)}`,
     ),
   )
+  // A scripted step writes nothing, so the run's end is pinned again with what the step would have
+  // written: the files in the folder now, as a snapshot from an index of its own.
+  write(join(world.project, 'src', 'render.adb'), RENDER_AFTER)
+  write(join(world.project, 'result.txt'), 'pineapple\n')
+  write(
+    join(world.project, 'src', 'fresh.adb'),
+    'procedure Fresh is null;\n-- written by the step\n',
+  )
+  const index = { ...process.env, GIT_INDEX_FILE: join(world.root, 'project-index') }
+  git(world.project, ['read-tree', 'HEAD'], index)
+  git(world.project, ['add', '-A'], index)
+  const end = git(world.project, ['write-tree'], index)
+  git(world.project, ['update-ref', `refs/synapse/runs/${id}/end`, end])
+  const summary = join(record, 'execution.json')
+  const kept = JSON.parse(readFileSync(summary, 'utf8')) as { snapshots: { end: string | null } }
+  kept.snapshots.end = end
+  writeFileSync(summary, JSON.stringify(kept))
   return world
 }
+
+const RENDER_BEFORE = `procedure Render is
+   Done : Boolean := False;
+begin
+   null;
+end Render;
+`
+
+const RENDER_AFTER = RENDER_BEFORE.replace('False', 'True')
 
 const WORK_PATCH = `diff --git a/src/render.adb b/src/render.adb
 index 1111111..2222222 100644

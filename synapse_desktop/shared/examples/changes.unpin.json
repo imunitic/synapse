@@ -1,0 +1,8 @@
+{
+  "name": "changes.unpin",
+  "params": {
+    "folder": "/work/widget",
+    "ref": "runs/exec-0a1b2c3d/end"
+  },
+  "result": null
+}

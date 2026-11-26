@@ -1,6 +1,6 @@
 // What the steps of a run changed in the folder they worked in, as the run's record keeps it and
 // `synapse-pipeline changes --format json` prints it: one patch for each session that changed
-// something.
+// something, and the snapshots the run pinned when it started and when it ended.
 
 import { z } from 'zod'
 import type { Transport } from '../../shared/transport.ts'
@@ -11,6 +11,9 @@ const changesSchema = z.object({
   execution_id: z.string(),
   // The folder the steps worked in, when the run was told it.
   directory: z.string().nullable(),
+  // Missing from an engine older than the pinned snapshots.
+  status: z.string().optional(),
+  snapshots: z.object({ start: z.string().nullable(), end: z.string().nullable() }).optional(),
   steps: z.array(
     z.object({
       step: z.string(),
@@ -32,6 +35,11 @@ export interface RecordedChange {
 
 export interface RunChanges {
   directory: string | null
+  // What the run's summary says it is: running, completed, failed, or incomplete when it has none.
+  status: string
+  // The trees pinned in the folder the run works in when it started and when it ended; null when it
+  // has not pinned one.
+  snapshots: { start: string | null; end: string | null }
   // In the order the steps ran.
   changes: RecordedChange[]
 }
@@ -72,6 +80,8 @@ export async function readRunChanges(
   if (!parsed.success) throw new Error('changes answered a format this app does not know')
   return {
     directory: parsed.data.directory,
+    status: parsed.data.status ?? 'incomplete',
+    snapshots: parsed.data.snapshots ?? { start: null, end: null },
     // A patch with no files in it has nothing to show.
     changes: parsed.data.steps
       .map((s) => ({
@@ -82,22 +92,4 @@ export async function readRunChanges(
       }))
       .filter((c) => c.set.files.length > 0),
   }
-}
-
-// The change of the attempt that is running, which only an answer asked for with its step has.
-export function liveChange(
-  run: RunChanges,
-  live: { visit: number; attempt: number },
-): RecordedChange | null {
-  return run.changes.find((c) => c.visit === live.visit && c.attempt === live.attempt) ?? null
-}
-
-// A name for a recorded patch in a list: the step, and which visit and try when it was one of
-// several.
-export function changeLabel(change: RecordedChange, all: readonly RecordedChange[]): string {
-  const several = all.filter((c) => c.step === change.step).length > 1
-  if (!several) return change.step
-  return change.attempt > 1
-    ? `${change.step} · visit ${change.visit}, try ${change.attempt}`
-    : `${change.step} · visit ${change.visit}`
 }

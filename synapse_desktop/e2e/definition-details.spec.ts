@@ -118,20 +118,21 @@ test('the run dialog starts interactive by default, and keeps the choice of no t
   await expect(autonomous).toBeEnabled()
   await expect(autonomous).not.toBeChecked()
   await expect(dialog.getByRole('button', { name: 'Start run' })).toBeVisible()
-  // The folder its agents work in is asked for while the run is interactive.
+  // The folder its agents work in is asked for with and without a terminal.
   await expect(dialog.getByLabel(/Folder its agents work in/)).toBeVisible()
   await autonomous.check()
-  await expect(dialog.getByLabel(/Folder its agents work in/)).toBeHidden()
+  await expect(dialog.getByLabel(/Folder its agents work in/)).toBeVisible()
   // The choice is kept for the pipeline.
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   await expect(page.getByRole('dialog').getByLabel(/Run without a terminal/)).toBeChecked()
-  await expect(page.getByRole('dialog').getByLabel(/Folder its agents work in/)).toBeHidden()
+  await expect(page.getByRole('dialog').getByLabel(/Folder its agents work in/)).toBeVisible()
   // Unticking restores the interactive run.
   await page
     .getByRole('dialog')
     .getByLabel(/Run without a terminal/)
     .uncheck()
+  await expect(page.getByRole('dialog').getByLabel(/Run without a terminal/)).not.toBeChecked()
   await expect(page.getByRole('dialog').getByLabel(/Folder its agents work in/)).toBeVisible()
 })
 

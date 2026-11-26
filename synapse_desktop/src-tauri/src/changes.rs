@@ -3,7 +3,7 @@
 //! index is left alone; the changes are the difference between two snapshots.
 
 use crate::dispatch::HostError;
-use crate::messages::{is_commit_id, AddedFile, Commit, CommitLog, FolderChanges};
+use crate::messages::{is_commit_id, is_pin_ref, AddedFile, Commit, CommitLog, FolderChanges};
 use crate::protocol::ErrorCode;
 use std::path::Path;
 use std::process::Stdio;
@@ -247,17 +247,7 @@ pub async fn changes_since(
     if after == before {
         return Ok(nothing());
     }
-    let known = git(
-        folder,
-        &["cat-file", "-e", &format!("{before}^{{tree}}")],
-        None,
-    )
-    .await?;
-    if !known.ok {
-        return Err(HostError::not_found(
-            "the snapshot is not in this repository any more",
-        ));
-    }
+    check_snapshot(folder, before).await?;
     let (patch, added) = diff_trees(folder, before, &after, path).await?;
     Ok(FolderChanges {
         repository: true,
@@ -265,6 +255,123 @@ pub async fn changes_since(
         added,
         head,
     })
+}
+
+/// What changed from the snapshot `before` to the snapshot `after`, without reading the working
+/// tree; otherwise as `changes_since`.
+pub async fn changes_between(
+    folder: &Path,
+    before: &str,
+    after: &str,
+    path: Option<&str>,
+) -> Result<FolderChanges, HostError> {
+    if path.is_some_and(|p| p.contains('\0')) {
+        return Err(HostError::bad_request("the path holds a NUL"));
+    }
+    if !in_repository(folder).await? {
+        return Ok(FolderChanges {
+            repository: false,
+            patch: String::new(),
+            added: vec![],
+            head: None,
+        });
+    }
+    check_snapshot(folder, after).await?;
+    let head = head_position(folder).await?;
+    if after == before {
+        return Ok(FolderChanges {
+            repository: true,
+            patch: String::new(),
+            added: vec![],
+            head,
+        });
+    }
+    check_snapshot(folder, before).await?;
+    let (patch, added) = diff_trees(folder, before, after, path).await?;
+    Ok(FolderChanges {
+        repository: true,
+        patch,
+        added,
+        head,
+    })
+}
+
+/// Refused as not found when the tree is not in the folder's repository, as after a `git gc` that
+/// removed a snapshot nothing kept.
+async fn check_snapshot(folder: &Path, tree: &str) -> Result<(), HostError> {
+    let known = git(
+        folder,
+        &["cat-file", "-e", &format!("{tree}^{{tree}}")],
+        None,
+    )
+    .await?;
+    if known.ok {
+        Ok(())
+    } else {
+        Err(HostError::not_found(
+            "the snapshot is not in this repository any more",
+        ))
+    }
+}
+
+/// The full name of the ref a run's snapshot is pinned as, checked again here, so that nothing else
+/// is ever written.
+fn pinned_ref(reference: &str) -> Result<String, HostError> {
+    if is_pin_ref(reference) {
+        Ok(format!("refs/synapse/{reference}"))
+    } else {
+        Err(HostError::bad_request(format!(
+            "'{reference}' is not a snapshot ref"
+        )))
+    }
+}
+
+/// Pins the snapshot `tree` as `refs/synapse/<reference>`, which keeps it through `git gc`. A ref
+/// outside `refs/heads/` and `refs/tags/` is not a branch or a tag, and a normal push does not send
+/// it. The folder must be the root of its repository: two folders of one repository would pin the
+/// same ref.
+pub async fn pin_snapshot(folder: &Path, reference: &str, tree: &str) -> Result<(), HostError> {
+    let name = pinned_ref(reference)?;
+    if !in_repository(folder).await? {
+        return Err(HostError::bad_request(
+            "the folder is not in a git repository",
+        ));
+    }
+    let prefix = git(folder, &["rev-parse", "--show-prefix"], None).await?;
+    if !prefix.ok || !prefix.stdout.trim().is_empty() {
+        return Err(HostError::bad_request(
+            "the folder is not the root of a git repository",
+        ));
+    }
+    check_snapshot(folder, tree).await?;
+    let pinned = git(folder, &["update-ref", &name, tree], None).await?;
+    if !pinned.ok {
+        return Err(HostError::unavailable(format!(
+            "git update-ref failed: {}",
+            pinned.stderr.trim()
+        )));
+    }
+    Ok(())
+}
+
+/// Deletes the ref a snapshot was pinned as; a ref that is not there is not an error.
+pub async fn unpin_snapshot(folder: &Path, reference: &str) -> Result<(), HostError> {
+    let name = pinned_ref(reference)?;
+    if !in_repository(folder).await? {
+        return Ok(());
+    }
+    let there = git(folder, &["rev-parse", "--verify", "--quiet", &name], None).await?;
+    if !there.ok {
+        return Ok(());
+    }
+    let unpinned = git(folder, &["update-ref", "-d", &name], None).await?;
+    if !unpinned.ok {
+        return Err(HostError::unavailable(format!(
+            "git update-ref -d failed: {}",
+            unpinned.stderr.trim()
+        )));
+    }
+    Ok(())
 }
 
 /// What changed from the tree `before` to the tree `after`. Without a path: the patch of the files

@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { expect, test, type Page } from './fixtures.ts'
-import { launchCard, openLaunch, openSection, sidePanel } from './helpers.ts'
+import { launchCard, openLaunch, openSection, sidePanel, world } from './helpers.ts'
 
 // A repository with one commit, which a terminal is started in.
 function repository(): string {
@@ -266,44 +266,71 @@ test('on a page that is not a terminal the sidebar says changes are shown for a 
   await expect(sidebar(page)).toContainText('Changes are shown for a terminal session')
 })
 
-test('the changes a run kept for a step are shown in the sidebar, opened from its page', async ({
+test("a run's changes are everything it changed in its folder, and a repository can be added to them", async ({
   page,
 }) => {
-  await page.goto('/')
-  await openSection(page, 'Executions')
-  await sidePanel(page)
-    .getByRole('button', { name: /exec-fixture1/ })
-    .click()
-  await expect(page.getByRole('heading', { level: 1, name: 'exec-fixture1' })).toBeVisible()
-  await expect(sidebar(page)).toHaveCount(0)
+  const other = repository()
+  try {
+    // Changed before it is added: the run's start in it is its last commit.
+    writeFileSync(join(other, 'a.txt'), 'one\nchanged before\nthree\n')
 
-  // The Trace has a link to the changes of each visit.
-  await page.getByRole('button', { name: 'Changes', exact: true }).click()
-  await expect(sidebar(page)).toContainText('4 files changed')
-  await expect(toggle(page)).toContainText('4')
-  // A run has its changes only: there is no Git tab on its page.
-  await expect(sidebar(page).getByRole('tab')).toHaveCount(0)
-  // Nor can its lines be chosen for a review: it has no terminal to send one to.
-  await expect(sidebar(page).locator('.diff-pick')).toHaveCount(0)
+    await page.goto('/')
+    await openSection(page, 'Executions')
+    await sidePanel(page)
+      .getByRole('button', { name: /exec-fixture1/ })
+      .click()
+    await expect(page.getByRole('heading', { level: 1, name: 'exec-fixture1' })).toBeVisible()
+    await expect(sidebar(page)).toHaveCount(0)
 
-  // A file that existed is shown at once; a new file is a row to open.
-  const files = sidebar(page).getByRole('group', { name: 'Changed files' })
-  const diff = sidebar(page).getByRole('region', { name: 'Changes in src/render.adb' })
-  await expect(diff.locator('.diff-row[data-kind="remove"]')).toContainText('False')
-  await expect(diff.locator('.diff-row[data-kind="add"]')).toContainText('True')
-  await expect(sidebar(page)).not.toContainText('written by the step')
+    // The Trace's link opens the changes of the whole run, from its start to its end.
+    await page.getByRole('button', { name: 'Changes', exact: true }).click()
+    await expect(sidebar(page)).toContainText('3 files changed')
+    await expect(toggle(page)).toContainText('3')
+    // A run has its changes only: there is no Git tab, no step to choose, and its lines cannot be
+    // chosen for a review, since it has no terminal to send one to.
+    await expect(sidebar(page).getByRole('tab')).toHaveCount(0)
+    await expect(sidebar(page).getByRole('group', { name: 'Compared with' })).toHaveCount(0)
+    await expect(sidebar(page).locator('.diff-pick')).toHaveCount(0)
+    await expect(reviewBar(page)).toHaveCount(0)
+    // Its folder is shown, and cannot be changed.
+    await expect(sidebar(page)).toContainText(world().project)
+    await expect(sidebar(page).getByRole('button', { name: /^Folder: / })).toHaveCount(0)
 
-  // A new file whose content was kept is read from the record.
-  await files.getByRole('button', { name: /fresh\.adb/ }).click()
-  await expect(
-    sidebar(page).getByRole('region', { name: 'Changes in src/fresh.adb' }),
-  ).toContainText('written by the step')
+    // A file that existed is shown at once; a new file is a row to open.
+    const files = sidebar(page).getByRole('group', { name: 'Changed files' })
+    const diff = sidebar(page).getByRole('region', { name: 'Changes in src/render.adb' })
+    await expect(diff.locator('.diff-row[data-kind="remove"]')).toContainText('False')
+    await expect(diff.locator('.diff-row[data-kind="add"]')).toContainText('True')
+    await expect(sidebar(page)).not.toContainText('written by the step')
+    await files.getByRole('button', { name: /fresh\.adb/ }).click()
+    await expect(
+      sidebar(page).getByRole('region', { name: 'Changes in src/fresh.adb' }),
+    ).toContainText('written by the step')
 
-  // One whose content was past the limit says so, with the lines it had.
-  await files.getByRole('button', { name: /huge\.dat/ }).click()
-  const huge = sidebar(page).getByRole('region', { name: 'Changes in data/huge.dat' })
-  await expect(huge).toContainText('The content of this file was not kept')
-  await expect(files.getByRole('button', { name: /huge\.dat/ })).toContainText('+40000')
+    // Another repository is added with the +: each is a group headed by its folder's name.
+    await sidebar(page).getByRole('button', { name: 'Add a repository' }).click()
+    const input = sidebar(page).getByLabel('Repository to add')
+    await input.fill(other)
+    await input.press('Enter')
+    const own = sidebar(page).getByRole('region', { name: 'project', exact: true })
+    const added = sidebar(page).getByRole('region', { name: basename(other), exact: true })
+    await expect(own.getByRole('button', { name: /project/ }).first()).toContainText('3 files')
+    await expect(
+      added.getByRole('button', { name: new RegExp(basename(other)) }).first(),
+    ).toContainText('1 file')
+    await expect(added).toContainText('changed before')
+    await expect(toggle(page)).toContainText('4')
+
+    // The run is over, so what is changed in the added repository from now on is not its change.
+    writeFileSync(join(other, 'later.txt'), 'after the end\n')
+    await sidebar(page).getByRole('button', { name: 'Read the changes again' }).click()
+    await expect(
+      added.getByRole('button', { name: new RegExp(basename(other)) }).first(),
+    ).toContainText('1 file')
+    await expect(added).not.toContainText('later.txt')
+  } finally {
+    rmSync(other, { recursive: true, force: true })
+  }
 })
 
 test('a file an activity says was changed opens its diff in the sidebar, and a folder can be shut', async ({
@@ -628,5 +655,42 @@ test('the folder of the Changes sidebar is moved by typing the path of another o
     rmSync(first, { recursive: true, force: true })
     rmSync(second, { recursive: true, force: true })
     rmSync(plain, { recursive: true, force: true })
+  }
+})
+
+test('in a terminal session a second repository is added with the +, and a comment in it names it', async ({
+  page,
+}) => {
+  const first = repository()
+  const second = repository()
+  try {
+    await startShellIn(page, first)
+    await toggle(page).click()
+    await sidebar(page).getByRole('button', { name: 'Add a repository' }).click()
+    const input = sidebar(page).getByLabel('Repository to add')
+    await input.fill(second)
+    await input.press('Enter')
+    await expect(sidebar(page).getByRole('list', { name: 'Repositories added' })).toContainText(
+      basename(second),
+    )
+
+    // What changes in each from now on is a group of its own, headed by its folder's name.
+    writeFileSync(join(first, 'b.txt'), 'new in the first\n')
+    writeFileSync(join(second, 'a.txt'), 'one\nTWO\nthree\n')
+    await sidebar(page).getByRole('button', { name: 'Read the changes again' }).click()
+    const own = sidebar(page).getByRole('region', { name: basename(first), exact: true })
+    const added = sidebar(page).getByRole('region', { name: basename(second), exact: true })
+    await expect(own).toContainText('b.txt')
+    await expect(
+      added.getByRole('button', { name: new RegExp(basename(second)) }).first(),
+    ).toContainText('1 file')
+
+    // A comment on the added repository's file says which repository it is in.
+    await commentOnLines(page, 'Use lower case.')
+    await reviewBar(page).getByRole('button', { name: '1 comment' }).click()
+    await expect(reviewBar(page)).toContainText(`${basename(second)}/a.txt:2-3`)
+  } finally {
+    rmSync(first, { recursive: true, force: true })
+    rmSync(second, { recursive: true, force: true })
   }
 })

@@ -118,6 +118,45 @@ package body Synapse.Pipeline.Git_Working_Trees is
          null;
    end Forget;
 
+   --  Starts the temporary index at Index as a copy of the repository's own
+   --  index in Git_Dir, so that a tracked file an ignore rule matches stays
+   --  in the snapshot, and git hashes again only the files whose stat
+   --  changed. Without an index of its own it starts empty.
+   procedure Seed (Git_Dir, Index : String) is
+      Own : constant String := Git_Dir & "/index";
+   begin
+      Forget (Index);
+      if Git_Dir /= "" and then Ada.Directories.Exists (Own) then
+         Ada.Directories.Copy_File (Own, Index);
+      end if;
+   exception
+      when others =>
+         Forget (Index);
+   end Seed;
+
+   --  The line of Text numbered Number, without the blanks around it; empty
+   --  when Text has fewer lines.
+   function Line (Text : String; Number : Positive) return String is
+      First : Natural := Text'First;
+      Count : Positive := 1;
+   begin
+      for I in Text'Range loop
+         if Text (I) = ASCII.LF then
+            if Count = Number then
+               return Ada.Strings.Fixed.Trim
+                 (Text (First .. I - 1), Blanks, Blanks);
+            end if;
+            Count := Count + 1;
+            First := I + 1;
+         end if;
+      end loop;
+      if Count = Number then
+         return Ada.Strings.Fixed.Trim
+           (Text (First .. Text'Last), Blanks, Blanks);
+      end if;
+      return "";
+   end Line;
+
    overriding
    function Snapshot
      (T : in out Git_Working_Trees; Directory, Name : String)
@@ -127,11 +166,15 @@ package body Synapse.Pipeline.Git_Working_Trees is
       Variables : constant Synapse.Core.Text_Lists.Vector :=
         Words ("GIT_INDEX_FILE=" & Index);
       Inside    : constant Session_Process.Process_Outcome :=
-        Run_Git (T, Directory, Words ("rev-parse", "--is-inside-work-tree"));
+        Run_Git
+          (T, Directory,
+           Words ("rev-parse", "--is-inside-work-tree", "--absolute-git-dir"));
+      Answer    : constant String := To_String (Inside.Output);
    begin
-      if not Succeeded (Inside) or else Trimmed (Inside.Output) /= "true" then
+      if not Succeeded (Inside) or else Line (Answer, 1) /= "true" then
          return Working_Trees.Maybe_Text'(Found => False);
       end if;
+      Seed (Line (Answer, 2), Index);
       declare
          Added : constant Session_Process.Process_Outcome :=
            Run_Git (T, Directory, Words ("add", "-A"), Variables);
@@ -171,5 +214,19 @@ package body Synapse.Pipeline.Git_Working_Trees is
       end if;
       return Working_Trees.Maybe_Text'(Found => True, Value => Diff.Output);
    end Changes;
+
+   overriding
+   function Pin
+     (T : in out Git_Working_Trees; Directory, Ref, Tree : String)
+      return Boolean
+   is (Succeeded (Run_Git (T, Directory, Words ("update-ref", Ref, Tree))));
+
+   overriding
+   procedure Unpin (T : in out Git_Working_Trees; Directory, Ref : String) is
+      Ignored : constant Session_Process.Process_Outcome :=
+        Run_Git (T, Directory, Words ("update-ref", "-d", Ref));
+   begin
+      null;
+   end Unpin;
 
 end Synapse.Pipeline.Git_Working_Trees;

@@ -423,7 +423,11 @@ export interface Transport {
   // What changed in a folder's working tree: a snapshot of it, whose tree is null when the folder is
   // not in a git repository, and the changes since a snapshot. Nothing in the repository is touched.
   snapshotChanges(folder: string, of?: 'head'): Promise<Snapshot>
-  diffChanges(folder: string, before: string, path?: string): Promise<FolderChanges>
+  // With `after`, the changes are those between two snapshots, and the working tree is not read.
+  diffChanges(folder: string, before: string, path?: string, after?: string): Promise<FolderChanges>
+  // Pins a snapshot under refs/synapse/<ref>, and deletes that ref. The only writes to a repository.
+  pinSnapshot(folder: string, ref: string, tree: string): Promise<void>
+  unpinSnapshot(folder: string, ref: string): Promise<void>
   // The commits of the branch the folder is on, a page at a time, and what one of them changed.
   listCommits(folder: string, before?: string): Promise<CommitLog>
   commitChanges(folder: string, commit: string, path?: string): Promise<FolderChanges>
@@ -471,7 +475,8 @@ export interface Transport {
   // Ends a session and the program in it.
   closeTerminal(session: string): Promise<void>
 
-  startRun(pipeline: string, input: unknown): Promise<{ executionId: string }>
+  // The run's agents work in folder; an empty or missing folder is the user's home folder.
+  startRun(pipeline: string, input: unknown, folder?: string): Promise<{ executionId: string }>
   // Only for runs this app started.
   stopRun(executionId: string): Promise<void>
 

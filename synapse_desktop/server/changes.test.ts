@@ -9,7 +9,9 @@ import {
   commitLog,
   headPosition,
   headTree,
+  pinSnapshot,
   snapshotTree,
+  unpinSnapshot,
 } from './changes.ts'
 
 const IDENTITY = {
@@ -230,6 +232,78 @@ describe('changesSince', () => {
     expect((await changesSince(dir, before, '*.txt')).patch).toBe('')
     expect((await changesSince(dir, before, 'a.txt')).patch).toContain('+changed')
     await expect(stat(join(dir, 'a.txt'))).resolves.toBeDefined()
+  })
+})
+
+describe('changesSince between two snapshots', () => {
+  it('shows what changed from one to the other, whatever the working tree is now', async () => {
+    const before = (await snapshotTree(dir))!
+    await put('a.txt', 'one\nTWO\nthree\n')
+    await put('new.txt', 'x\ny\n')
+    const after = (await snapshotTree(dir))!
+    await put('a.txt', 'changed again\n')
+    await put('later.txt', 'later\n')
+    const changes = await changesSince(dir, before, undefined, after)
+    expect(changes.repository).toBe(true)
+    expect(changes.patch).toContain('+TWO')
+    expect(changes.patch).not.toContain('changed again')
+    expect(changes.added).toEqual([{ path: 'new.txt', lines: 2 }])
+    expect((await changesSince(dir, before, 'new.txt', after)).patch).toContain('+x')
+    expect(await snapshotTree(dir)).not.toBe(after)
+  })
+
+  it('refuses an after snapshot that is not in the repository', async () => {
+    const before = (await snapshotTree(dir))!
+    await expect(changesSince(dir, before, undefined, 'b'.repeat(40))).rejects.toMatchObject({
+      code: 'not_found',
+    })
+  })
+})
+
+describe('pinSnapshot and unpinSnapshot', () => {
+  const ref = 'runs/exec-1/start'
+
+  it('keep a snapshot through git gc under refs/synapse, which is not a branch or a tag', async () => {
+    await put('pinned.txt', 'only in the snapshot\n')
+    const tree = (await snapshotTree(dir))!
+    await rm(join(dir, 'pinned.txt'))
+    await pinSnapshot(dir, ref, tree)
+    expect(git('rev-parse', `refs/synapse/${ref}`).trim()).toBe(tree)
+    git('gc', '-q', '--prune=now')
+    expect(() => git('cat-file', '-e', tree)).not.toThrow()
+    expect(git('branch', '--list').trim()).toBe(`* ${branch()}`)
+    expect(git('tag').trim()).toBe('')
+  })
+
+  it('removes the ref, and unpinning twice is not an error', async () => {
+    const tree = (await snapshotTree(dir))!
+    await pinSnapshot(dir, ref, tree)
+    await unpinSnapshot(dir, ref)
+    expect(git('for-each-ref', 'refs/synapse/').trim()).toBe('')
+    await expect(unpinSnapshot(dir, ref)).resolves.toBeUndefined()
+  })
+
+  it('refuses a ref that is not a run snapshot, and a tree that is not in the repository', async () => {
+    const tree = (await snapshotTree(dir))!
+    await expect(pinSnapshot(dir, 'heads/main', tree)).rejects.toMatchObject({
+      code: 'bad_request',
+    })
+    await expect(unpinSnapshot(dir, 'runs/../start')).rejects.toMatchObject({
+      code: 'bad_request',
+    })
+    await expect(pinSnapshot(dir, ref, 'c'.repeat(40))).rejects.toMatchObject({
+      code: 'not_found',
+    })
+  })
+
+  it('refuses a folder inside a repository that is not its root, and pins nothing', async () => {
+    await put('sub/file.txt', 'in a folder\n')
+    const tree = (await snapshotTree(dir))!
+    await expect(pinSnapshot(join(dir, 'sub'), ref, tree)).rejects.toMatchObject({
+      code: 'bad_request',
+      message: 'the folder is not the root of a git repository',
+    })
+    expect(git('for-each-ref', 'refs/synapse/').trim()).toBe('')
   })
 })
 

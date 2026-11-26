@@ -24,6 +24,17 @@ function host() {
 }
 
 describe('the Transport over a bus', () => {
+  it('sends the folder of a run only when it is given', async () => {
+    const { transport, asked } = host()
+    await transport.startRun('P', null, '/repo')
+    await transport.startRun('P', null)
+    expect(asked.map((a) => a.params)).toEqual([
+      { pipeline: 'P', input: null, folder: '/repo' },
+      { pipeline: 'P', input: null },
+    ])
+    expect(Object.keys(asked[1]?.params as object)).not.toContain('folder')
+  })
+
   it('reads and lists files through fs.read and fs.list', async () => {
     const { transport, asked } = host()
     expect(await transport.readText('/w/a.json')).toBe('{}')

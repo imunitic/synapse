@@ -26,11 +26,14 @@ with Synapse.Ports.Clock;
 --     "started": timestamp, "ended": null | timestamp,
 --     "status": "running" | "completed" | "failed",
 --     "current_step": null | "Name", "state": the run's state,
---     "interactive": whether a person can answer in the run's terminal}
+--     "interactive": whether a person can answer in the run's terminal,
+--     "snapshots": {"start": null | tree, "end": null | tree}}
 --
 --  with one more member, "attention", while an interactive run goes on (see
 --  Inspection). "directory" is there when the run was told where its steps
 --  work, which is what the patches of its record are the changes of.
+--  "snapshots" are the trees of that folder the run pinned when its first
+--  session began and when it ended, null until they are pinned.
 --
 --  and each line of `events.jsonl` is one event as the socket gives it.
 
@@ -71,6 +74,10 @@ package Synapse.Pipeline.Recorders is
    --  The run has a new state.
    procedure Publish (R : in out Recorder; Item : States.State);
 
+   --  The snapshot Which ("start" or "end") of the run is the tree Tree, as
+   --  pinned in the folder the run works in. Kept in the summary.
+   procedure Record_Snapshot (R : in out Recorder; Which, Tree : String);
+
    --  Something happened in the run.
    procedure Record_Event
      (R      : in out Recorder;
@@ -93,7 +100,9 @@ package Synapse.Pipeline.Recorders is
       Item               : States.State;
       Attention          : Inspection.Attention := (others => <>);
       Directory          : String := "";
-      Interactive        : Boolean := False)
+      Interactive        : Boolean := False;
+      Start_Tree         : String := "";
+      End_Tree           : String := "")
       return Synapse.Core.JSON.Value;
 
 private
@@ -108,6 +117,10 @@ private
       Started     : Ada.Strings.Unbounded.Unbounded_String;
       Directory   : Ada.Strings.Unbounded.Unbounded_String;
       Interactive : Boolean := False;
+      Ended       : Ada.Strings.Unbounded.Unbounded_String;
+      Start_Tree  : Ada.Strings.Unbounded.Unbounded_String;
+      End_Tree    : Ada.Strings.Unbounded.Unbounded_String;
+      Last        : States.State;
    end record;
 
 end Synapse.Pipeline.Recorders;

@@ -181,7 +181,23 @@ pub fn first_families(handlers: &mut Handlers, context: Arc<Context>) {
 
     handlers.on::<ChangesDiffParams, FolderChanges, _, _>("changes.diff", |params| async move {
         let folder = absolute_folder(&params.folder)?;
-        crate::changes::changes_since(&folder, &params.before, params.path.as_deref()).await
+        let path = params.path.as_deref();
+        match params.after.as_deref() {
+            Some(after) => {
+                crate::changes::changes_between(&folder, &params.before, after, path).await
+            }
+            None => crate::changes::changes_since(&folder, &params.before, path).await,
+        }
+    });
+
+    handlers.on::<ChangesPinParams, (), _, _>("changes.pin", |params| async move {
+        let folder = absolute_folder(&params.folder)?;
+        crate::changes::pin_snapshot(&folder, &params.reference, &params.tree).await
+    });
+
+    handlers.on::<ChangesUnpinParams, (), _, _>("changes.unpin", |params| async move {
+        let folder = absolute_folder(&params.folder)?;
+        crate::changes::unpin_snapshot(&folder, &params.reference).await
     });
 
     handlers.on::<ChangesLogParams, CommitLog, _, _>("changes.log", |params| async move {
@@ -735,7 +751,16 @@ pub fn last_families(handlers: &mut Handlers, context: Arc<Context>) {
         let c = c.clone();
         async move {
             let config = c.config()?;
-            match c.runs.start(&params.pipeline, &params.input, &config).await {
+            let folder = params.folder.as_deref();
+            // A folder that is not there is the caller's mistake, not the host's.
+            c.runs
+                .folder(folder)
+                .map_err(|error| HostError::bad_request(error.0))?;
+            match c
+                .runs
+                .start(&params.pipeline, &params.input, &config, folder)
+                .await
+            {
                 Ok(execution_id) => Ok(ExecutionId { execution_id }),
                 Err(error) if config.work_dir.is_none() => Err(HostError::conflict(error.0)),
                 Err(error) => Err(HostError::unavailable(error.0)),

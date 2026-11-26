@@ -50,7 +50,7 @@ Click the play button next to a pipeline in the list, or "Run" on its page. "Run
 
 1. Say what the pipeline should work on. On the Text tab, type it as a sentence. On the JSON tab, give JSON, which is handed to the first step as it is.
 2. Choose how it runs. By default a run is interactive: it runs in a terminal of the app, where you watch the agents and answer what they ask. Tick "Run without a terminal: nothing will ask me anything" for a run that goes on by itself. A pipeline that cannot run interactively says why, and the box stays ticked. The app remembers the choice for each pipeline.
-3. For an interactive run, give the folder its agents work in. Leave it empty for your home folder.
+3. Give the folder its agents work in, for either kind of run. Leave it empty for your home folder.
 4. To see what the first step will get, open "The prompt of the first step, with this input". It follows what you type.
 5. Click "Start run".
 

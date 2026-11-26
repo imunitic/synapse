@@ -108,8 +108,8 @@ export function PageView({
   // The home page shows the terminals that are open and can start one.
   terminals: readonly TerminalSession[]
   onSelectTerminal: (id: string) => void
-  // The Changes sidebar is opened at a visit of a run.
-  onShowChanges: (visit: number, path?: string) => void
+  // The Changes sidebar is opened on a run's changes, at a file when one is named.
+  onShowChanges: (path?: string) => void
   onStartTerminal: (kind: TerminalKind) => void
   // A harness is started in a folder for a task.
   onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void

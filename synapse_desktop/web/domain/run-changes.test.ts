@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CliResult } from '../../shared/transport.ts'
 import { fakeTransport } from './fake-transport.ts'
-import { changeLabel, liveChange, readRunChanges } from './run-changes.ts'
+import { readRunChanges } from './run-changes.ts'
 
 const PATCH = `diff --git a/a.txt b/a.txt
 --- a/a.txt
@@ -22,11 +22,12 @@ function answering(result: CliResult, seen: string[][] = []) {
   })
 }
 
-const document = (steps: unknown[]) =>
+const document = (steps: unknown[], more: Record<string, unknown> = {}) =>
   JSON.stringify({
     format: 'synapse-pipeline-changes/v1',
     execution_id: 'exec-1',
     directory: '/work/widget',
+    ...more,
     steps,
   })
 
@@ -55,6 +56,23 @@ describe('readRunChanges', () => {
     ])
   })
 
+  it('reads the status of the run and the snapshots it pinned', async () => {
+    const stdout = document([], {
+      status: 'completed',
+      snapshots: { start: 'aaa111', end: 'bbb222' },
+    })
+    const changes = await readRunChanges(answering({ code: 0, stdout, stderr: '' }), 'exec-1')
+    expect(changes.status).toBe('completed')
+    expect(changes.snapshots).toEqual({ start: 'aaa111', end: 'bbb222' })
+  })
+
+  it('takes an answer from an engine without status or snapshots as incomplete, with none', async () => {
+    const stdout = document([])
+    const changes = await readRunChanges(answering({ code: 0, stdout, stderr: '' }), 'exec-1')
+    expect(changes.status).toBe('incomplete')
+    expect(changes.snapshots).toEqual({ start: null, end: null })
+  })
+
   it('leaves out a patch that has no files in it', async () => {
     const stdout = document([{ step: 'Develop', visit: 1, attempt: 1, patch: '' }])
     const changes = await readRunChanges(answering({ code: 0, stdout, stderr: '' }), 'exec-1')
@@ -74,37 +92,5 @@ describe('readRunChanges', () => {
     await expect(
       readRunChanges(answering({ code: 0, stdout: '{"format":"other"}', stderr: '' }), 'x'),
     ).rejects.toThrow('format this app does not know')
-  })
-})
-
-describe('changeLabel', () => {
-  const change = (step: string, visit: number, attempt = 1) => ({
-    step,
-    visit,
-    attempt,
-    set: { files: [], diffs: new Map() },
-  })
-
-  it('is the step, and says which visit and try only when the step has several', () => {
-    const all = [change('Develop', 1), change('Review', 2), change('Develop', 3, 2)]
-    expect(changeLabel(all[1]!, all)).toBe('Review')
-    expect(changeLabel(all[0]!, all)).toBe('Develop · visit 1')
-    expect(changeLabel(all[2]!, all)).toBe('Develop · visit 3, try 2')
-  })
-})
-
-describe('liveChange', () => {
-  const run = {
-    directory: '/work/widget',
-    changes: [
-      { step: 'Develop', visit: 1, attempt: 1, set: { files: [], diffs: new Map() } },
-      { step: 'Develop', visit: 1, attempt: 2, set: { files: [], diffs: new Map() } },
-    ],
-  }
-
-  it('picks the entry of the visit and try that is running, or none', () => {
-    expect(liveChange(run, { visit: 1, attempt: 2 })).toBe(run.changes[1])
-    expect(liveChange(run, { visit: 1, attempt: 3 })).toBeNull()
-    expect(liveChange(run, { visit: 2, attempt: 1 })).toBeNull()
   })
 })

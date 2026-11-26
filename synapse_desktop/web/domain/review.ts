@@ -10,6 +10,9 @@ export interface ReviewComment {
   path: string
   // The commit the lines are of, for a comment written in the Git tab; none in the Changes tab.
   commit: string | null
+  // The name of the repository's folder, when the sidebar shows more than one; none when it shows
+  // one, and for a comment kept from before repositories were named.
+  repository?: string | null
   // Which file's numbers the range is in: a removed line has only the old one.
   side: 'new' | 'old'
   start: number
@@ -38,11 +41,17 @@ export function quoteOf(lines: readonly PatchLine[]): { quote: string[]; more: n
 }
 
 // Where a comment is: `src/foo.ts:42-48`, `src/foo.ts:12` for one line, `(removed)` after lines
-// that are only in the old file.
-export function placeOf(comment: Pick<ReviewComment, 'path' | 'side' | 'start' | 'end'>): string {
+// that are only in the old file, and `api/src/foo.ts:42` when it names its repository.
+export function placeOf(
+  comment: Pick<ReviewComment, 'path' | 'side' | 'start' | 'end' | 'repository'>,
+): string {
   const lines =
     comment.start === comment.end ? `${comment.start}` : `${comment.start}-${comment.end}`
-  return `${comment.path}:${lines}${comment.side === 'old' ? ' (removed)' : ''}`
+  const path =
+    comment.repository === undefined || comment.repository === null
+      ? comment.path
+      : `${comment.repository}/${comment.path}`
+  return `${path}:${lines}${comment.side === 'old' ? ' (removed)' : ''}`
 }
 
 const OPENING = 'Review of your changes. Please address each comment.'
