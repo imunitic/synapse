@@ -107,6 +107,7 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
     // The changes are gathered for a moment, then the client is told once.
     {
         let (stopped, changed, push) = (stopped.clone(), changed.clone(), push.clone());
+        let told = place.clone();
         tokio::spawn(async move {
             loop {
                 changed.notified().await;
@@ -118,6 +119,7 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                 if stopped.load(Ordering::SeqCst) {
                     return;
                 }
+                eprintln!("SYNAPSE-WATCH push {told}");
                 push(json!({}), None);
             }
         });
@@ -156,6 +158,10 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                     let (changed, roots) = (changed.clone(), roots.clone());
                     let made =
                         notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                            // TEMPORARY: diagnosing the Linux watcher in CI.
+                            if let Err(error) = &event {
+                                eprintln!("SYNAPSE-WATCH error {error:?}");
+                            }
                             if let Ok(event) = event {
                                 // Reading a file is not a change. On Linux every open and
                                 // close is an Access event, so a client that reads what it is
@@ -163,6 +169,7 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                                 if matches!(event.kind, notify::EventKind::Access(_)) {
                                     return;
                                 }
+                                eprintln!("SYNAPSE-WATCH event {:?} {:?}", event.kind, event.paths);
                                 if event.paths.iter().any(|p| !ignored(p, &roots))
                                     || event.paths.is_empty()
                                 {
@@ -170,13 +177,19 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                                 }
                             }
                         });
-                    if let Ok(mut watcher) = made {
-                        if watcher
-                            .watch(Path::new(dir), RecursiveMode::Recursive)
-                            .is_ok()
-                        {
-                            watchers.push(watcher);
+                    match made {
+                        Ok(mut watcher) => {
+                            match watcher.watch(Path::new(dir), RecursiveMode::Recursive) {
+                                Ok(()) => {
+                                    eprintln!("SYNAPSE-WATCH watching {dir}");
+                                    watchers.push(watcher);
+                                }
+                                Err(error) => {
+                                    eprintln!("SYNAPSE-WATCH watch failed {dir} {error:?}")
+                                }
+                            }
                         }
+                        Err(error) => eprintln!("SYNAPSE-WATCH watcher failed {dir} {error:?}"),
                     }
                 }
                 {
