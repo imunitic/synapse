@@ -19,6 +19,7 @@ let aHeaders: Record<string, string | string[] | undefined>
 let bHeaders: Record<string, string | string[] | undefined>
 let revoked: Set<string>
 let refuseBackendA: boolean
+let stallBackendA: boolean
 let clients: WebSocket[]
 let upstreams: WebSocket[]
 
@@ -39,6 +40,7 @@ function privateBackend(
   })
   const sockets = new WebSocketServer({ noServer: true })
   server.on('upgrade', (req, socket, head) => {
+    if (name === 'a' && stallBackendA) return
     if (name === 'a' && refuseBackendA) {
       socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
       return
@@ -114,6 +116,7 @@ beforeEach(async () => {
   bHeaders = {}
   revoked = new Set()
   refuseBackendA = false
+  stallBackendA = false
   backendA = privateBackend('a', TOKEN_A, (headers) => {
     aCount++
     aHeaders = headers
@@ -253,6 +256,15 @@ describe('private Synapse WebSocket gateway', () => {
     if (!('socket' in result)) throw new Error('backend recovery failed')
     expect(await result.next()).toEqual({ kind: 'hello', from: 'a' })
   })
+
+  it('times out a stalled backend handshake and releases the connection slot', async () => {
+    stallBackendA = true
+    expect(await connect('sid=a; instance=stalled')).toEqual({ refused: 502 })
+    stallBackendA = false
+    const result = await connect('sid=a; instance=recovered')
+    if (!('socket' in result)) throw new Error('connection slot was not released after timeout')
+    expect(await result.next()).toEqual({ kind: 'hello', from: 'a' })
+  }, 10000)
 
   it('refuses a shared Node backend for separate authenticated accounts', () => {
     const shared = 'http://127.0.0.1:43210'
