@@ -260,9 +260,10 @@ export interface TerminalStart {
   cwd?: string
   // What a harness is started to do, given to it as its first prompt.
   task?: TerminalTask
-  // The pipeline an interactive run is started for, and the input it is given.
+  // The pipeline an interactive run is started for, the input it is given, and its name.
   pipeline?: string
   input?: unknown
+  runName?: string
   // The id of a session of that harness to continue, as `listSessions` gives it.
   resume?: string
   cols: number

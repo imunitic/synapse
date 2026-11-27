@@ -338,6 +338,12 @@ export async function runCleanup(
   )
 }
 
+// One run's name, from its record, or null when it has none or there is no work directory.
+export async function readRunName(transport: Transport, id: string): Promise<string | null> {
+  const { recordsDir } = await transport.getPaths()
+  return recordsDir === null ? null : readName(transport, recordsDir, id)
+}
+
 // One run's summary, from its record, with the status it really has.
 export async function readSummary(transport: Transport, id: string): Promise<ExecutionSummary> {
   const { recordsDir } = await transport.getPaths()

@@ -388,6 +388,7 @@ export class BusTransport implements Transport {
             ...(start.task === undefined ? {} : { task: start.task }),
             ...(start.pipeline === undefined ? {} : { pipeline: start.pipeline }),
             ...(start.input === undefined ? {} : { input: start.input }),
+            ...(start.runName === undefined ? {} : { runName: start.runName }),
             ...(start.resume === undefined ? {} : { resume: start.resume }),
             ...size,
           })
