@@ -1,17 +1,17 @@
-name: Deploy private Synapse staging
+name: Deploy private Synapse live
 on:
   push:
     branches: [feature/pwa-remote-host-foundation]
 permissions:
   contents: read
 concurrency:
-  group: synapse-private-staging
+  group: synapse-private-live
   cancel-in-progress: false
 jobs:
   deploy:
-    if: vars.SYNAPSE_STAGING_ENABLED == 'true'
+    if: vars.SYNAPSE_LIVE_ENABLED == 'true'
     runs-on: ubuntu-latest
-    environment: staging
+    environment: live
     env:
       DEPLOY_REPOSITORY: ${{ github.repository }}
       DEPLOY_COMMIT: ${{ github.sha }}
@@ -23,7 +23,7 @@ jobs:
           auth="$(printf 'x-access-token:%s' "$DEPLOY_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           echo "DEPLOY_GIT_AUTH=$auth" >> "$GITHUB_ENV"
-      - name: Deploy isolated staging project
+      - name: Deploy private live project
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -34,9 +34,9 @@ jobs:
           envs: DEPLOY_REPOSITORY,DEPLOY_COMMIT,DEPLOY_GIT_AUTH
           script: |
             set -eu
-            cd /opt/synapse-staging
+            cd /opt/synapse
             test -d .git
-            test -f .env.staging
+            test -f .env.live
             git remote set-url origin "https://github.com/${DEPLOY_REPOSITORY}.git"
             GIT_TERMINAL_PROMPT=0 git -c credential.helper= \
               -c http.https://github.com/.extraheader= \
@@ -44,4 +44,4 @@ jobs:
               fetch --no-tags origin "$DEPLOY_COMMIT"
             unset DEPLOY_GIT_AUTH
             git checkout --detach "$DEPLOY_COMMIT"
-            docker compose --env-file .env.staging -f synapse_desktop/compose.private-staging.yml -p synapse-staging up -d --build
+            docker compose --env-file .env.live -f synapse_desktop/compose.private-staging.yml -p synapse-live up -d --build
