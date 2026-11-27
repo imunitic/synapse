@@ -3,10 +3,8 @@ import {
   interactiveProblem,
   previewInput,
   readFolder,
-  readAutonomous,
   runInput,
   writeFolder,
-  writeAutonomous,
   type InputMode,
 } from '../domain/run-input.ts'
 import { transport } from '../transport/index.ts'
@@ -16,8 +14,9 @@ import { PathInput } from './PathInput.tsx'
 // What a pipeline is to work on, as a sentence or as JSON, and the button that starts it. The
 // settings of the run come before the prompt preview, which is closed until it is asked for, and the
 // buttons stay in view however long the dialog gets. A native
-// dialog gives the focus handling and the Escape key. A run can be started on the terminal of the
-// app, where a person can watch it and answer what its agents ask.
+// dialog gives the focus handling and the Escape key. A run starts on the terminal of the app, where
+// a person can watch it and answer what its agents ask. Only a pipeline that cannot run that way, as
+// `check --interactive` says, is started without a terminal, and the dialog says why.
 export function RunDialog({
   pipeline,
   firstStep,
@@ -46,7 +45,6 @@ export function RunDialog({
   const [json, setJson] = useState('{}')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [autonomous, setAutonomous] = useState(() => readAutonomous(localStorage, pipeline))
   const [folder, setFolder] = useState(() => readFolder(localStorage, pipeline, defaultFolder))
   // The run's name, empty each time the dialog opens: a name belongs to one run.
   const [name, setName] = useState('')
@@ -70,11 +68,12 @@ export function RunDialog({
     }
   }, [pipeline])
 
-  const canBeInteractive = checked && problem === null
-  const interactive = canBeInteractive && !autonomous
+  // Until the check has answered it is not known how the run starts, so it cannot be started yet.
+  const interactive = checked && problem === null
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!checked) return
     const input = runInput(mode, text, json)
     if (!input.ok) {
       setError(input.error)
@@ -164,20 +163,11 @@ export function RunDialog({
             />
           </>
         )}
-        <label className="check-row" htmlFor="run-autonomous">
-          <input
-            id="run-autonomous"
-            type="checkbox"
-            checked={autonomous || !canBeInteractive}
-            disabled={!canBeInteractive}
-            onChange={(event) => {
-              setAutonomous(event.target.checked)
-              writeAutonomous(localStorage, pipeline, event.target.checked)
-            }}
-          />
-          <span>Run without a terminal: nothing will ask me anything</span>
-        </label>
-        {checked && problem !== null && <p className="muted small">{problem}</p>}
+        {checked && problem !== null && (
+          <p className="muted small">
+            This pipeline runs without a terminal, so nothing will ask you anything: {problem}
+          </p>
+        )}
         <label htmlFor="run-name" className="muted">
           Name (optional)
         </label>
@@ -224,7 +214,7 @@ export function RunDialog({
           <button type="button" className="secondary" onClick={() => dialog.current?.close()}>
             Cancel
           </button>
-          <button type="submit" className="primary" disabled={busy}>
+          <button type="submit" className="primary" disabled={busy || !checked}>
             {busy ? 'Starting…' : 'Start run'}
           </button>
         </div>

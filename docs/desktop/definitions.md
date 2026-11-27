@@ -50,12 +50,12 @@ Click the bin next to a name. A definition that another one uses cannot be delet
 
 Click the play button next to a pipeline in the list, or "Run" on its page. "Run" on the page needs a work directory, the folder where runs are recorded. It is set under General in [Settings](settings.md); until it is, the page says "Set a work directory first." The run dialog opens.
 
-![The run dialog, with the input, the terminal choice and the folder](img/run-dialog.png)
+![The run dialog, with the input, the name and the folder](img/run-dialog.png)
 
 1. Say what the pipeline should work on. On the Text tab, type it as a sentence. On the JSON tab, give JSON, which is handed to the first step as it is.
-2. Choose how it runs. By default a run is interactive: it runs in a terminal of the app, where you watch the agents and answer what they ask. Tick "Run without a terminal: nothing will ask me anything" for a run that goes on by itself. A pipeline that cannot run interactively says why, and the box stays ticked. The app remembers the choice for each pipeline.
+2. The run is interactive: it runs in a terminal of the app, where you watch the agents and answer what they ask. A pipeline that cannot run in a terminal says why, and runs without one, so nothing will ask you anything. To start a run without a terminal yourself, use `synapse-pipeline run` on the command line; the app shows it like any other run.
 3. Give the run a name, if you like, in "Name (optional)". The name labels the run in the Executions panel.
-4. Give the folder its agents work in, for either kind of run. Leave it empty for your home folder.
+4. Give the folder its agents work in. Leave it empty for your home folder.
 5. To see what the first step will get, open "The prompt of the first step, with this input". It follows what you type.
 6. Click "Start run".
 

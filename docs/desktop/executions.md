@@ -46,7 +46,7 @@ When an agent in an interactive step gets stuck, for example on a command it was
 
 ## Stop a run
 
-"Stop run" at the top of the page ends a run that goes on. For an interactive run the app asks first, and its terminal closes with it. A run without a terminal can be stopped only if it was started from this app.
+"Stop run" at the top of the page ends a run that goes on. For an interactive run the app asks first, and its terminal closes with it. A run without a terminal can be stopped here only if the app started it, which it does for a pipeline that cannot run in a terminal. Stop one started on the command line there.
 
 ## Delete runs
 

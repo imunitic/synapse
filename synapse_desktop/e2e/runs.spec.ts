@@ -13,27 +13,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.ts'
-import { openCard, openSection, sidePanel, world } from './helpers.ts'
+import { openCard, openSection, sidePanel, startRunWithoutTerminal, world } from './helpers.ts'
 
-test('a run is started from a pipeline and followed to its end', async ({ page }) => {
-  await page.goto('/')
-  await openSection(page, 'Definitions')
-  await page
-    .getByLabel('Side panel')
-    .getByRole('button', { name: 'Develop_Feature', exact: true })
-    .click()
-  await page.getByRole('button', { name: 'Run', exact: true }).click()
-  // The box is ticked and disabled until the pipeline is checked, so wait for it to be free.
-  await expect(page.getByLabel(/Run without a terminal/)).toBeEnabled()
-  // The folder is asked for whether the run has a terminal or not.
-  const folder = page.getByLabel(/Folder its agents work in/)
-  await expect(folder).toBeVisible()
-  await page.getByLabel(/Run without a terminal/).check()
-  await expect(folder).toBeVisible()
-  await page.getByRole('button', { name: 'Start run' }).click()
-
+test('a run without a terminal is followed on its page to its end', async ({ page }) => {
   // The page of the execution, which goes through the loop once.
-  await expect(page.getByText('Execution', { exact: true })).toBeVisible()
+  await startRunWithoutTerminal(page, 'Develop_Feature')
   await expect(
     page.locator('.content').getByText('completed', { exact: true }).first(),
   ).toBeVisible({
@@ -74,16 +58,16 @@ test('a run is started from a pipeline and followed to its end', async ({ page }
 test('a run started with a name shows the name', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')
-  await sidePanel(page).getByRole('button', { name: 'Develop_Feature', exact: true }).click()
+  await sidePanel(page).getByRole('button', { name: 'Held_Run', exact: true }).click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByLabel(/Run without a terminal/)).toBeEnabled()
-  await dialog.getByLabel(/Run without a terminal/).check()
   await dialog.getByLabel('Name (optional)').fill('  Fix login  ')
+  await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
   await dialog.getByRole('button', { name: 'Start run' }).click()
 
-  // The page's title is the name, and the id is under it.
-  await expect(page.locator('h1.page-title')).toHaveText('Fix login')
+  // The run starts in a terminal; once it has an id the page's title is the name, and the id is
+  // under it.
+  await expect(page.locator('h1.page-title')).toHaveText('Fix login', { timeout: 30_000 })
   const id = (await page.locator('.page-head p.mono').innerText()).trim()
 
   // The engine recorded the name of the run the dialog started, trimmed.
@@ -94,25 +78,22 @@ test('a run started with a name shows the name', async ({ page }) => {
   expect(info.stderr).toBe('')
   expect(info.stdout).toMatch(/^name {7}Fix login$/m)
 
-  // The run's row in the sidebar is labelled with its name.
+  // The run's row in the sidebar and its tab are labelled with its name.
   await expect(sidePanel(page).locator('.list-row', { hasText: 'Fix login' }).first()).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Fix login', exact: true })).toBeVisible()
+
+  page.once('dialog', (d) => void d.accept())
+  await page.getByRole('button', { name: 'Stop run' }).click()
+  await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
 })
 
 // Starts a run of Develop_Feature without a terminal and waits for it to complete; returns its id.
 async function runToCompletion(page: Page): Promise<string> {
-  await page.goto('/')
-  await openSection(page, 'Definitions')
-  await sidePanel(page).getByRole('button', { name: 'Develop_Feature', exact: true }).click()
-  await page.getByRole('button', { name: 'Run', exact: true }).click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog.getByLabel(/Run without a terminal/)).toBeEnabled()
-  await dialog.getByLabel(/Run without a terminal/).check()
-  await dialog.getByRole('button', { name: 'Start run' }).click()
-  await expect(page.getByText('Execution', { exact: true })).toBeVisible()
+  const id = await startRunWithoutTerminal(page, 'Develop_Feature')
   await expect(
     page.locator('.content').getByText('completed', { exact: true }).first(),
   ).toBeVisible({ timeout: 30_000 })
-  return (await page.locator('h1.page-title').innerText()).trim()
+  return id
 }
 
 // The sidebar row of a run, found by its execution id.
@@ -422,7 +403,7 @@ test('a preset fills the days and is remembered', async ({ page }) => {
   }
 })
 
-test('a run without a terminal works in the folder it was given', async ({ page }) => {
+test('a run works in the folder it was given', async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), 'sd-run-folder-'))
   const git = (...args: string[]) =>
     execFileSync('git', ['-c', 'user.name=A', '-c', 'user.email=a@example.com', ...args], {
@@ -436,15 +417,11 @@ test('a run without a terminal works in the folder it was given', async ({ page 
 
     await page.goto('/')
     await openSection(page, 'Definitions')
-    await sidePanel(page).getByRole('button', { name: 'Develop_Feature', exact: true }).click()
+    await sidePanel(page).getByRole('button', { name: 'Held_Run', exact: true }).click()
     await page.getByRole('button', { name: 'Run', exact: true }).click()
-    await expect(page.getByLabel(/Run without a terminal/)).toBeEnabled()
-    await page.getByLabel(/Run without a terminal/).check()
     await page.getByLabel(/Folder its agents work in/).fill(dir)
     await page.getByRole('button', { name: 'Start run' }).click()
-    await expect(
-      page.locator('.content').getByText('completed', { exact: true }).first(),
-    ).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText('Execution', { exact: true })).toBeVisible({ timeout: 30_000 })
 
     // The record of the run says it worked in that folder. `info` does not print the folder;
     // `changes` does, as the Changes sidebar reads it.
@@ -456,6 +433,10 @@ test('a run without a terminal works in the folder it was given', async ({ page 
     ) as { directory: string | null }
     expect(brief.directory).not.toBeNull()
     expect(realpathSync(brief.directory!)).toBe(realpathSync(dir))
+
+    page.once('dialog', (d) => void d.accept())
+    await page.getByRole('button', { name: 'Stop run' }).click()
+    await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -477,11 +458,13 @@ test("a run is started from the definitions list without the pipeline's page", a
   await expect(dialog).toContainText('Run Develop_Feature')
   // The pipeline's page did not open behind the dialog.
   await expect(page.getByText('Pipeline', { exact: true })).toHaveCount(0)
-  await expect(dialog.getByLabel(/Run without a terminal/)).toBeEnabled()
-  await dialog.getByLabel(/Run without a terminal/).check()
+  await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
   await dialog.getByRole('button', { name: 'Start run' }).click()
 
-  await expect(page.getByText('Execution', { exact: true })).toBeVisible()
+  await expect(page.getByText('Execution', { exact: true })).toBeVisible({ timeout: 30_000 })
+  page.once('dialog', (d) => void d.accept())
+  await page.getByRole('button', { name: 'Stop run' }).click()
+  await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
 })
 
 test('only pipelines have a run button in the list', async ({ page }) => {
@@ -579,13 +562,10 @@ test('an interactive run has its terminal on the page of the run', async ({ page
     .getByRole('button', { name: 'Fixture_Run', exact: true })
     .click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
-  // The dialog starts an interactive run, without the box touched.
+  // The dialog starts an interactive run; it has no choice of a run without a terminal.
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
-  // Until the interactive check has answered, the dialog would start the run without a terminal.
-  const autonomous = dialog.getByLabel(/Run without a terminal/)
-  await expect(autonomous).toBeEnabled()
-  await expect(autonomous).not.toBeChecked()
+  await expect(dialog.getByRole('checkbox')).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Start run' }).click()
 
   // The page of the run, with its terminal in a card under the graph, open.
