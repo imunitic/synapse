@@ -9,6 +9,7 @@ with Synapse.Pipeline.Descriptions;
 with Synapse.Pipeline.Engine;
 with Synapse.Pipeline.Failures;
 with Synapse.Pipeline.Id_Claims;
+with Synapse.Pipeline.Inputs;
 with Synapse.Pipeline.Inspection;
 with Synapse.Pipeline.Inspectors;
 with Synapse.Pipeline.Interactive_Harnesses;
@@ -398,6 +399,20 @@ package body Synapse.Pipeline.Commands.Run is
                if not Loaded then
                   return 1;
                end if;
+               --  A refused input starts nothing: no copy, no record, no
+               --  session.
+               declare
+                  Taken : constant Inputs.Acceptance :=
+                    Inputs.Accept_Input (Pipeline.Input, Input);
+               begin
+                  if not Taken.Accepted then
+                     for Problem of Taken.Problems loop
+                        Complain (Env, "error: " & To_String (Problem) & LF);
+                     end loop;
+                     return 2;
+                  end if;
+                  Input := Taken.Input;
+               end;
                declare
                   Copies : constant Definition_Copies.Copy_Vectors.Vector :=
                     Definition_Copies.Collect

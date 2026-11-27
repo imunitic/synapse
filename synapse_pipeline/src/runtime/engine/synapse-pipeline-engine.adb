@@ -162,7 +162,8 @@ package body Synapse.Pipeline.Engine is
          for Attempt in 1 .. Step.Retries + 1 loop
             Answer :=
               Runner.Run_Session
-                (Sessions.Request_For (Step, Run, Settings, Attempt));
+                (Sessions.Request_For
+                   (Step, Run, Settings, Attempt, Pipeline.Input));
             if Answer.Succeeded then
                declare
                   Broken : constant Synapse.Core.Optional_Text.Option :=

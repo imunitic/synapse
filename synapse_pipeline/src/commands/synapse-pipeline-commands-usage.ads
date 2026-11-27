@@ -10,7 +10,7 @@ package Synapse.Pipeline.Commands.Usage is
    --  The subcommand listing.
    Text : constant String :=
      "usage: synapse-pipeline <subcommand> [args]" & LF & LF
-     & "  check <pipeline> [--interactive]" & LF
+     & "  check <pipeline> [--interactive] [--input <file>|-]" & LF
      & "         validate a pipeline and show what it would run" & LF
      & "  show <name> [--format json|text] [--step <step> [--input <file>|-] "
      & "[--interactive]]" & LF
@@ -45,7 +45,8 @@ package Synapse.Pipeline.Commands.Usage is
      & "'synapse-pipeline --version' says which version this is." & LF;
 
    Check_Help : constant String :=
-     "usage: synapse-pipeline check <pipeline> [--interactive]" & LF & LF
+     "usage: synapse-pipeline check <pipeline> [--interactive] "
+     & "[--input <file>|-]" & LF & LF
      & "Loads every definition, validates the pipeline and everything it "
      & "refers to," & LF
      & "and prints its file and each step with its harness, and the files its "
@@ -59,7 +60,12 @@ package Synapse.Pipeline.Commands.Usage is
      & "only a warning." & LF & LF
      & "  --interactive   also check that every step's harness can run a step "
      & "interactively," & LF
-     & "                  as 'run --interactive' needs" & LF & LF
+     & "                  as 'run --interactive' needs" & LF
+     & "  --input <file>  also check this JSON input against the "
+     & "pipeline's Input;" & LF
+     & "                  '-' reads it from standard input. Every problem is "
+     & "an error," & LF
+     & "                  and the exit code is 2" & LF & LF
      & "Environment:" & LF
      & "  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides "
      & "the default," & LF

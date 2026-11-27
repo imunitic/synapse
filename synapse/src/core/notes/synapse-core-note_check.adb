@@ -7,6 +7,7 @@ with Synapse.Core.Regex_Lite;
 with Synapse.Core.Schema_Pattern;
 with Synapse.Core.Schema_Rules;
 with Synapse.Core.Decimal_Image;
+with Synapse.Core.Field_Rules;
 
 package body Synapse.Core.Note_Check is
 
@@ -112,18 +113,6 @@ package body Synapse.Core.Note_Check is
         Line (Line'First .. Line'Last - 1)
       else Line);
 
-   --  The number of characters of UTF-8 text: bytes that start a sequence.
-   function Characters (Text : String) return Natural is
-      Count : Natural := 0;
-   begin
-      for C of Text loop
-         if Character'Pos (C) / 64 /= 2 then  --  not 10xxxxxx
-            Count := Count + 1;
-         end if;
-      end loop;
-      return Count;
-   end Characters;
-
    --  Whether Text matches Pattern. A pattern that is not valid or runs out
    --  of steps matches nothing.
    function Matches (Pattern, Text : String) return Boolean is
@@ -134,13 +123,43 @@ package body Synapse.Core.Note_Check is
    --  Frontmatter fields
    ---------------------------------------------------------------------------
 
+   --  A field's value as JSON: a string, an integer, a boolean, a list of
+   --  strings, or null for a value that is not valid. Bytes that are not
+   --  UTF-8 become U+FFFD, as the data tree of `checks:` rules has them.
+   function As_JSON (Field : Field_Value) return Value is
+   begin
+      case Field.Kind is
+         when String_Field =>
+            return Make_String (Lossy (To_String (Field.Text)));
+
+         when Integer_Field =>
+            return Make_Integer (Field.Number);
+
+         when Boolean_Field =>
+            return Make_Boolean (Field.Flag);
+
+         when List_Field =>
+            declare
+               Items : Value_Array (1 .. Natural (Field.Items.Length));
+            begin
+               for I in Items'Range loop
+                  Items (I) :=
+                    Make_String (Lossy (To_String (Field.Items (I))));
+               end loop;
+               return Make_Array (Items);
+            end;
+
+         when Invalid_Field =>
+            return Null_Value;
+      end case;
+   end As_JSON;
+
    function Check_Field
      (Key : String; Rule : Value; Note : String; Ctx : Context)
       return Note_Schema.Check_Result
    is
-      Found     : constant Lookup := Lookup_Field (Note, Key);
-      Prefix    : constant String := "frontmatter." & Key & ": ";
-      Type_Name : constant String := String_At (Rule, "type");
+      Found  : constant Lookup := Lookup_Field (Note, Key);
+      Prefix : constant String := "frontmatter." & Key & ": ";
    begin
       if Found.Duplicate then
          return Bad (Prefix & "field occurs more than once");
@@ -151,54 +170,15 @@ package body Synapse.Core.Note_Check is
               Bad (Prefix & "required field is missing")
             else Good);
       end if;
-      if not Has_Type (Found.Value, Type_Name) then
-         return Bad (Prefix & "expected " & Type_Name);
-      end if;
-
-      if Found.Value.Kind = String_Field then
-         declare
-            Text : constant String := To_String (Found.Value.Text);
-         begin
-            if Has_String (Rule, "const")
-              and then Text /= String_At (Rule, "const")
-            then
-               return
-                 Bad (Prefix & "expected '" & String_At (Rule, "const") & "'");
-            end if;
-            if Has (Rule, "min_length") then
-               declare
-                  Bound : constant Long_Long_Integer :=
-                    Int_At (Rule, "min_length", 0);
-               begin
-                  if Long_Long_Integer (Characters (Text)) < Bound then
-                     return
-                       Bad
-                         (Prefix & "must be at least " &
-                          Decimal_Image.Image (Bound) & " characters");
-                  end if;
-               end;
-            end if;
-            if Has_String (Rule, "pattern")
-              and then not Matches (String_At (Rule, "pattern"), Text)
-            then
-               return Bad (Prefix & "does not match required pattern");
-            end if;
-            if Has (Rule, "enum")
-              and then not In_List (Text, Member_Value (Rule, "enum"))
-            then
-               return Bad (Prefix & "value '" & Text & "' is not allowed");
-            end if;
-            if Type_Name = "timestamp"
-              and then not Note_Text.Valid_Timestamp (Text)
-            then
-               return
-                 Bad
-                   (Prefix &
-                    "expected RFC3339, YYYY-MM-DDTHH:MM:SS then Z or a" &
-                    " colon-separated numeric offset");
-            end if;
-         end;
-      end if;
+      declare
+         Problem : constant Optional_Text.Option :=
+           Field_Rules.Check_Value
+             ("frontmatter." & Key, Rule, As_JSON (Found.Value));
+      begin
+         if Problem.Found then
+            return Bad (To_String (Problem.Value));
+         end if;
+      end;
 
       if Ctx.Has_Existing and then Ctx.Mode /= Create
         and then Is_Explicitly_False (Rule, "mutable")

@@ -584,7 +584,7 @@ usage: synapse-hook <hook>
 ```
 usage: synapse-pipeline <subcommand> [args]
 
-  check <pipeline> [--interactive]
+  check <pipeline> [--interactive] [--input <file>|-]
          validate a pipeline and show what it would run
   show <name> [--format json|text] [--step <step> [--input <file>|-] [--interactive]]
          describe a pipeline (its steps, settings, edges and limits), a system, an agent or a prompt
@@ -614,7 +614,7 @@ usage: synapse-pipeline <subcommand> [args]
 ### synapse-pipeline check
 
 ```
-usage: synapse-pipeline check <pipeline> [--interactive]
+usage: synapse-pipeline check <pipeline> [--interactive] [--input <file>|-]
 
 Loads every definition, validates the pipeline and everything it refers to,
 and prints its file and each step with its harness, and the files its system,
@@ -625,6 +625,9 @@ only a warning.
 
   --interactive   also check that every step's harness can run a step interactively,
                   as 'run --interactive' needs
+  --input <file>  also check this JSON input against the pipeline's Input;
+                  '-' reads it from standard input. Every problem is an error,
+                  and the exit code is 2
 
 Environment:
   SYNAPSE_PIPELINE_PATH     directories of .synapse files besides the default,

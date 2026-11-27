@@ -30,6 +30,54 @@ package body Synapse.Pipeline.Prompts is
       return To_String (Lines);
    end Listed;
 
+   --  A value as the input list writes it on its field's line: a string as
+   --  it is, anything else as JSON.
+   function Plain (Item : JSON.Value) return String is
+     (if JSON.Kind_Of (Item) = JSON.JSON_String then JSON.As_String (Item)
+      else JSON.To_String (Item));
+
+   --  Given written as the list of the fields Declared names, each with its
+   --  description.
+   function Listed_Input (Declared, Given : JSON.Value) return String is
+      Fields : constant JSON.Value := JSON.Member_Value (Declared, "fields");
+      Lines  : Unbounded_String;
+   begin
+      for I in 1 .. JSON.Length (Fields) loop
+         declare
+            Name  : constant String := JSON.Member_Key (Fields, I);
+            Rules : constant JSON.Value := JSON.Member_At (Fields, I);
+            Found : constant Boolean :=
+              JSON.Kind_Of (Given) = JSON.JSON_Object
+              and then JSON.Has_Member (Given, Name)
+              and then JSON.Kind_Of (JSON.Member_Value (Given, Name))
+                       /= JSON.JSON_Null;
+            Value : constant JSON.Value :=
+              (if Found then JSON.Member_Value (Given, Name)
+               else JSON.Null_Value);
+         begin
+            Append (Lines, LF & "- " & Name & ":");
+            if not Found
+              or else (JSON.Kind_Of (Value) = JSON.JSON_Array
+                       and then JSON.Length (Value) = 0)
+            then
+               Append (Lines, " (not given)");
+            elsif JSON.Kind_Of (Value) = JSON.JSON_Array then
+               for J in 1 .. JSON.Length (Value) loop
+                  Append
+                    (Lines, LF & "  - " & Plain (JSON.Element (Value, J)));
+               end loop;
+            else
+               Append (Lines, " " & Plain (Value));
+            end if;
+            Append
+              (Lines,
+               LF & "  "
+               & JSON.As_String (JSON.Member_Value (Rules, "description")));
+         end;
+      end loop;
+      return To_String (Lines);
+   end Listed_Input;
+
    function Parts
      (Role            : String;
       Assignment      : String;
@@ -37,7 +85,9 @@ package body Synapse.Pipeline.Prompts is
       Initial_Input   : JSON.Value;
       Previous_Output : JSON.Value;
       Outcomes        : JSON.Value := JSON.Null_Value;
-      Interactive     : Boolean := False) return Part_Vectors.Vector
+      Interactive     : Boolean := False;
+      Declared_Input  : JSON.Value := JSON.Null_Value)
+      return Part_Vectors.Vector
    is
       Result : Part_Vectors.Vector;
 
@@ -68,7 +118,12 @@ package body Synapse.Pipeline.Prompts is
             else
               "Nobody is available to answer questions, so make reasonable "
               & "decisions and carry on."));
-      if JSON.Kind_Of (Initial_Input) /= JSON.JSON_Null then
+      if JSON.Kind_Of (Declared_Input) /= JSON.JSON_Null then
+         Paragraph
+           (Input_Part,
+            "The pipeline was started with this input:"
+            & Listed_Input (Declared_Input, Initial_Input));
+      elsif JSON.Kind_Of (Initial_Input) /= JSON.JSON_Null then
          Paragraph
            (Input_Part,
             "The pipeline was started with this input:" & LF
@@ -121,11 +176,12 @@ package body Synapse.Pipeline.Prompts is
       Initial_Input   : JSON.Value;
       Previous_Output : JSON.Value;
       Outcomes        : JSON.Value := JSON.Null_Value;
-      Interactive     : Boolean := False) return String
+      Interactive     : Boolean := False;
+      Declared_Input  : JSON.Value := JSON.Null_Value) return String
    is
      (Text_Of
         (Parts
            (Role, Assignment, Step, Initial_Input, Previous_Output, Outcomes,
-            Interactive)));
+            Interactive, Declared_Input)));
 
 end Synapse.Pipeline.Prompts;

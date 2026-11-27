@@ -331,6 +331,11 @@ package body Synapse.Pipeline.Resolution is
          File   : constant String := To_String (Loaded.Path);
       begin
          Result.Name := To_Unbounded_String (Name);
+         if Has (Loaded.Item.Attributes, "Input") then
+            Result.Input :=
+              Syntax.Attribute_Vectors.Element
+                (Find (Loaded.Item.Attributes, "Input")).Item.Json;
+         end if;
          for S of Loaded.Item.Steps loop
             declare
                Made   : Resolved.Step :=

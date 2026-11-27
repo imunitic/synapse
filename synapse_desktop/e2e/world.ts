@@ -75,6 +75,37 @@ Pipeline Develop_Feature {
    Work [Harness => Claude, Prompt => "Read notes.txt, write result.txt and list the folder."];
 }
 `,
+  // A pipeline that declares its input: an object with a task id and optional instructions.
+  'Implement_With_Input.synapse': `Pipeline Implement_With_Input [Input => {
+      "fields": {
+         "task_id": {"type": "string", "required": true, "pattern": "^[a-z]+-[0-9]+$",
+                     "description": "The id of the task to implement, such as synapse-70."},
+         "instructions": {"type": "string",
+                          "description": "Extra requirements for this run only."}
+      }
+   }] {
+   Work [Harness => Claude, Prompt => "Implement the task named by task_id."];
+}
+`,
+  // A pipeline with two required fields, so a sentence cannot give its input.
+  'Structured_Input.synapse': `Pipeline Structured_Input [Input => {
+      "fields": {
+         "task_id": {"type": "string", "required": true, "description": "The id of the task to work on."},
+         "attempts": {"type": "integer", "required": true, "description": "How often to try."}
+      }
+   }] {
+   Work [Harness => Claude, Prompt => "Work on task_id."];
+}
+`,
+  // A pipeline whose input is one required string, which a sentence can give.
+  'Text_Input.synapse': `Pipeline Text_Input [Input => {
+      "fields": {
+         "request": {"type": "string", "required": true, "description": "What to work on, in plain words."}
+      }
+   }] {
+   Work [Harness => Claude, Prompt => "Do what the request asks."];
+}
+`,
   // A run that stays running until a test stops it: its one step answers only after two minutes.
   'Held_Run.synapse': `Pipeline Held_Run {
    Hold [Harness => Claude, Prompt => "Take your time."];

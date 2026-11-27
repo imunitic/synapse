@@ -77,6 +77,13 @@ step Review: Approved -> done
 The exit code is 0 when the run completes, 1 when a step fails or the pipeline cannot be run, and 2
 for a usage error.
 
+A pipeline that declares its `Input` (see [the language reference](synapse-pipeline-language.md#input))
+holds the input to it before anything else happens. An input that breaks it is refused before any
+session starts and before any record is made: every problem is written to standard error as
+`error: <problem>`, and the exit code is 2. `check <pipeline> --input <file>|-` checks an input the same
+way without running anything, and exits 0 when it is accepted. A pipeline without `Input` takes any
+input, or none.
+
 ## What a run does
 
 1. **Resolve.** The configuration and the pipeline, with every system, agent and prompt it names, are
@@ -84,7 +91,9 @@ for a usage error.
    definition, a configuration or the vault directory while it goes changes nothing for it.
 2. **Run the first step.** A session of the step's harness is started with a prompt made of the
    agent's role, the step's instructions, the pipeline's input, the previous step's result, and the
-   contract for the answer. See [Harnesses](#harnesses).
+   contract for the answer. When the pipeline declares `Input`, the input is written as a list, each
+   declared field with its value and its description; otherwise it is the raw JSON. See
+   [Harnesses](#harnesses).
 3. **Check the answer.** It must be one JSON object `{"outcome", "summary", "data"}`, and when the
    step declares `Outcomes` its outcome must be one of them. An answer that is not is a
    `result_contract_failure`.
@@ -202,7 +211,8 @@ The state is the document `state` answers with over the socket (`synapse-pipelin
 edges, guards, `Max_Iterations` and the step ceiling exactly as `run` does, and exits 0 whenever it
 prints a state, so a failed run is a state with `status` `failed`. A result that is not valid, including an
 outcome the step does not declare, or a state of another pipeline or of a run that is over, prints
-nothing and exits 1.
+nothing and exits 1. An input that breaks the pipeline's `Input` is refused as `run` refuses it: nothing
+on standard output, every problem on standard error, and exit code 2.
 
 The `synapse-pipeline-execute` skill, installed by `synapse-pipeline-setup configure <harness>` with
 the skill for writing pipelines, tells the agent to do this: one fresh subagent per step, with the
@@ -235,10 +245,13 @@ Review
 `show` describes a pipeline that is not running, with the document a run answers `pipeline` with:
 `show Develop_Feature --format json` prints it as JSON, and without `--format` the same information is
 laid out for a person. The pipeline is found and validated as `check` does, and one that cannot run
-prints nothing on standard output. Each step reports the `outcomes` it declares. `show <system>` and
+prints nothing on standard output. Each step reports the `outcomes` it declares, and a pipeline that
+declares `Input` ends with an `input:` block, one line per field with its type, whether it is required
+and its description. `show <system>` and
 `show <agent>` describe that definition and the definitions that use it, and `show <pipeline> --step
 <step>` prints the prompt the step is started with, a marked slot standing for the result of the step
-before. `definitions` lists every definition with its file and the files that did not load.
+before. With `--input`, that prompt shows the input as `run` would write it, and an input `run` would
+refuse is refused the same way, with exit code 2. `definitions` lists every definition with its file and the files that did not load.
 
 `list` shows the runs that are going. A run that has ended, or that died without cleaning up, is not
 shown. The NAME column holds the run's name, and is empty for a run that has none. `info` prints a `name`
@@ -430,6 +443,7 @@ fixed names, and a change to them is a new format.
 |---|---|
 | `format` | `synapse-pipeline-description/v1` |
 | `name` | the pipeline's name |
+| `input` | the pipeline's `Input`, or null when it has none: `fields` in the order declared, each with `name`, `type`, `required`, `description`, and `min_length`, `const`, `pattern`, `enum` and `items` when written (`items` is a type name or `{"fields": [...]}` in the same shape); `checks` as written; and `single_text_field`, the field a plain string fills, or null |
 | `steps` | in the order declared: `name`, `harness`, `model`, `permissions` (the level in effect), `timeout_seconds` (the limit in effect), `retries`, `role`, `assignment`, `origins` |
 | `edges` | in the order declared: `index`, `from`, `to`, `guard` (a JsonLogic rule; null when unconditional), `max_iterations` (null when unbounded) |
 | `limits` | `default_timeout_seconds`, `step_ceiling`, `runner` |

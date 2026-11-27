@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type SubmitEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type SubmitEvent } from 'react'
+import {
+  checkProblems,
+  fieldReference,
+  sampleInput,
+  takesText,
+} from '../domain/input-declaration.ts'
+import type { InputDeclaration } from '../domain/pipelines.ts'
 import {
   interactiveProblem,
   previewInput,
@@ -8,6 +15,7 @@ import {
   type InputMode,
 } from '../domain/run-input.ts'
 import { transport } from '../transport/index.ts'
+import { CodeEditor } from './CodeEditor.tsx'
 import { PromptView } from './PromptView.tsx'
 import { PathInput } from './PathInput.tsx'
 
@@ -16,7 +24,16 @@ import { PathInput } from './PathInput.tsx'
 // buttons stay in view however long the dialog gets. A native
 // dialog gives the focus handling and the Escape key. A run starts on the terminal of the app, where
 // a person can watch it and answer what its agents ask. Only a pipeline that cannot run that way, as
-// `check --interactive` says, is started without a terminal, and the dialog says why.
+// `check --interactive` says, is started without a terminal, and the dialog says why. A pipeline that
+// declares its input gets a sample to fill in, a reference of its fields, and its problems while they
+// are typed; it starts only once there are none.
+
+// How long the input has to stay the same before it is checked.
+const checkDelayMs = 400
+
+// No problems, and no edits to mark in the editor.
+const noMarks: [] = []
+
 export function RunDialog({
   pipeline,
   firstStep,
@@ -25,6 +42,7 @@ export function RunDialog({
   onStarted,
   onStartInteractive,
   defaultFolder,
+  input: declared,
 }: {
   pipeline: string
   // The step the input goes to, whose prompt can be looked at with the input in it.
@@ -38,11 +56,27 @@ export function RunDialog({
   onStartInteractive: (input: unknown, folder: string, runName?: string) => void
   // Where a run works unless it was told otherwise; empty is the home folder.
   defaultFolder: string
+  // What the pipeline declares as its input: null when it declares none, undefined while the
+  // pipeline is still being read.
+  input?: InputDeclaration | null
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const [mode, setMode] = useState<InputMode>('text')
   const [text, setText] = useState('')
-  const [json, setJson] = useState('{}')
+  // The text the JSON editor starts with: a sample of the declared fields, or an empty object.
+  const startJson = useMemo(() => (declared ? sampleInput(declared) : '{}'), [declared])
+  const [json, setJson] = useState(startJson)
+  // The text the JSON editor is given when it is shown: the editor is not there while the Text tab
+  // is, so coming back to it must bring back what was typed, not the sample.
+  const [editorStart, setEditorStart] = useState(startJson)
+  const [startedWith, setStartedWith] = useState(startJson)
+  if (startedWith !== startJson) {
+    setStartedWith(startJson)
+    setJson(startJson)
+    setEditorStart(startJson)
+  }
+  // The answer of the last check, for the input it was asked about.
+  const [check, setCheck] = useState<{ stdin: string; problems: string[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [folder, setFolder] = useState(() => readFolder(localStorage, pipeline, defaultFolder))
@@ -71,10 +105,47 @@ export function RunDialog({
   // Until the check has answered it is not known how the run starts, so it cannot be started yet.
   const interactive = checked && problem === null
 
+  // A sentence is offered only when the pipeline takes one; until that is known it is offered.
+  const showText = declared === undefined || takesText(declared)
+  const inputMode: InputMode = showText ? mode : 'json'
+  const typed = runInput(inputMode, text, json)
+  const stdin = typed.ok ? JSON.stringify(typed.value ?? null) : null
+  const checking = declared !== undefined && declared !== null
+
+  useEffect(() => {
+    if (!checking || stdin === null) return
+    let current = true
+    const timer = setTimeout(() => {
+      transport
+        .cli('synapse-pipeline', ['check', pipeline, '--input', '-'], { stdin })
+        .then((result) => current && setCheck({ stdin, problems: checkProblems(result) }))
+        .catch(
+          (failure: unknown) =>
+            current &&
+            setCheck({ stdin, problems: [`The input was not checked: ${String(failure)}`] }),
+        )
+    }, checkDelayMs)
+    return () => {
+      current = false
+      clearTimeout(timer)
+    }
+  }, [checking, pipeline, stdin])
+
+  // What is wrong with the input as it is now; a check of an earlier input does not count.
+  const pending = checking && stdin !== null && check?.stdin !== stdin
+  const inputProblems: string[] = !checking
+    ? []
+    : !typed.ok
+      ? [typed.error]
+      : check?.stdin === stdin
+        ? check.problems
+        : []
+  const blocked = checking && (pending || inputProblems.length > 0)
+
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!checked) return
-    const input = runInput(mode, text, json)
+    if (!checked || blocked) return
+    const input = runInput(inputMode, text, json)
     if (!input.ok) {
       setError(input.error)
       return
@@ -107,29 +178,34 @@ export function RunDialog({
         <h2 id="run-title" className="card-title">
           Run <span className="mono">{pipeline}</span>
         </h2>
-        <div className="subtabs" role="tablist" aria-label="Kind of input">
-          <button
-            type="button"
-            role="tab"
-            className="subtab"
-            aria-selected={mode === 'text'}
-            aria-pressed={mode === 'text'}
-            onClick={() => setMode('text')}
-          >
-            Text
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className="subtab"
-            aria-selected={mode === 'json'}
-            aria-pressed={mode === 'json'}
-            onClick={() => setMode('json')}
-          >
-            JSON
-          </button>
-        </div>
-        {mode === 'text' ? (
+        {showText && (
+          <div className="subtabs" role="tablist" aria-label="Kind of input">
+            <button
+              type="button"
+              role="tab"
+              className="subtab"
+              aria-selected={mode === 'text'}
+              aria-pressed={mode === 'text'}
+              onClick={() => setMode('text')}
+            >
+              Text
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className="subtab"
+              aria-selected={mode === 'json'}
+              aria-pressed={mode === 'json'}
+              onClick={() => {
+                if (mode !== 'json') setEditorStart(json)
+                setMode('json')
+              }}
+            >
+              JSON
+            </button>
+          </div>
+        )}
+        {inputMode === 'text' ? (
           <>
             <label htmlFor="run-input" className="muted">
               What should this pipeline work on?
@@ -147,22 +223,41 @@ export function RunDialog({
           </>
         ) : (
           <>
-            <label htmlFor="run-input" className="muted">
-              Input as JSON, handed to the first step as it is
-            </label>
-            <textarea
-              id="run-input"
-              className="mono"
-              rows={7}
-              value={json}
-              spellCheck={false}
-              onChange={(event) => {
-                setJson(event.target.value)
+            <p className="muted">Input as JSON</p>
+            <CodeEditor
+              initial={editorStart}
+              onChange={(value) => {
+                setJson(value)
                 setError(null)
               }}
+              marks={noMarks}
+              label="Input as JSON"
+              language="json"
             />
+            {declared && (
+              <dl className="facts small" aria-label="Fields of the input">
+                {fieldReference(declared).map((field) => (
+                  <Fragment key={field.name}>
+                    <dt className="mono">{field.name}</dt>
+                    <dd>
+                      {field.type} · {field.required ? 'required' : 'optional'}{' '}
+                      <span className="muted">{field.description}</span>
+                    </dd>
+                  </Fragment>
+                ))}
+              </dl>
+            )}
           </>
         )}
+        <div role="status" aria-label="Problems with the input">
+          {inputProblems.length > 0 && (
+            <ul className="problems">
+              {inputProblems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          )}
+        </div>
         {checked && problem !== null && (
           <p className="muted small">
             This pipeline runs without a terminal, so nothing will ask you anything: {problem}
@@ -199,7 +294,7 @@ export function RunDialog({
           <PromptView
             pipeline={pipeline}
             step={firstStep}
-            input={previewInput(mode, text, json)}
+            input={previewInput(inputMode, text, json)}
             label="The prompt of the first step, with this input"
             interactive={interactive}
             openAdded
@@ -214,7 +309,7 @@ export function RunDialog({
           <button type="button" className="secondary" onClick={() => dialog.current?.close()}>
             Cancel
           </button>
-          <button type="submit" className="primary" disabled={busy || !checked}>
+          <button type="submit" className="primary" disabled={busy || !checked || blocked}>
             {busy ? 'Starting…' : 'Start run'}
           </button>
         </div>

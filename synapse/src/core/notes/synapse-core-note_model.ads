@@ -139,6 +139,10 @@ package Synapse.Core.Note_Model is
    --  JSON views
    ---------------------------------------------------------------------------
 
+   --  S with every byte sequence that is not UTF-8 replaced by U+FFFD, so it
+   --  can be a JSON string.
+   function Lossy (S : String) return String;
+
    --  An object of the note's top-level frontmatter fields, every value a
    --  string or a list of strings. See the task note for the exact rules;
    --  an empty value with no list below it is an empty list, and a repeated

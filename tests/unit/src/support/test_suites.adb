@@ -25,6 +25,8 @@ with Synapse.Adapters.System_Process.Tests;
 with Synapse.Core.Node_Path.Tests;
 with Synapse.Core.Path_Filter.Tests;
 with Synapse.Core.Note_Check.Tests;
+with Synapse.Core.Field_Rules.Tests;
+with Synapse.Core.Object_Schema.Tests;
 with Synapse.Core.Note_Model.Tests;
 with Synapse.Core.Note_Operators.Tests;
 with Synapse.Core.Prose.Tests;
@@ -126,6 +128,7 @@ with Synapse.Pipeline.Commands.Name.Tests;
 with Synapse.Pipeline.Commands.Configure.Tests;
 with Synapse.Pipeline.Commands.Definitions.Tests;
 with Synapse.Pipeline.Outcomes.Tests;
+with Synapse.Pipeline.Inputs.Tests;
 with Synapse.Pipeline.Prompts.Tests;
 with Synapse.Pipeline.Commands.Show.Tests;
 with Synapse.Pipeline.Commands.Next.Tests;
@@ -226,6 +229,8 @@ package body Test_Suites is
    Note_Text_Tests : aliased Synapse.Core.Note_Text.Tests.Test_Case;
    Note_Model_Tests : aliased Synapse.Core.Note_Model.Tests.Test_Case;
    Note_Check_Tests : aliased Synapse.Core.Note_Check.Tests.Test_Case;
+   Field_Rules_Tests : aliased Synapse.Core.Field_Rules.Tests.Test_Case;
+   Object_Schema_Tests : aliased Synapse.Core.Object_Schema.Tests.Test_Case;
    Node_Path_Tests : aliased Synapse.Core.Node_Path.Tests.Test_Case;
    Text_Search_Tests : aliased Synapse.Core.Text_Search.Tests.Test_Case;
    Words_Tests                    : aliased Synapse.Core.Words.Tests.Test_Case;
@@ -404,6 +409,8 @@ package body Test_Suites is
      aliased Synapse.Pipeline.Commands.Configure.Tests.Test_Case;
    Pipeline_Outcomes_Tests :
      aliased Synapse.Pipeline.Outcomes.Tests.Test_Case;
+   Pipeline_Inputs_Tests :
+     aliased Synapse.Pipeline.Inputs.Tests.Test_Case;
    Pipeline_Prompts_Tests :
      aliased Synapse.Pipeline.Prompts.Tests.Test_Case;
    Pipeline_Definitions_Command_Tests :
@@ -580,6 +587,7 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Name_Tests'Access);
       Result.Add_Test (Pipeline_Configure_Tests'Access);
       Result.Add_Test (Pipeline_Outcomes_Tests'Access);
+      Result.Add_Test (Pipeline_Inputs_Tests'Access);
       Result.Add_Test (Pipeline_Prompts_Tests'Access);
       Result.Add_Test (Pipeline_Definitions_Command_Tests'Access);
       Result.Add_Test (Pipeline_Show_Tests'Access);
@@ -720,6 +728,8 @@ package body Test_Suites is
       Result.Add_Test (Text_Search_Tests'Access);
       Result.Add_Test (Words_Tests'Access);
       Result.Add_Test (Note_Check_Tests'Access);
+      Result.Add_Test (Field_Rules_Tests'Access);
+      Result.Add_Test (Object_Schema_Tests'Access);
       Result.Add_Test (Note_Operators_Tests'Access);
       return Result;
    end Suite;

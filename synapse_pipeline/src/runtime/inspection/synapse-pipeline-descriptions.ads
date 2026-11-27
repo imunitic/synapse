@@ -10,6 +10,11 @@ with Synapse.Pipeline.Resolved;
 --
 --    format   Format
 --    name     the pipeline's name
+--    input    the pipeline's `Input` declaration, or null when it declares
+--             none: fields (in the order declared: name, type, required,
+--             description, and min_length, const, pattern, enum and items
+--             when written), checks (as written, [] when none) and
+--             single_text_field (the field a plain string fills, or null)
 --    steps    in the order declared: name, harness, model, permissions (the
 --             level in effect), timeout_seconds (the limit in
 --             effect), retries, role, assignment, origins
@@ -22,7 +27,9 @@ with Synapse.Pipeline.Resolved;
 --  "prompt". An edge's `index` counts from 0
 --  and is its position in `state.fired`; `guard` is null for an edge without
 --  one and `max_iterations` null for an edge that is not bounded. The
---  configuration's environment is not part of the document.
+--  configuration's environment is not part of the document. A field's
+--  `items` is a type name, or {"fields": [...]} with fields in the same
+--  shape.
 --
 --  The members are fixed names: a change to them is a new Format.
 

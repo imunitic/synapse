@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   utimesSync,
@@ -11,9 +12,16 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { expect, test } from './fixtures.ts'
-import { openCard, openSection, sidePanel, startRunWithoutTerminal, world } from './helpers.ts'
+import {
+  openCard,
+  openSection,
+  setEditorText,
+  sidePanel,
+  startRunWithoutTerminal,
+  world,
+} from './helpers.ts'
 
 test('a run without a terminal is followed on its page to its end', async ({ page }) => {
   // The page of the execution, which goes through the loop once.
@@ -189,7 +197,7 @@ test("a running run's row has no delete button", async ({ page }) => {
   await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
   await dialog.getByRole('button', { name: 'Start run' }).click()
   await expect(page.getByText('Execution', { exact: true })).toBeVisible({ timeout: 30_000 })
-  const id = (await page.locator('h1.page-title').innerText()).trim()
+  const id = (await page.getByRole('heading', { level: 1 }).innerText()).trim()
 
   const row = runRow(page, id)
   await expect(row.getByText('running', { exact: true })).toBeVisible({ timeout: 30_000 })
@@ -248,7 +256,7 @@ test('Select all leaves out a running run', async ({ page }) => {
   await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
   await dialog.getByRole('button', { name: 'Start run' }).click()
   await expect(page.getByText('Execution', { exact: true })).toBeVisible({ timeout: 30_000 })
-  const id = (await page.locator('h1.page-title').innerText()).trim()
+  const id = (await page.getByRole('heading', { level: 1 }).innerText()).trim()
   const running = runRow(page, id)
   await expect(running.getByText('running', { exact: true })).toBeVisible({ timeout: 30_000 })
 
@@ -605,4 +613,150 @@ test('an interactive run has its terminal on the page of the run', async ({ page
   page.once('dialog', (d) => void d.accept())
   await page.getByRole('button', { name: 'Stop run' }).click()
   await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
+})
+
+// Opens the run dialog of a pipeline from the definitions list.
+async function openRunDialog(page: Page, pipeline: string) {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await sidePanel(page)
+    .getByRole('button', { name: `Run ${pipeline}` })
+    .click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+// Starts the run from an open run dialog, in a terminal, and checks the engine recorded the input
+// the dialog started it with; then stops the run.
+async function startAndCheckInput(page: Page, start: Locator, input: unknown) {
+  await page
+    .getByRole('dialog')
+    .getByLabel(/Folder its agents work in/)
+    .fill(world().root)
+  await start.click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^exec-/, { timeout: 30_000 })
+  const id = (await page.getByRole('heading', { level: 1 }).innerText()).trim()
+  const record = join(world().work, 'pipelines', id, 'execution.json')
+  await expect
+    .poll(() => {
+      try {
+        const kept = JSON.parse(readFileSync(record, 'utf8')) as {
+          state: { initial_input: unknown }
+        }
+        return kept.state.initial_input
+      } catch {
+        return undefined
+      }
+    })
+    .toEqual(input)
+  page.once('dialog', (d) => void d.accept())
+  await page.getByRole('button', { name: 'Stop run' }).click()
+  await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
+}
+
+test('a pipeline with Input opens the JSON editor with a sample and a field reference and no Text tab', async ({
+  page,
+}) => {
+  // Two required fields: a sentence cannot give them, so only the editor is offered.
+  const dialog = await openRunDialog(page, 'Structured_Input')
+  await expect(dialog.getByRole('tab')).toHaveCount(0)
+  await expect(dialog.getByLabel('What should this pipeline work on?')).toHaveCount(0)
+  const editor = dialog.getByLabel('Input as JSON')
+  await expect(editor).toContainText('"task_id": ""')
+  await expect(editor).toContainText('"attempts": 0')
+  const fields = dialog.getByLabel('Fields of the input')
+  await expect(fields).toContainText('task_id')
+  await expect(fields).toContainText('string · required')
+  await expect(fields).toContainText('The id of the task to work on.')
+  await expect(fields).toContainText('attempts')
+  await expect(fields).toContainText('integer · required')
+})
+
+// The JSON tab of the run dialog of Implement_With_Input, whose one required string field keeps the
+// Text tab.
+async function openJsonTab(page: Page) {
+  const dialog = await openRunDialog(page, 'Implement_With_Input')
+  await dialog.getByRole('tab', { name: 'JSON' }).click()
+  const fields = dialog.getByLabel('Fields of the input')
+  await expect(fields).toContainText('instructions')
+  await expect(fields).toContainText('string · optional')
+  return dialog
+}
+
+test('a missing required field shows the problem and Start run stays disabled', async ({
+  page,
+}) => {
+  const dialog = await openJsonTab(page)
+  const problems = dialog.getByRole('status', { name: 'Problems with the input' })
+  // The sample's empty task id does not match the pattern.
+  await expect(problems).toContainText('input.task_id: does not match required pattern')
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeDisabled()
+
+  await setEditorText(page, '{"instructions": "keep it small"}', dialog.locator('.cm-content'))
+  await expect(problems).toContainText('input.task_id: required field is missing')
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeDisabled()
+
+  // Text that is not JSON is its own problem, and nothing is checked.
+  await setEditorText(page, '{oops', dialog.locator('.cm-content'))
+  await expect(problems).toContainText('The input is not valid JSON')
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeDisabled()
+})
+
+test('a valid input enables Start run and the run starts with it', async ({ page }) => {
+  const dialog = await openJsonTab(page)
+  await setEditorText(page, '{"task_id": "abc-1"}', dialog.locator('.cm-content'))
+  const start = dialog.getByRole('button', { name: 'Start run' })
+  await expect(start).toBeEnabled()
+  await expect(dialog.getByRole('status', { name: 'Problems with the input' })).toHaveText('')
+  await startAndCheckInput(page, start, { task_id: 'abc-1' })
+})
+
+test('JSON typed before switching to the Text tab and back is kept and starts the run', async ({
+  page,
+}) => {
+  const dialog = await openJsonTab(page)
+  await setEditorText(page, '{"task_id": "abc-2"}', dialog.locator('.cm-content'))
+  await dialog.getByRole('tab', { name: 'Text' }).click()
+  await dialog.getByRole('tab', { name: 'JSON' }).click()
+  await expect(dialog.getByLabel('Input as JSON')).toHaveText('{"task_id": "abc-2"}')
+  const start = dialog.getByRole('button', { name: 'Start run' })
+  await expect(start).toBeEnabled()
+  await startAndCheckInput(page, start, { task_id: 'abc-2' })
+})
+
+test('the prompt preview lists the fields with their descriptions', async ({ page }) => {
+  const dialog = await openJsonTab(page)
+  await setEditorText(page, '{"task_id": "abc-1"}', dialog.locator('.cm-content'))
+  await dialog.getByText('The prompt of the first step, with this input').click()
+  const prompt = dialog.locator('.prompt-added-text')
+  await expect(prompt).toContainText('- task_id: abc-1')
+  await expect(prompt).toContainText('The id of the task to implement, such as synapse-70.')
+  await expect(prompt).toContainText('- instructions: (not given)')
+})
+
+test('a pipeline with one required string field keeps the Text tab', async ({ page }) => {
+  const dialog = await openRunDialog(page, 'Text_Input')
+  await expect(dialog.getByRole('tab', { name: 'Text' })).toBeVisible()
+  await expect(dialog.getByRole('tab', { name: 'JSON' })).toBeVisible()
+  await dialog.getByLabel('What should this pipeline work on?').fill('fix issue 7')
+  // The sentence becomes the one required field, so it passes the check.
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeEnabled()
+  await expect(dialog.getByRole('status', { name: 'Problems with the input' })).toHaveText('')
+
+  // A required string next to optional fields is still given by a sentence.
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  const other = await openRunDialog(page, 'Implement_With_Input')
+  await expect(other.getByRole('tab', { name: 'Text' })).toBeVisible()
+  await other.getByLabel('What should this pipeline work on?').fill('abc-1')
+  await expect(other.getByRole('button', { name: 'Start run' })).toBeEnabled()
+})
+
+test('a pipeline without Input keeps both tabs and starts with {}', async ({ page }) => {
+  const dialog = await openRunDialog(page, 'Develop_Feature')
+  await expect(dialog.getByRole('tab', { name: 'Text' })).toBeVisible()
+  await dialog.getByRole('tab', { name: 'JSON' }).click()
+  await expect(dialog.getByLabel('Input as JSON')).toHaveText('{}')
+  await expect(dialog.getByLabel('Fields of the input')).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeEnabled()
 })

@@ -90,6 +90,10 @@ package Synapse.Pipeline.Resolved is
       --  In the order they were written; the first true guard of the edges
       --  leaving a step is the one that fires.
       Edges : Edge_Vectors.Vector;
+
+      --  The pipeline's Input declaration as written, which an input is
+      --  checked against; null when the pipeline declares none.
+      Input : Synapse.Core.JSON.Value := Synapse.Core.JSON.Null_Value;
    end record;
 
 end Synapse.Pipeline.Resolved;

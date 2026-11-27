@@ -7,7 +7,14 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { expect, test, type Locator, type Page } from './fixtures.ts'
-import { openLaunch, openSection, resetWorldSettings, sidePanel, world } from './helpers.ts'
+import {
+  openLaunch,
+  openSection,
+  resetWorldSettings,
+  setEditorText,
+  sidePanel,
+  world,
+} from './helpers.ts'
 
 test.use({
   viewport: { width: 1280, height: 800 },
@@ -244,10 +251,14 @@ test('the run dialog', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')
   await sidePanel(page)
-    .locator('.list-entry', { hasText: 'Develop_Feature' })
-    .getByRole('button', { name: 'Run Develop_Feature' })
+    .locator('.list-entry', { hasText: 'Implement_With_Input' })
+    .getByRole('button', { name: 'Run Implement_With_Input' })
     .click()
   const dialog = page.getByRole('dialog')
+  // A pipeline that declares its input, so the shot shows the editor and the fields under it.
+  await dialog.getByRole('tab', { name: 'JSON' }).click()
+  await setEditorText(page, '{"task_id": "synapse-70"}', dialog.locator('.cm-content'))
+  await expect(dialog.getByLabel('Fields of the input')).toContainText('instructions')
   await expect(dialog.getByRole('button', { name: 'Start run' })).toBeEnabled()
   await shot(page, 'run-dialog')
 })

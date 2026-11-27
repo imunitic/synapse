@@ -337,6 +337,83 @@ package body Synapse.Pipeline.Commands.Next.Tests is
       end;
    end A_Result_Off_The_Declared_Outcomes_Is_An_Error_And_No_Output;
 
+   --  A pipeline that declares one required task id.
+   procedure Add_Declared (F : in out Fixture) is
+   begin
+      F.Files.Add_File
+        ("/defs/Declared.synapse",
+         "Pipeline Declared [Input => {""fields"": {"
+         & """task_id"": {""type"": ""string"", ""required"": true, "
+         & """description"": ""The task.""}, "
+         & """instructions"": {""type"": ""string"", "
+         & """description"": ""Extra requirements.""}}}] "
+         & "{ Develop [Harness => Claude, Prompt => ""Implement.""]; }");
+   end Add_Declared;
+
+   procedure Next_Input_Refuses_A_Bad_Input (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_Declared (F);
+      F.Files.Add_File ("/in.json", "{""task"": ""x""}");
+      Assert
+        (Run (Env (F), Args ("Declared", "--input", "/in.json")) = 2,
+         "refused with code 2: " & F.Base.Console.Err_Text);
+      Assert
+        (F.Base.Console.Out_Text = "",
+         "nothing on standard output: " & F.Base.Console.Out_Text);
+      Assert
+        (Has (F.Base.Console.Err_Text, "error: input.task: unknown field" & LF)
+         and then Has
+                    (F.Base.Console.Err_Text,
+                     "error: input.task_id: required field is missing" & LF),
+         "every problem: " & F.Base.Console.Err_Text);
+   end Next_Input_Refuses_A_Bad_Input;
+
+   procedure Next_Input_Starts_With_The_Accepted_Input
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_Declared (F);
+      F.Files.Add_File ("/in.json", """synapse-70""");
+      Assert
+        (Run (Env (F), Args ("Declared", "--input", "/in.json")) = 0,
+         "it starts: " & F.Base.Console.Err_Text);
+      declare
+         State   : constant JSON.Value := Parsed (F.Base.Console.Out_Text);
+         Initial : constant JSON.Value :=
+           JSON.Member_Value (State, "initial_input");
+      begin
+         Assert
+           (JSON.As_String (JSON.Member_Value (Initial, "task_id"))
+            = "synapse-70"
+            and then not JSON.Has_Member (Initial, "instructions"),
+            "the string as task_id: " & F.Base.Console.Out_Text);
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         Add_Declared (G);
+         G.Files.Add_File
+           ("/in.json", "{""task_id"": ""a-1"", ""instructions"": """"}");
+         Assert
+           (Run (Env (G), Args ("Declared", "--input", "/in.json")) = 0,
+            "it starts: " & G.Base.Console.Err_Text);
+         Assert
+           (not JSON.Has_Member
+                  (JSON.Member_Value
+                     (Parsed (G.Base.Console.Out_Text), "initial_input"),
+                   "instructions"),
+            "an empty optional field is dropped: "
+            & G.Base.Console.Out_Text);
+      end;
+   end Next_Input_Starts_With_The_Accepted_Input;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -369,6 +446,12 @@ package body Synapse.Pipeline.Commands.Next.Tests is
          "A run that reaches the ceiling is a failed state");
       Register_Routine
         (T, Next_Is_In_The_Usage'Access, "Next is in the usage");
+      Register_Routine
+        (T, Next_Input_Refuses_A_Bad_Input'Access,
+         "next --input refuses a bad input with code 2");
+      Register_Routine
+        (T, Next_Input_Starts_With_The_Accepted_Input'Access,
+         "next --input starts with the accepted input");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Next.Tests;

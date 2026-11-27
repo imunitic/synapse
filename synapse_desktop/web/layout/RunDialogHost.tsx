@@ -6,8 +6,8 @@ import { useLoad } from '../state/useLoad.ts'
 import { RunDialog } from '../components/RunDialog.tsx'
 
 // The run dialog of a pipeline opened from outside its page. It reads the pipeline for the first
-// step's prompt preview; the dialog works while that is pending, and without it when the pipeline
-// cannot be read or has problems.
+// step's prompt preview and its declared input; the dialog works while that is pending, and
+// without them when the pipeline cannot be read or has problems.
 export function RunDialogHost({
   pipeline,
   onClose,
@@ -25,12 +25,20 @@ export function RunDialogHost({
 
   const firstStep =
     state.status === 'ready' && state.data.ok ? state.data.description.steps[0]?.name : undefined
+  // The declared input, null when there is none or the pipeline cannot be read.
+  const input =
+    state.status === 'loading'
+      ? undefined
+      : state.status === 'ready' && state.data.ok
+        ? state.data.description.input
+        : null
 
   return (
     <RunDialog
       pipeline={pipeline}
       firstStep={firstStep}
       firstStepPending={state.status === 'loading'}
+      input={input}
       onClose={onClose}
       onStarted={onStarted}
       onStartInteractive={onStartInteractive}

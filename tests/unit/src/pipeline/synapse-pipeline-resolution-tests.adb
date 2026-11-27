@@ -85,6 +85,12 @@ package body Synapse.Pipeline.Resolution.Tests is
          & " B [System => Judge, Outcomes => {""Maybe"": ""Unsure.""}];"
          & " C [Harness => Claude, Prompt => ""x""]; }");
       F.Add_File
+        ("/defs/Declared.synapse",
+         "Pipeline Declared [Input => {""fields"": {""task_id"": "
+         & "{""type"": ""string"", ""required"": true, "
+         & """description"": ""The task.""}}}] "
+         & "{ A [Harness => Claude, Prompt => ""x""]; }");
+      F.Add_File
         ("/defs/Bare.synapse", "Pipeline Bare { A [Prompt => ""x""]; }");
       F.Add_File
         ("/defs/Ghosts.synapse",
@@ -415,6 +421,37 @@ package body Synapse.Pipeline.Resolution.Tests is
          "a step that declares none has none");
    end Outcomes_Come_From_The_Step_Else_Its_System;
 
+   procedure A_Pipelines_Input_Is_Resolved_As_Declared
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P     : constant Resolved.Pipeline := Resolve_OK ("Declared");
+      Field : JSON.Value;
+   begin
+      Assert
+        (JSON.Kind_Of (P.Input) = JSON.JSON_Object
+         and then JSON.Has_Member (P.Input, "fields"),
+         "the declaration is carried as an object");
+      Field :=
+        JSON.Member_Value (JSON.Member_Value (P.Input, "fields"), "task_id");
+      Assert
+        (JSON.As_String (JSON.Member_Value (Field, "description")) =
+           "The task."
+         and then JSON.As_String (JSON.Member_Value (Field, "type")) =
+                  "string",
+         "its fields are as written");
+   end A_Pipelines_Input_Is_Resolved_As_Declared;
+
+   procedure A_Pipeline_Without_Input_Resolves_With_A_Null_Input
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (JSON.Kind_Of (Resolve_OK ("Plain").Input) = JSON.JSON_Null,
+         "no Input is a null Input");
+   end A_Pipeline_Without_Input_Resolves_With_A_Null_Input;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -426,6 +463,12 @@ package body Synapse.Pipeline.Resolution.Tests is
    procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T, A_Pipelines_Input_Is_Resolved_As_Declared'Access,
+         "A pipeline's Input is resolved as declared");
+      Register_Routine
+        (T, A_Pipeline_Without_Input_Resolves_With_A_Null_Input'Access,
+         "A pipeline without Input resolves with a null Input");
       Register_Routine
         (T, Outcomes_Come_From_The_Step_Else_Its_System'Access,
          "Outcomes come from the step, else its system");

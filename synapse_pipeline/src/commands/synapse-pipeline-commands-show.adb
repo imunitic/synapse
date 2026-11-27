@@ -8,6 +8,7 @@ with Synapse.Pipeline.Syntax;
 with Synapse.Pipeline.Commands.Usage;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Descriptions;
+with Synapse.Pipeline.Inputs;
 with Synapse.Pipeline.Prompts;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Search_Paths;
@@ -247,6 +248,36 @@ package body Synapse.Pipeline.Commands.Show is
         & " characters";
    end Instruction_Line;
 
+   --  The declared input, one line per field, or nothing without a
+   --  declaration.
+   function Input_Lines (Declared : JSON.Value) return String is
+      Result : Unbounded_String;
+   begin
+      if JSON.Kind_Of (Declared) /= JSON.JSON_Object then
+         return "";
+      end if;
+      declare
+         Fields : constant JSON.Value :=
+           JSON.Member_Value (Declared, "fields");
+      begin
+         Append (Result, "input:" & LF);
+         for I in 1 .. JSON.Length (Fields) loop
+            declare
+               F : constant JSON.Value := JSON.Element (Fields, I);
+            begin
+               Append
+                 (Result,
+                  "  " & Text_Of (F, "name") & "  " & Text_Of (F, "type")
+                  & "  "
+                  & (if JSON.As_Boolean (JSON.Member_Value (F, "required"))
+                     then "required" else "optional")
+                  & "  " & Text_Of (F, "description") & LF);
+            end;
+         end loop;
+      end;
+      return To_String (Result);
+   end Input_Lines;
+
    --  The description for a person.
    function Layout (Document : JSON.Value) return String is
       Steps  : constant JSON.Value := JSON.Member_Value (Document, "steps");
@@ -316,6 +347,7 @@ package body Synapse.Pipeline.Commands.Show is
          "  limits  timeout " & Shown (Limits, "default_timeout_seconds")
          & "s  steps " & Shown (Limits, "step_ceiling") & "  runner "
          & Text_Of (Limits, "runner") & LF);
+      Append (Result, Input_Lines (JSON.Member_Value (Document, "input")));
       return To_String (Result);
    end Layout;
 
@@ -421,6 +453,20 @@ package body Synapse.Pipeline.Commands.Show is
                if not Read then
                   return 1;
                end if;
+               --  The prompt is shown with the input a run would start with,
+               --  and not for one a run would refuse.
+               declare
+                  Taken : constant Inputs.Acceptance :=
+                    Inputs.Accept_Input (Item.Input, Input);
+               begin
+                  if not Taken.Accepted then
+                     for Problem of Taken.Problems loop
+                        Complain (Env, "error: " & To_String (Problem) & LF);
+                     end loop;
+                     return 2;
+                  end if;
+                  Input := Taken.Input;
+               end;
             end if;
             declare
                Chosen  : constant Resolved.Step := Item.Steps (Index);
@@ -443,7 +489,8 @@ package body Synapse.Pipeline.Commands.Show is
                           then JSON.Null_Value
                           else JSON.Make_String (Slot)),
                        Outcomes        => Chosen.Outcomes,
-                       Interactive     => Interactive);
+                       Interactive     => Interactive,
+                       Declared_Input  => Item.Input);
                   Prompt : constant String := Prompts.Text_Of (Parts);
                begin
                   Say

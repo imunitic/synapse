@@ -1,5 +1,7 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Object_Schema;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Durations;
 with Synapse.Pipeline.Guards;
 with Synapse.Pipeline.Harnesses;
@@ -75,6 +77,10 @@ package body Synapse.Pipeline.Attributes is
       elsif Name = "Outcomes" then
          return
            (True, Both, [Syntax.JSON_Value => True, others => False]);
+      elsif Name = "Input" then
+         return
+           (True, [Pipeline_Context => True, others => False],
+            [Syntax.JSON_Value => True, others => False]);
       elsif Name = "Max_Iterations" then
          return
            (True, [Edge_Context => True, others => False],
@@ -128,6 +134,21 @@ package body Synapse.Pipeline.Attributes is
      (Error_Options.Of_Value
         (Source_Errors.Make (Message, Item.Item.Line, Item.Item.Column)));
 
+   --  Every problem in Problems, joined by "; ", since one attribute gives
+   --  one error.
+   function Joined (Problems : Synapse.Core.Text_Lists.Vector) return String
+   is
+      Result : Unbounded_String;
+   begin
+      for Problem of Problems loop
+         if Length (Result) > 0 then
+            Append (Result, "; ");
+         end if;
+         Append (Result, Problem);
+      end loop;
+      return To_String (Result);
+   end Joined;
+
    function Check
      (Where : Context; Item : Syntax.Attribute) return Error_Options.Option
    is
@@ -147,7 +168,17 @@ package body Synapse.Pipeline.Attributes is
             "'" & Name & "' takes " & Accepts (Spec.Values) & ", not "
             & Describe (Item.Item.Kind));
       end if;
-      if Name = "Prompt" and then Item.Item.Kind = Syntax.String_Value
+      if Name = "Input" then
+         declare
+            Problems : constant Synapse.Core.Text_Lists.Vector :=
+              Synapse.Core.Object_Schema.Validate_Declaration
+                (Item.Item.Json);
+         begin
+            if not Problems.Is_Empty then
+               return At_Value (Item, "'Input': " & Joined (Problems));
+            end if;
+         end;
+      elsif Name = "Prompt" and then Item.Item.Kind = Syntax.String_Value
         and then Length (Item.Item.Text) = 0
       then
          return At_Value (Item, "'Prompt' is empty");

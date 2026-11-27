@@ -51,7 +51,8 @@ package body Synapse.Pipeline.Commands.Check.Tests is
       Assert (Run (Env (F), Args) = 2, "none");
       Assert
         (F.Base.Console.Err_Text =
-         "usage: synapse-pipeline check <pipeline> [--interactive]" & LF,
+         "usage: synapse-pipeline check <pipeline> [--interactive] "
+         & "[--input <file>|-]" & LF,
          "says how");
       Assert (Run (Env (F), Args ("A", "B")) = 2, "two");
       Assert
@@ -284,6 +285,136 @@ package body Synapse.Pipeline.Commands.Check.Tests is
       end;
    end A_Step_That_Tests_Outcomes_It_Never_Declared_Is_A_Warning;
 
+   --  A pipeline that declares one required task id and optional
+   --  instructions.
+   procedure Add_Declared (F : in out Fixture) is
+   begin
+      F.Files.Add_File
+        ("/defs/Declared.synapse",
+         "Pipeline Declared [Input => {""fields"": {"
+         & """task_id"": {""type"": ""string"", ""required"": true, "
+         & """pattern"": ""^[a-z]+-[0-9]+$"", "
+         & """description"": ""The task.""}, "
+         & """instructions"": {""type"": ""string"", "
+         & """description"": ""Extra requirements.""}}}] "
+         & "{ Develop [Harness => Claude, Prompt => ""Implement.""]; }");
+   end Add_Declared;
+
+   procedure Check_Input_Accepts_A_Valid_Input (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+      G : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_Declared (F);
+      Set_Up (G);
+      Add_Declared (G);
+      F.Files.Add_File ("/in.json", "{""task_id"": ""synapse-70""}");
+      Assert
+        (Run (Env (F), Args ("Declared", "--input", "/in.json")) = 0
+         and then F.Base.Console.Err_Text = "",
+         "accepted: " & F.Base.Console.Err_Text);
+      Assert
+        (Run (Env (G), Args ("Declared")) = 0
+         and then F.Base.Console.Out_Text = G.Base.Console.Out_Text,
+         "printed as without an input: " & F.Base.Console.Out_Text);
+   end Check_Input_Accepts_A_Valid_Input;
+
+   procedure Check_Input_Reports_Every_Problem_With_Code_2
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_Declared (F);
+      F.Files.Add_File ("/in.json", "{""task"": ""x"", ""instructions"": 3}");
+      Assert
+        (Run (Env (F), Args ("Declared", "--input", "/in.json")) = 2,
+         "refused with code 2: " & F.Base.Console.Err_Text);
+      Assert
+        (F.Base.Console.Out_Text = "",
+         "nothing on standard output: " & F.Base.Console.Out_Text);
+      Assert
+        (Has (F.Base.Console.Err_Text, "error: input.task: unknown field" & LF)
+         and then Has
+                    (F.Base.Console.Err_Text,
+                     "error: input.task_id: required field is missing" & LF)
+         and then Has
+                    (F.Base.Console.Err_Text,
+                     "error: input.instructions: expected string" & LF),
+         "every problem: " & F.Base.Console.Err_Text);
+   end Check_Input_Reports_Every_Problem_With_Code_2;
+
+   procedure Check_Input_Dash_Reads_Standard_Input
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+      G : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_Declared (F);
+      F.Base.Console.Set_Stdin ("{""task_id"": ""synapse-70""}");
+      Assert
+        (Run (Env (F), Args ("Declared", "--input", "-")) = 0,
+         "accepted from standard input: " & F.Base.Console.Err_Text);
+      Set_Up (G);
+      Add_Declared (G);
+      G.Base.Console.Set_Stdin ("{""task_id"": ""Not A Task""}");
+      Assert
+        (Run (Env (G), Args ("--input", "-", "Declared")) = 2
+         and then Has
+                    (G.Base.Console.Err_Text,
+                     "error: input.task_id: does not match required pattern"),
+         "refused from standard input: " & G.Base.Console.Err_Text);
+   end Check_Input_Dash_Reads_Standard_Input;
+
+   procedure Check_Input_Twice_Is_A_Usage_Error (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_Declared (F);
+      F.Files.Add_File ("/in.json", "{""task_id"": ""synapse-70""}");
+      Assert
+        (Run
+           (Env (F),
+            Args ("Declared", "--input", "/in.json", "--input", "/in.json"))
+         = 2
+         and then Has
+                    (F.Base.Console.Err_Text, "usage: synapse-pipeline check")
+         and then F.Base.Console.Out_Text = "",
+         "twice: " & F.Base.Console.Err_Text);
+      Assert
+        (Run (Env (F), Args ("Declared", "--input")) = 2
+         and then F.Base.Console.Out_Text = "",
+         "a missing path");
+   end Check_Input_Twice_Is_A_Usage_Error;
+
+   procedure Check_Input_On_A_Pipeline_Without_Input_Accepts_Anything
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+      G : aliased Fixture;
+   begin
+      Set_Up (F);
+      Set_Up (G);
+      F.Files.Add_File ("/in.json", "{""anything"": [1, ""two""]}");
+      Assert
+        (Run (Env (F), Args ("Develop_Feature", "--input", "/in.json")) = 0
+         and then F.Base.Console.Err_Text = "",
+         "an object: " & F.Base.Console.Err_Text);
+      G.Base.Console.Set_Stdin ("""just a sentence""");
+      Assert
+        (Run (Env (G), Args ("Develop_Feature", "--input", "-")) = 0
+         and then G.Base.Console.Err_Text = "",
+         "a string: " & G.Base.Console.Err_Text);
+   end Check_Input_On_A_Pipeline_Without_Input_Accepts_Anything;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -321,6 +452,21 @@ package body Synapse.Pipeline.Commands.Check.Tests is
          "The default harness comes from the environment");
       Register_Routine
         (T, Check_Is_In_The_Usage'Access, "Check is in the usage");
+      Register_Routine
+        (T, Check_Input_Accepts_A_Valid_Input'Access,
+         "check --input accepts a valid input");
+      Register_Routine
+        (T, Check_Input_Reports_Every_Problem_With_Code_2'Access,
+         "check --input reports every problem with code 2");
+      Register_Routine
+        (T, Check_Input_Dash_Reads_Standard_Input'Access,
+         "check --input - reads standard input");
+      Register_Routine
+        (T, Check_Input_Twice_Is_A_Usage_Error'Access,
+         "check --input twice is a usage error");
+      Register_Routine
+        (T, Check_Input_On_A_Pipeline_Without_Input_Accepts_Anything'Access,
+         "check --input on a pipeline without Input accepts anything");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Check.Tests;

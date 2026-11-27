@@ -228,6 +228,91 @@ package body Synapse.Pipeline.Descriptions.Tests is
       end;
    end The_Limits_Apply_And_The_Environment_Is_Left_Out;
 
+   --  The input member of Sample described with Declared as its `Input`.
+   function Input_Of (Declared : String) return JSON.Value is
+      Item     : Resolved.Pipeline := Sample;
+      Settings : Configs.Config;
+   begin
+      if Declared'Length > 0 then
+         Item.Input := Parsed (Declared);
+      end if;
+      return JSON.Member_Value (Describe (Item, Settings), "input");
+   end Input_Of;
+
+   procedure Input_Is_Null_Without_A_Declaration
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Settings : Configs.Config;
+      Document : constant JSON.Value := Describe (Sample, Settings);
+   begin
+      Assert
+        (JSON.Has_Member (Document, "input")
+         and then JSON.Kind_Of (JSON.Member_Value (Document, "input")) =
+                  JSON.JSON_Null,
+         "input is there, and null");
+      Assert
+        (JSON.Member_Key (Document, 3) = "input",
+         "input comes after name");
+   end Input_Is_Null_Without_A_Declaration;
+
+   procedure Input_Lists_Fields_In_Order_With_Their_Rules
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Input : constant JSON.Value :=
+        Input_Of
+          ("{""fields"": {"
+           & """task_id"": {""type"": ""string"", ""required"": true,"
+           & " ""pattern"": ""^[a-z]+-[0-9]+$"","
+           & " ""description"": ""The task.""},"
+           & """mode"": {""type"": ""string"", ""enum"": [""a"", ""b""],"
+           & " ""min_length"": 1, ""const"": ""a"","
+           & " ""description"": ""The mode.""}},"
+           & """checks"": [{""rule"": {""!!"": [{""var"": ""task_id""}]},"
+           & " ""message"": ""needs a task""}]}");
+   begin
+      Assert
+        (JSON.To_String (Input) =
+         "{""fields"":["
+         & "{""name"":""task_id"",""type"":""string"",""required"":true,"
+         & """description"":""The task."",""pattern"":""^[a-z]+-[0-9]+$""},"
+         & "{""name"":""mode"",""type"":""string"",""required"":false,"
+         & """description"":""The mode."",""min_length"":1,""const"":""a"","
+         & """enum"":[""a"",""b""]}],"
+         & """checks"":[{""rule"":{""!!"":[{""var"":""task_id""}]},"
+         & """message"":""needs a task""}],"
+         & """single_text_field"":""task_id""}",
+         "the fields in order, with their rules: " & JSON.To_String (Input));
+   end Input_Lists_Fields_In_Order_With_Their_Rules;
+
+   procedure A_List_Of_Items_With_Fields_Nests (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Input : constant JSON.Value :=
+        Input_Of
+          ("{""fields"": {"
+           & """tags"": {""type"": ""list"", ""items"": ""string"","
+           & " ""description"": ""Tags.""},"
+           & """files"": {""type"": ""list"", ""required"": true,"
+           & " ""description"": ""Files."", ""items"": {""fields"": {"
+           & """path"": {""type"": ""string"", ""required"": true,"
+           & " ""description"": ""A path.""}}}}}}");
+   begin
+      Assert
+        (JSON.To_String (Input) =
+         "{""fields"":["
+         & "{""name"":""tags"",""type"":""list"",""required"":false,"
+         & """description"":""Tags."",""items"":""string""},"
+         & "{""name"":""files"",""type"":""list"",""required"":true,"
+         & """description"":""Files."",""items"":{""fields"":["
+         & "{""name"":""path"",""type"":""string"",""required"":true,"
+         & """description"":""A path.""}]}}],"
+         & """checks"":[],""single_text_field"":null}",
+         "items with fields nest in the same shape: "
+         & JSON.To_String (Input));
+   end A_List_Of_Items_With_Fields_Nests;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -253,6 +338,15 @@ package body Synapse.Pipeline.Descriptions.Tests is
       Register_Routine
         (T, The_Limits_Apply_And_The_Environment_Is_Left_Out'Access,
          "The limits are the configuration's and its environment is not");
+      Register_Routine
+        (T, Input_Is_Null_Without_A_Declaration'Access,
+         "Input is null without a declaration");
+      Register_Routine
+        (T, Input_Lists_Fields_In_Order_With_Their_Rules'Access,
+         "Input lists fields in order with their rules");
+      Register_Routine
+        (T, A_List_Of_Items_With_Fields_Nests'Access,
+         "A list of items with fields nests");
    end Register_Tests;
 
 end Synapse.Pipeline.Descriptions.Tests;

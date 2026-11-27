@@ -95,7 +95,7 @@ no inline or anonymous definitions. A reference is checked for the kind its attr
 ## Pipelines
 
 A pipeline body holds steps and edges. An attribute list between the name and the body is optional,
-and takes only `Description`.
+and takes only `Description` and `Input`.
 
 ```
 Pipeline Name [Description => "..."] {
@@ -120,6 +120,7 @@ Pipeline Name [Description => "..."] {
 | `Prompt` | step, system, agent | string, or the name of a Prompt definition | Instructions: the text itself, or the text of that definition. |
 | `Prompt` | prompt | string | The prompt's text. |
 | `Description` | pipeline, system, agent, prompt | string | A short text for a person. Not part of any prompt. |
+| `Input` | pipeline | JSON object | The fields the pipeline's input has, each with what it means. Optional; see [Input](#input). |
 | `Harness` | step, system | `Claude`, `Codex` or `Opencode` | What runs the session. |
 | `Model` | step, system | name or string | The model the harness is asked to use. |
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` or `Full_Access` | What the session may do. Default `Workspace_Write`. |
@@ -156,6 +157,66 @@ step runs, the text of each prompt it names becomes part of its prompt, as an in
 
 Files next to a prompt have no place in it. A step that needs files names their location in its
 prompt, and gets access to them through its `Permissions`.
+
+## Input
+
+A pipeline may say what input it takes with `Input`. Its value is a JSON object in Synapse's schema
+language: rules for each field, and JsonLogic `checks` for rules across fields. Vault note schemas
+use the same language, so [Vault note schemas](synapse-note-schema.md) describes each rule in full:
+
+```
+Pipeline Implement_Task_Note [Input => {
+  "fields": {
+    "task_id": {"type": "string", "required": true,
+                "pattern": "^[a-z][a-z0-9-]*-[0-9]{3,}$",
+                "description": "The id of the Synapse Vault task note to implement, such as synapse-067."},
+    "instructions": {"type": "string",
+                     "description": "Extra requirements for this run only, in plain words."}
+  }
+}] {
+   Implement [Harness => Claude, Prompt => "Implement the task note named by task_id."];
+}
+```
+
+- `fields` is required and names at least one field. A field name is lowercase letters, digits and
+  underscores, starting with a letter.
+- Each field takes the schema language's field rules: `type` (`string`, `integer`, `boolean`,
+  `timestamp` or `list`), `required`, `min_length`, `const`, `pattern` and `enum`. The rules that
+  only make sense for a stored note, `mutable`, `format`, `timezone` and `update_on`, and the type
+  `any`, are refused in an input.
+- `description` is required on every field. It says what the field means, and the prompt shows it.
+- A `list` says what its items are with `items`: a type name (`"items": "string"`), or
+  `"items": {"fields": {...}}`, a set of fields written with exactly the same rules, lists included.
+  There is no other way to give an input structure.
+- `checks` is optional. It is a list of JsonLogic rules, each with an optional `message`. A rule reads
+  the input's fields directly, as `{"var": "task_id"}`, and may use only the built-in operators. The
+  checks run only when every field is right.
+
+The input is closed: a field the declaration does not name is an error. An optional field given as
+`""` or `[]` counts as not given, and is left out of the input the steps see. When the declaration has
+exactly one required field and it is a `string`, a plain JSON string is accepted as that field, so
+`echo '"synapse-067"' | synapse-pipeline run Implement_Task_Note --input -` works.
+
+An input that breaks the declaration is refused before anything runs. `run`, `next --input`,
+`check --input` and `show --step --input` report every problem, one `error:` line each, and exit
+with code 2. A pipeline without `Input` accepts any input, or none, as it is.
+
+With `Input`, each step's prompt shows the input as a list instead of raw JSON: every declared field in
+order, its value, and its description on the next line. A field that was not given reads
+`(not given)`. A string is written as it is, an integer or a boolean as JSON, and a list puts each item
+on its own line, an item with fields as compact JSON. For the example above, started with
+`{"task_id": "synapse-067"}`:
+
+```
+The pipeline was started with this input:
+- task_id: synapse-067
+  The id of the Synapse Vault task note to implement, such as synapse-067.
+- instructions: (not given)
+  Extra requirements for this run only, in plain words.
+```
+
+So a prompt refers to a field by its name ("the task note named by task_id") and need not explain it.
+`show` reports the declaration, and `show --format json` gives it as `input`.
 
 ## Results and guards
 
@@ -261,6 +322,7 @@ nothing in the pipeline can catch the failure.
 - that every step has a harness, a known permission level and a well-formed duration;
 - that a system does not name a system;
 - that every guard is a rule the evaluator can run, and every back-edge is bounded;
-- that a step that declares `Outcomes` declares well (words and one-line meanings) and has no edge testing a word it does not declare.
+- that a step that declares `Outcomes` declares well (words and one-line meanings) and has no edge testing a word it does not declare;
+- that a pipeline's `Input` uses only the known rules, gives every field a `description`, has well-formed patterns, and has checks the evaluator can run.
 
 All the problems found are reported together.

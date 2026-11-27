@@ -35,6 +35,11 @@ package Synapse.Pipeline.Sessions is
       Previous_Output : Synapse.Core.JSON.Value;
       Settings        : Configs.Config;
 
+      --  The pipeline's `Input` declaration, null when it has none: the
+      --  prompt then writes the input as a list of the declared fields.
+      Declared_Input  : Synapse.Core.JSON.Value :=
+        Synapse.Core.JSON.Null_Value;
+
       --  How long the session may take: the step's own limit, else the
       --  configuration's.
       Timeout_Seconds : Positive := Configs.Default_Timeout;
@@ -51,12 +56,15 @@ package Synapse.Pipeline.Sessions is
       Execution_Id    : Ada.Strings.Unbounded.Unbounded_String;
    end record;
 
-   --  The request to run Item as the next session of the run in State.
+   --  The request to run Item as the next session of the run in State, for
+   --  a pipeline whose `Input` declaration is Declared_Input.
    function Request_For
-     (Item     : Resolved.Step;
-      Run      : States.State;
-      Settings : Configs.Config;
-      Attempt  : Positive := 1) return Session_Request;
+     (Item           : Resolved.Step;
+      Run            : States.State;
+      Settings       : Configs.Config;
+      Attempt        : Positive := 1;
+      Declared_Input : Synapse.Core.JSON.Value :=
+        Synapse.Core.JSON.Null_Value) return Session_Request;
 
    --  What a session came to: a result that passed the envelope's checks, or
    --  a failure. A runner never reports that the ceiling was reached; only the

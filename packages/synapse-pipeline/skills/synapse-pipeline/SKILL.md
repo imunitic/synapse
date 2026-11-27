@@ -86,6 +86,7 @@ Pipeline Review_Change {
 | `Prompt` | step, system, agent | string (instructions inline), or the name of a `Prompt` definition |
 | `Prompt` | prompt | string: the prompt's text |
 | `Description` | pipeline, system, agent, prompt | string, for a person; never part of a prompt |
+| `Input` | pipeline | JSON object declaring the input's fields, each with a description (see "Declaring the input") |
 | `Harness` | step, system | `Claude`, `Codex` or `Opencode` |
 | `Model` | step, system | name or string |
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` (default) or `Full_Access` |
@@ -96,6 +97,32 @@ Pipeline Review_Change {
 | `Max_Iterations` | edge | integer, at least 1 |
 
 How a step is built: its own attributes override its system's; a `Prompt` on the step replaces the system's, whether each is a text or a name; the agent's `Prompt` is the **role** (who the session is) and the step's is the **assignment** (what to do). A step with no harness of its own, from its system or from `SYNAPSE_PIPELINE_HARNESS`, is an error: always give a harness on the step or its system.
+
+## Declaring the input
+
+When a pipeline needs input, declare it with `Input` in the pipeline's attribute list, so the input is checked before anything runs and every step's prompt explains each field. The value is written in Synapse's schema language, the same one vault note schemas use: field rules, and JsonLogic `checks` for rules across fields:
+
+```
+-- Implement_Task_Note.synapse
+Pipeline Implement_Task_Note [Input => {
+  "fields": {
+    "task_id": {"type": "string", "required": true,
+                "pattern": "^[a-z][a-z0-9-]*-[0-9]{3,}$",
+                "description": "The id of the Synapse Vault task note to implement, such as synapse-067."},
+    "instructions": {"type": "string",
+                     "description": "Extra requirements for this run only, in plain words."}
+  }
+}] {
+   Implement [Harness => Claude, Prompt => "Implement the task note named by task_id. Treat instructions, when given, as part of the task."];
+}
+```
+
+- `fields` maps each field name (lowercase letters, digits and underscores, starting with a letter) to its rules: `type` (`string`, `integer`, `boolean`, `timestamp` or `list`), `required`, `min_length`, `const`, `pattern`, `enum`, and a `description`, which every field must have. `mutable`, `format`, `timezone`, `update_on` and the type `any` are refused.
+- A `list` gives its items with `items`: a type name, or `{"fields": {...}}` written with the same rules.
+- `checks` (optional) is a list of JsonLogic rules over the fields, each with an optional `message`: `{"var": "task_id"}` reads a field.
+- The input is closed: a field not declared is an error. An optional field given as `""` or `[]` counts as not given. With exactly one required `string` field, a plain JSON string fills it.
+
+A bad input is refused with exit code 2 and every problem listed, by `run`, `next --input`, `check --input` and `show --step --input`. The program writes the input into each step's prompt as a list, each field with its value and its description. So **a prompt names a field ("the task note named by task_id") and does not explain the input**: the description is the one place that says what a field means. Check a sample input with `synapse-pipeline check <Pipeline> --input -`.
 
 ## Results and routing
 
@@ -180,7 +207,7 @@ To run a pipeline inside the current session instead, with each step a subagent 
 
 ## Commands
 
-- `synapse-pipeline check <pipeline> [--interactive]`: validate; nothing is run. With `--interactive`, also check that every step's harness can run a step interactively.
+- `synapse-pipeline check <pipeline> [--interactive] [--input <file>|-]`: validate; nothing is run. With `--interactive`, also check that every step's harness can run a step interactively. With `--input`, also check that input against the pipeline's `Input` (exit code 2 and every problem when refused).
 - `synapse-pipeline show <name> [--format json|text] [--step <step> [--input <file>|-]]`: describe a pipeline's steps, settings and edges, or a system, an agent or a prompt with the definitions that use it; with `--step`, print the prompt that step is started with.
 - `synapse-pipeline definitions [--format json|text]`: every pipeline, system, agent and prompt there is, with its file and description, and the files that did not load.
 - `synapse-pipeline next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-`: the state a run starts in, or the state after a step's result; for running a pipeline in a session (see `synapse-pipeline-execute`).
