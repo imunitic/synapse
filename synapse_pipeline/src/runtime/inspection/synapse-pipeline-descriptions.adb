@@ -1,6 +1,7 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Optional_Text;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Inputs;
 with Synapse.Pipeline.Outcomes;
@@ -79,10 +80,18 @@ package body Synapse.Pipeline.Descriptions is
       then JSON.Member_Value (Item, Key)
       else JSON.Null_Value);
 
+   No_Names : Synapse.Core.Text_Lists.Vector;
+
    --  The fields of a declaration's `fields` mapping, in declared order, each
    --  as an object with its name and its rules; a rule that is not written is
-   --  left out, except `required`, which is then false.
-   function Fields_JSON (Fields : JSON.Value) return JSON.Value is
+   --  left out, except `required`, which is then false. With With_From, each
+   --  field also says where it came from: "pipeline" when its name is one of
+   --  Named, else "step".
+   function Fields_JSON
+     (Fields    : JSON.Value;
+      Named     : Synapse.Core.Text_Lists.Vector := No_Names;
+      With_From : Boolean := False) return JSON.Value
+   is
       Count : constant Natural :=
         (if JSON.Kind_Of (Fields) = JSON.JSON_Object
          then JSON.Length (Fields) else 0);
@@ -93,7 +102,7 @@ package body Synapse.Pipeline.Descriptions is
             Rule     : constant JSON.Value := JSON.Member_At (Fields, I);
             Required : constant JSON.Value :=
               Member_Or_Null (Rule, "required");
-            Members  : JSON.Member_Array (1 .. 9);
+            Members  : JSON.Member_Array (1 .. 10);
             Last     : Natural := 0;
 
             procedure Add (Key : String; Item : JSON.Value) is
@@ -137,6 +146,14 @@ package body Synapse.Pipeline.Descriptions is
                       else Of_Items));
                end;
             end if;
+            if With_From then
+               Add
+                 ("from",
+                  JSON.Make_String
+                    (if Named.Contains
+                          (To_Unbounded_String (JSON.Member_Key (Fields, I)))
+                     then "pipeline" else "step"));
+            end if;
             Items (I) := JSON.Make_Object (Members (1 .. Last));
          end;
       end loop;
@@ -169,9 +186,22 @@ package body Synapse.Pipeline.Descriptions is
       end;
    end Input_JSON;
 
+   --  The pipeline's `Data` declaration, as `fields`; null when it declares
+   --  none.
+   function Shapes_JSON (Declared : JSON.Value) return JSON.Value is
+     (if JSON.Kind_Of (Declared) /= JSON.JSON_Object then JSON.Null_Value
+      else JSON.Make_Object
+             ([Member
+                 ("fields",
+                  Fields_JSON (Member_Or_Null (Declared, "fields")))]));
+
    --  A step's `Data` declaration, as `fields` and `checks`; null when it
-   --  declares none.
-   function Data_JSON (Declared : JSON.Value) return JSON.Value is
+   --  declares none. Each field says whether it came from the pipeline,
+   --  that is whether its name is one of Named.
+   function Data_JSON
+     (Declared : JSON.Value; Named : Synapse.Core.Text_Lists.Vector)
+      return JSON.Value
+   is
    begin
       if JSON.Kind_Of (Declared) /= JSON.JSON_Object then
          return JSON.Null_Value;
@@ -181,7 +211,9 @@ package body Synapse.Pipeline.Descriptions is
       begin
          return JSON.Make_Object
            ([Member ("fields",
-                     Fields_JSON (Member_Or_Null (Declared, "fields"))),
+                     Fields_JSON
+                       (Member_Or_Null (Declared, "fields"), Named,
+                        With_From => True)),
              Member
                ("checks",
                 (if JSON.Kind_Of (Checks) = JSON.JSON_Array then Checks
@@ -189,14 +221,22 @@ package body Synapse.Pipeline.Descriptions is
       end;
    end Data_JSON;
 
-   --  The fields of an outcome's data, or null when it has none.
-   function Outcome_Data_JSON (Fields : JSON.Value) return JSON.Value is
-     (if JSON.Kind_Of (Fields) = JSON.JSON_Object then Fields_JSON (Fields)
+   --  The fields of an outcome's data, or null when it has none; each says
+   --  whether it came from the pipeline, as in Data_JSON.
+   function Outcome_Data_JSON
+     (Fields : JSON.Value; Named : Synapse.Core.Text_Lists.Vector)
+      return JSON.Value
+   is
+     (if JSON.Kind_Of (Fields) = JSON.JSON_Object
+      then Fields_JSON (Fields, Named, With_From => True)
       else JSON.Null_Value);
 
    --  The outcomes a step declares, each as its word, meaning and the fields
    --  of its data (null when it has none); null when it declares none.
-   function Outcomes_JSON (Declared : JSON.Value) return JSON.Value is
+   function Outcomes_JSON
+     (Declared : JSON.Value; Named : Synapse.Core.Text_Lists.Vector)
+      return JSON.Value
+   is
    begin
       if JSON.Kind_Of (Declared) /= JSON.JSON_Object then
          return JSON.Null_Value;
@@ -218,7 +258,8 @@ package body Synapse.Pipeline.Descriptions is
                     ("data",
                      Outcome_Data_JSON
                        (Outcomes.Data_Of
-                          (Declared, JSON.Member_Key (Declared, I))))]);
+                          (Declared, JSON.Member_Key (Declared, I)),
+                        Named))]);
          end loop;
          return JSON.Make_Array (Items);
       end;
@@ -246,8 +287,9 @@ package body Synapse.Pipeline.Descriptions is
                (if Item.Timeout_Seconds > 0 then Item.Timeout_Seconds
                 else Settings.Default_Timeout_Seconds)),
           Member ("retries", Count (Item.Retries)),
-          Member ("data", Data_JSON (Item.Data)),
-          Member ("outcomes", Outcomes_JSON (Item.Outcomes)),
+          Member ("data", Data_JSON (Item.Data, Item.Named_Fields)),
+          Member
+            ("outcomes", Outcomes_JSON (Item.Outcomes, Item.Named_Fields)),
           Member ("role", Instruction_JSON (Item.Role)),
           Member ("assignment", Instruction_JSON (Item.Assignment)),
           Member ("origins", Origins_JSON (Item.Origins))]));
@@ -274,6 +316,7 @@ package body Synapse.Pipeline.Descriptions is
         ([Member ("format", JSON.Make_String (Format)),
           Member ("name", Text (Pipeline.Name)),
           Member ("input", Input_JSON (Pipeline.Input)),
+          Member ("data", Shapes_JSON (Pipeline.Data)),
           Member ("steps", JSON.Make_Array (Steps)),
           Member ("edges", JSON.Make_Array (Edges)),
           Member

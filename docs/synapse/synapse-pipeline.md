@@ -255,7 +255,8 @@ prints nothing on standard output. Each step reports the `outcomes` it declares,
 `Data` has a `data:` block with one line per field, an outcome with `data` has its field lines under
 it, and a pipeline that
 declares `Input` ends with an `input:` block, one line per field with its type, whether it is required
-and its description. `show <system>` and
+and its description. A pipeline that declares `Data` has a `data:` block after it, in the same shape,
+and a step's or outcome's field line that came from the pipeline's `Data` ends with `(pipeline)`. `show <system>` and
 `show <agent>` describe that definition and the definitions that use it, and `show <pipeline> --step
 <step>` prints the prompt the step is started with, a marked slot standing for the result of the step
 before. With `--input`, that prompt shows the input as `run` would write it, and an input `run` would
@@ -452,6 +453,7 @@ fixed names, and a change to them is a new format.
 | `format` | `synapse-pipeline-description/v1` |
 | `name` | the pipeline's name |
 | `input` | the pipeline's `Input`, or null when it has none: `fields` in the order declared, each with `name`, `type`, `required`, `description`, and `min_length`, `const`, `pattern`, `enum` and `items` when written (`items` is a type name or `{"fields": [...]}` in the same shape); `checks` as written; and `single_text_field`, the field a plain string fills, or null |
+| `data` | the pipeline's `Data`, or null when it has none: `fields` in the order declared, in the shape of `input`'s fields |
 | `steps` | in the order declared: `name`, `harness`, `model`, `permissions` (the level in effect), `timeout_seconds` (the limit in effect), `retries`, `data`, `outcomes`, `role`, `assignment`, `origins` |
 | `edges` | in the order declared: `index`, `from`, `to`, `guard` (a JsonLogic rule; null when unconditional), `max_iterations` (null when unbounded) |
 | `limits` | `default_timeout_seconds`, `step_ceiling`, `runner` |
@@ -459,6 +461,8 @@ fixed names, and a change to them is a new format.
 `data` is the step's `Data`, or null when it has none: `fields` in the order declared, in the shape
 of `input`'s fields, and `checks` as written. `outcomes` is null when the step declares none, or a list
 of `{"word", "meaning", "data"}`, where `data` is that outcome's fields in the same shape, or null.
+Names are already replaced by the pipeline's declarations, and each field of a step's or an outcome's
+`data` has `from`: `pipeline` when the step named it, `step` when it is written inline.
 `role` and `assignment` are `{"kind": "prompt", "text": ...}` or null; a named prompt is described by
 its text. `origins` lists the system, the agent and the prompts a step was built from, each with
 `kind` (`system`, `agent` or `prompt`), `name` and `file`. An edge's `index` counts from 0 and is its position in `state.fired`.

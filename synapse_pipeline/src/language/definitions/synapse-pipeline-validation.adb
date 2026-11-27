@@ -4,6 +4,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.Text_Lists;
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Attributes;
+with Synapse.Pipeline.Data_Shapes;
 with Synapse.Pipeline.Guards;
 with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Source_Errors;
@@ -420,12 +421,24 @@ package body Synapse.Pipeline.Validation is
          Index : Step_Maps.Map;
          Count : Natural := 0;
 
-         --  The data fields S's outcomes declare, each once.
+         --  The pipeline's `Data` as written: the fields its steps name.
+         Shapes : constant Synapse.Core.JSON.Value :=
+           Json_Of (Item.Attributes, "Data");
+
+         --  S's Data, own or its system's, with its names replaced.
+         function Resolved_Data (S : Syntax.Step)
+            return Synapse.Core.JSON.Value is
+           (Data_Shapes.Resolve_Data
+              (Shapes, Step_Or_System_Json (Defs, S, "Data")));
+
+         --  The data fields S's outcomes declare, each once, with their
+         --  names replaced.
          function Outcome_Fields (S : Syntax.Step)
             return Synapse.Core.Text_Lists.Vector
          is
             Declared : constant Synapse.Core.JSON.Value :=
-              Declared_Outcomes (Defs, S);
+              Data_Shapes.Resolve_Outcomes
+                (Shapes, Declared_Outcomes (Defs, S));
             Result   : Synapse.Core.Text_Lists.Vector;
          begin
             for Word of Keys_Of (Declared) loop
@@ -444,7 +457,7 @@ package body Synapse.Pipeline.Validation is
          --  outcome's data.
          procedure Check_Declared_Once (S : Syntax.Step) is
             Own : constant Synapse.Core.Text_Lists.Vector :=
-              Fields_Of (Step_Or_System_Json (Defs, S, "Data"));
+              Fields_Of (Resolved_Data (S));
          begin
             for Field of Outcome_Fields (S) loop
                if Own.Contains (Field) then
@@ -457,12 +470,68 @@ package body Synapse.Pipeline.Validation is
             end loop;
          end Check_Declared_Once;
 
+         --  Reports every name S's Data or an outcome's data gives that the
+         --  pipeline does not declare, and every field they write inline
+         --  under a name the pipeline declares.
+         procedure Check_Named_Data (S : Syntax.Step) is
+            Step_Name : constant String := Name_Of (S.Name);
+            Data      : constant Synapse.Core.JSON.Value :=
+              Step_Or_System_Json (Defs, S, "Data");
+            Declared  : constant Synapse.Core.JSON.Value :=
+              Declared_Outcomes (Defs, S);
+
+            --  Where a field is, after its name: nothing for the step's
+            --  Data (Word is empty), the outcome for an outcome's data. An
+            --  outcome's word is never empty.
+            function In_Outcome (Word : String) return String is
+              (if Word = "" then "" else " in its outcome '" & Word & "'");
+
+            procedure Check_One (Value : Synapse.Core.JSON.Value;
+                                 Word  : String) is
+            begin
+               if Data_Shapes.Is_Named (Value) then
+                  for Field of Data_Shapes.Undeclared (Shapes, Value) loop
+                     Add_At
+                       (File, S.Name,
+                        "step '" & Step_Name & "' names the data field '"
+                        & To_String (Field) & "'" & In_Outcome (Word)
+                        & ", which the pipeline does not declare");
+                  end loop;
+               else
+                  declare
+                     Inline : constant Synapse.Core.Text_Lists.Vector :=
+                       (if Word = "" then Fields_Of (Value)
+                        else Keys_Of (Value));
+                  begin
+                     for Field of Inline loop
+                        if Data_Shapes.Declares (Shapes, To_String (Field))
+                        then
+                           Add_At
+                             (File, S.Name,
+                              "step '" & Step_Name & "' declares the data "
+                              & "field '" & To_String (Field) & "'"
+                              & In_Outcome (Word) & " inline, which the "
+                              & "pipeline declares; name it instead");
+                        end if;
+                     end loop;
+                  end;
+               end if;
+            end Check_One;
+         begin
+            Check_One (Data, "");
+            for Word of Keys_Of (Declared) loop
+               Check_One
+                 (Outcomes.Data_Of (Declared, To_String (Word)),
+                  To_String (Word));
+            end loop;
+         end Check_Named_Data;
+
          --  Reports every data field a guard on E reads that the step it
          --  leaves, From, does not declare, when From declares data at all.
          procedure Check_Guard_Data (E : Syntax.Edge; From : Syntax.Step) is
             use type Synapse.Core.JSON.Kind;
             Data     : constant Synapse.Core.JSON.Value :=
-              Step_Or_System_Json (Defs, From, "Data");
+              Resolved_Data (From);
             Own      : constant Synapse.Core.Text_Lists.Vector :=
               Fields_Of (Data);
             By_Words : constant Synapse.Core.Text_Lists.Vector :=
@@ -542,6 +611,7 @@ package body Synapse.Pipeline.Validation is
                      & "one");
                end if;
             end;
+            Check_Named_Data (S);
             Check_Declared_Once (S);
          end loop;
 
@@ -645,6 +715,7 @@ package body Synapse.Pipeline.Validation is
            Namespaces.Element (Defs, Name);
          Item   : Syntax.Definition renames Loaded.Item;
          Said   : Synapse.Core.Text_Lists.Set;
+         Named  : Synapse.Core.Text_Lists.Set;
       begin
          for E of Item.Edges loop
             declare
@@ -678,6 +749,37 @@ package body Synapse.Pipeline.Validation is
                   end;
                end if;
             end;
+         end loop;
+
+         for S of Item.Steps loop
+            for Field of
+              Data_Shapes.Names_Of (Step_Or_System_Json (Defs, S, "Data"))
+            loop
+               Named.Include (To_String (Field));
+            end loop;
+            declare
+               Declared : constant Synapse.Core.JSON.Value :=
+                 Declared_Outcomes (Defs, S);
+            begin
+               for Word of Keys_Of (Declared) loop
+                  for Field of Data_Shapes.Names_Of
+                    (Outcomes.Data_Of (Declared, To_String (Word)))
+                  loop
+                     Named.Include (To_String (Field));
+                  end loop;
+               end loop;
+            end;
+         end loop;
+         for Field of Fields_Of (Json_Of (Item.Attributes, "Data")) loop
+            if not Named.Contains (To_String (Field)) then
+               Advice.Append
+                 (Source_Errors.With_File
+                    (Source_Errors.Make
+                       ("the pipeline declares the data field '"
+                        & To_String (Field) & "', which no step names",
+                        Item.Name.Line, Item.Name.Column),
+                     To_String (Loaded.Path)));
+            end if;
          end loop;
       end;
       return Advice;

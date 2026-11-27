@@ -810,6 +810,110 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       end;
    end Show_Prints_Each_Steps_Data;
 
+   --  A pipeline that declares a task note and a blocker in its Data; its
+   --  first step names the task note in its Data and the blocker in its
+   --  Blocked outcome.
+   procedure Add_A_Pipeline_With_Named_Data (F : in out Fixture) is
+   begin
+      F.Files.Add_File
+        ("/defs/Naming.synapse",
+         "Pipeline Naming [Data => {""fields"": {"
+         & """task_note"": {""type"": ""string"","
+         & " ""required"": true, ""description"": ""The task note.""},"
+         & """blocker"": {""type"": ""string"","
+         & " ""required"": true, ""description"": ""Why.""}}}]"
+         & " { A [Harness => Claude, Prompt => ""Do A."","
+         & " Outcomes => {""Done"": ""It is done."","
+         & " ""Blocked"": {""description"": ""It is not."","
+         & " ""data"": [""blocker""]}},"
+         & " Data => [""task_note""]];"
+         & " B [Harness => Claude, Prompt => ""Do B.""];"
+         & " A -> B [When => Done]; }");
+   end Add_A_Pipeline_With_Named_Data;
+
+   procedure Show_Prints_The_Pipelines_Data_Shapes
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Pipeline_With_Named_Data (F);
+      Assert
+        (Run (Env (F), Args ("Naming")) = 0,
+         "it can run: " & F.Base.Console.Err_Text);
+      Assert
+        (Has
+           (F.Base.Console.Out_Text,
+            LF & "data:" & LF
+            & "  task_note  string  required  The task note." & LF
+            & "  blocker  string  required  Why." & LF),
+         "a line per declared field: " & F.Base.Console.Out_Text);
+      Assert
+        (not Has (F.Base.Console.Out_Text, LF & "data:" & LF & "  task_note"
+                  & "  string  required  The task note.  (pipeline)"),
+         "the shapes themselves are not marked: " & F.Base.Console.Out_Text);
+   end Show_Prints_The_Pipelines_Data_Shapes;
+
+   procedure Show_Marks_A_Steps_Field_That_Came_From_The_Pipeline
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+      G : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Pipeline_With_Named_Data (F);
+      Assert
+        (Run (Env (F), Args ("Naming")) = 0,
+         "it can run: " & F.Base.Console.Err_Text);
+      Assert
+        (Has
+           (F.Base.Console.Out_Text,
+            "    data:" & LF
+            & "      task_note  string  required  The task note.  (pipeline)"
+            & LF),
+         "the step's named field: " & F.Base.Console.Out_Text);
+      Assert
+        (Has
+           (F.Base.Console.Out_Text,
+            "    outcome Blocked  It is not." & LF
+            & "      blocker  string  required  Why.  (pipeline)" & LF),
+         "the outcome's named field: " & F.Base.Console.Out_Text);
+      Set_Up (G);
+      Add_A_Pipeline_With_Data (G);
+      Assert
+        (Run (Env (G), Args ("Handing")) = 0
+         and then not Has (G.Base.Console.Out_Text, "(pipeline)"),
+         "an inline field is not marked: " & G.Base.Console.Out_Text);
+   end Show_Marks_A_Steps_Field_That_Came_From_The_Pipeline;
+
+   procedure Show_Step_Writes_The_Contract_Of_A_Step_That_Names_Its_Data
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Pipeline_With_Named_Data (F);
+      Assert
+        (Run (Env (F), Args ("Naming", "--step", "A")) = 0,
+         "the step: " & F.Base.Console.Err_Text);
+      declare
+         Prompt : constant String := F.Base.Console.Out_Text;
+      begin
+         Assert
+           (Has (Prompt, "Put these fields in data:" & LF
+                         & "- task_note (string, required): The task note."
+                         & LF),
+            "the named field with its declaration: " & Prompt);
+         Assert
+           (Has (Prompt, "With Blocked, also put:" & LF
+                         & "- blocker (string, required): Why." & LF),
+            "the outcome's named field with its declaration: " & Prompt);
+      end;
+   end Show_Step_Writes_The_Contract_Of_A_Step_That_Names_Its_Data;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -887,6 +991,15 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Register_Routine
         (T, Show_Prints_Each_Steps_Data'Access,
          "show prints each step's data");
+      Register_Routine
+        (T, Show_Prints_The_Pipelines_Data_Shapes'Access,
+         "show prints the pipeline's data shapes");
+      Register_Routine
+        (T, Show_Marks_A_Steps_Field_That_Came_From_The_Pipeline'Access,
+         "show marks a step's field that came from the pipeline");
+      Register_Routine
+        (T, Show_Step_Writes_The_Contract_Of_A_Step_That_Names_Its_Data'Access,
+         "show --step writes the contract of a step that names its data");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Show.Tests;

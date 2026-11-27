@@ -13,7 +13,7 @@ Requires `synapse-pipeline` on `PATH`. Run `synapse-pipeline --help` first; if i
 
 1. **Pin down the workflow.** Ask only for what is missing: the steps and what each one does, which step decides to loop back and on what condition, what the first step is given, what the run should end with, and whether any step must be unable to change files. Do not invent requirements the user did not state.
 2. **Look at what exists.** List `${XDG_CONFIG_HOME:-$HOME/.config}/synapse-pipeline/` (and any directory in `SYNAPSE_PIPELINE_PATH`). Every definition lives in one namespace shared by pipelines, systems, agents and prompts, so reuse an existing agent, system or prompt where it fits and never write a name that is taken. If a file you would write already exists, show the user and ask before replacing it.
-3. **Write the definitions** into `${XDG_CONFIG_HOME:-$HOME/.config}/synapse-pipeline/`, one definition per file (see "Definitions"). **Write a single `Pipeline` file by default**, with each step's role and instructions in its own `Prompt`. Create an `Agent`, `System` or `Prompt` file only when it is useful beyond this pipeline: the user says it will be reused, or an existing one already fits. A role used by one pipeline is the opening sentences of that step's `Prompt`, not a file. Declare `Outcomes` on every step an edge tests, and `Data` on every step that hands data on, and keep the result format, the outcome words and the list of `data` fields out of the prompts (see "Results and routing" and "Declaring data").
+3. **Write the definitions** into `${XDG_CONFIG_HOME:-$HOME/.config}/synapse-pipeline/`, one definition per file (see "Definitions"). **Write a single `Pipeline` file by default**, with each step's role and instructions in its own `Prompt`. Create an `Agent`, `System` or `Prompt` file only when it is useful beyond this pipeline: the user says it will be reused, or an existing one already fits. A role used by one pipeline is the opening sentences of that step's `Prompt`, not a file. Declare `Outcomes` on every step an edge tests, and `Data` on every step that hands data on; a field several steps hand on is declared once in the pipeline's `Data` and named in each step, and keep the result format, the outcome words and the list of `data` fields out of the prompts (see "Results and routing" and "Declaring data").
 4. **Check**: `synapse-pipeline check <Pipeline>`. It reports every problem with file, line and column. Fix them all and re-run until it exits 0. A warning that a step has edges testing its outcome but declares no `Outcomes` is not left as it is: add them.
 5. **Review**: `synapse-pipeline show <Pipeline>` prints the steps with the settings each will run with (harness, permissions, timeout, role, assignment) and the edges. Read it against the workflow you were given and correct any difference.
 6. **Try it without cost** when the user wants confidence before a real run: write an answers file and run with `SYNAPSE_PIPELINE_RUNNER=scripted SYNAPSE_PIPELINE_SCRIPT=<file>` (see "Trying a pipeline without agents").
@@ -98,7 +98,7 @@ Pipeline Review_Change {
 | `Timeout` | step, system | quoted duration: `"90s"`, `"30m"`, `"2h"` (default 30 minutes) |
 | `Retries` | step, system | integer: extra tries after an execution error or an invalid result |
 | `Outcomes` | step, system | JSON object from each outcome word to a one-line meaning, or to `{"description": <meaning>, "data": {<fields>}}` for an outcome that hands on data of its own; declare it on every step an edge guard tests (see below) |
-| `Data` | step, system | JSON object declaring the fields the step puts in `data` whatever its outcome, each with a description (see "Declaring data") |
+| `Data` | pipeline, step, system | on a pipeline, `{"fields": {...}}` declaring once the fields its steps hand on, without `checks`; on a step or system, JSON object declaring the fields the step puts in `data` whatever its outcome, each with a description, or a list of names the pipeline declares (see "Declaring data") |
 | `When` | edge | outcome name, or a JsonLogic rule |
 | `Max_Iterations` | edge | integer, at least 1 |
 
@@ -160,10 +160,29 @@ Implement [Harness => Claude, Prompt => "Implement the next unchecked item of th
 ```
 
 - `Data` holds whatever the outcome; an outcome's `data` (a bare field mapping) holds only with that outcome. The step's data is the two merged, and a field is declared once per step: not in both.
-- **A value later steps need, such as `task_note`, is in the `Data` of every step that hands it on.** Never write "carry data.x forward" or a list of `data` fields into a prompt: the program writes the declared fields into the prompt itself, each with its type, whether it is required and its description.
+- **A value later steps need, such as `task_note`, is in the `Data` of every step that hands it on.** Declare it once in the pipeline's `Data` and name it in each step (see below). Never write "carry data.x forward" or a list of `data` fields into a prompt: the program writes the declared fields into the prompt itself, each with its type, whether it is required and its description.
 - The answer's `data` is checked: a missing required field, a field not declared, or a value that breaks a rule is a contract failure, tried again under `Retries` with a prompt that names each problem. A step with no `Data` and no outcome `data` is not checked.
 - A guard leaving a step that declares data may read only the fields that step declares: `check` refuses `{"var": "data.x"}` when `x` is not declared there.
 - A step takes its own `Data`, else its system's. `show` lists the fields, and `show <Pipeline> --step <Step>` shows the prompt with them.
+
+**Declare a field several steps hand on once, on the pipeline, and name it in each step.** A pipeline's `Data` is `{"fields": {...}}` with the same field rules, no `checks` and no values. A step's `Data` and an outcome's `data` are then a list of names:
+
+```
+Pipeline Build_Task [Data => {"fields": {
+   "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
+   "remaining": {"type": "integer", "required": true, "description": "The number of unchecked items left."}
+}}] {
+   Implement [Harness => Claude, Prompt => "Implement the next unchecked item of the task note named by task_note.",
+      Data => ["task_note", "remaining"]];
+   Review [Harness => Claude, Prompt => "Review the change against the task note named by task_note.",
+      Data => ["task_note"]];
+   Implement -> Implement [When => {">": [{"var": "data.remaining"}, 0]}, Max_Iterations => 100];
+}
+```
+
+- A step's `Data` is either a list of names or inline, never both; an outcome's `data` likewise. A step that needs fields of its own as well declares them on the pipeline too, or writes all its `Data` inline.
+- A name means one thing in the whole pipeline: a field written inline under a name the pipeline declares is an error, and so is a name the pipeline does not declare. `check` warns about a declared field no step names.
+- Names are replaced when the pipeline loads, so a named field is checked and prompted exactly like an inline one. Checks across fields stay on the step: write its `Data` inline when it needs them.
 
 ## Choosing settings
 

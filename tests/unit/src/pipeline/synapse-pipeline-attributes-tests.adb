@@ -470,19 +470,93 @@ package body Synapse.Pipeline.Attributes.Tests is
          "'Data' takes a JSON value, not a string", "a string");
    end Data_Is_Accepted_On_A_Step_And_A_System;
 
-   procedure Data_Is_Refused_On_A_Pipeline (T : in out Test_Cases_Class) is
+   procedure Data_Is_Accepted_On_A_Pipeline (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert_Wrong
-        (Pipeline_Context, Named ("Data", A_JSON (Valid_Input)), 1,
-         "'Data' is not an attribute of a pipeline", "a pipeline");
+      Assert_Fine
+        (Pipeline_Context, Named ("Data", A_JSON (Valid_Input)),
+         "on a pipeline");
       Assert_Wrong
         (Edge_Context, Named ("Data", A_JSON (Valid_Input)), 1,
          "'Data' is not an attribute of an edge", "an edge");
       Assert_Wrong
         (Agent_Context, Named ("Data", A_JSON (Valid_Input)), 1,
          "'Data' is not an attribute of an agent", "an agent");
-   end Data_Is_Refused_On_A_Pipeline;
+   end Data_Is_Accepted_On_A_Pipeline;
+
+   procedure A_Pipelines_Data_With_Checks_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Pipeline_Context,
+         Named
+           ("Data",
+            A_JSON
+              ("{""fields"": {""task_id"": {""type"": ""string"", "
+               & """description"": ""The task.""}}, ""checks"": []}")),
+         9, "'Data': a pipeline's Data declares fields only, not checks",
+         "checks");
+   end A_Pipelines_Data_With_Checks_Is_Refused;
+
+   procedure A_Pipelines_Data_That_Is_A_List_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Pipeline_Context, Named ("Data", A_JSON ("[""task_note""]")), 9,
+         "'Data': a pipeline's Data declares fields, not a list of names",
+         "a list");
+   end A_Pipelines_Data_That_Is_A_List_Is_Refused;
+
+   procedure A_Steps_Data_May_Be_A_List_Of_Names
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Fine
+        (Step_Context,
+         Named ("Data", A_JSON ("[""task_note"", ""remaining""]")),
+         "a list of names");
+   end A_Steps_Data_May_Be_A_List_Of_Names;
+
+   procedure A_Steps_Empty_List_Of_Names_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Step_Context, Named ("Data", A_JSON ("[]")), 9,
+         "Data: the list of names is empty", "an empty list");
+   end A_Steps_Empty_List_Of_Names_Is_Refused;
+
+   procedure A_Steps_List_With_A_Name_Twice_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Declared : constant Syntax.Attribute :=
+        Named ("Data", A_JSON ("[""a"", 1, ""a""]"));
+   begin
+      Assert_Wrong
+        (Step_Context, Declared, 9, "Data: 'a' is named twice",
+         "a name twice");
+      Assert_Wrong
+        (Step_Context, Declared, 9,
+         "Data: item 2 is not a name; Data: 'a' is named twice",
+         "every problem, joined");
+   end A_Steps_List_With_A_Name_Twice_Is_Refused;
+
+   procedure A_Systems_Data_May_Be_A_List_Of_Names
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Fine
+        (System_Context, Named ("Data", A_JSON ("[""task_note""]")),
+         "a list of names");
+   end A_Systems_Data_May_Be_A_List_Of_Names;
 
    procedure Carry_Is_An_Unknown_Attribute (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
@@ -590,8 +664,26 @@ package body Synapse.Pipeline.Attributes.Tests is
         (T, Data_Is_Accepted_On_A_Step_And_A_System'Access,
          "Data is accepted on a step and a system");
       Register_Routine
-        (T, Data_Is_Refused_On_A_Pipeline'Access,
-         "Data is refused on a pipeline");
+        (T, Data_Is_Accepted_On_A_Pipeline'Access,
+         "Data is accepted on a pipeline");
+      Register_Routine
+        (T, A_Pipelines_Data_With_Checks_Is_Refused'Access,
+         "A pipeline's Data with checks is refused");
+      Register_Routine
+        (T, A_Pipelines_Data_That_Is_A_List_Is_Refused'Access,
+         "A pipeline's Data that is a list is refused");
+      Register_Routine
+        (T, A_Steps_Data_May_Be_A_List_Of_Names'Access,
+         "A step's Data may be a list of names");
+      Register_Routine
+        (T, A_Steps_Empty_List_Of_Names_Is_Refused'Access,
+         "A step's empty list of names is refused");
+      Register_Routine
+        (T, A_Steps_List_With_A_Name_Twice_Is_Refused'Access,
+         "A step's list with a name twice is refused");
+      Register_Routine
+        (T, A_Systems_Data_May_Be_A_List_Of_Names'Access,
+         "A system's Data may be a list of names");
       Register_Routine
         (T, Carry_Is_An_Unknown_Attribute'Access,
          "Carry is an unknown attribute");

@@ -788,6 +788,261 @@ package body Synapse.Pipeline.Validation.Tests is
          "A declares no Data and no outcome data");
    end A_Step_Without_Data_Is_Not_Checked_For_Its_Guards;
 
+   --  A pipeline header named Name whose Data declares Fields
+   --  (each written as Field writes it), as `Pipeline Name [Data => ...]`.
+   function Declaring (Name, Fields : String) return String is
+     ("Pipeline " & Name & " [Data => {""fields"": {" & Fields & "}}] ");
+
+   procedure A_Step_Naming_An_Undeclared_Data_Field_Is_An_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Undeclared.synapse",
+         Declaring ("Undeclared", Field ("task_note"))
+         & "{ A [Prompt => ""x"", Data => [""task_note"", ""remaining""]]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Undeclared");
+      begin
+         Assert_Count (P, 1, "only the undeclared name");
+         Assert_Has
+           (P, "/defs/Undeclared.synapse",
+            "step 'A' names the data field 'remaining', which the pipeline "
+            & "does not declare", "named at the step");
+      end;
+   end A_Step_Naming_An_Undeclared_Data_Field_Is_An_Error;
+
+   procedure An_Outcome_Naming_An_Undeclared_Data_Field_Is_An_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Undeclared.synapse",
+         Declaring ("Undeclared", Field ("task_note"))
+         & "{ A [Prompt => ""x"", Data => [""task_note""], Outcomes => {"
+         & """Blocked"": {""description"": ""Stuck."", ""data"": "
+         & "[""blocker""]}, ""Done"": ""Done.""}]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Undeclared");
+      begin
+         Assert_Count (P, 1, "only the outcome's undeclared name");
+         Assert_Has
+           (P, "/defs/Undeclared.synapse",
+            "step 'A' names the data field 'blocker' in its outcome "
+            & "'Blocked', which the pipeline does not declare",
+            "named at the step, with the outcome");
+      end;
+   end An_Outcome_Naming_An_Undeclared_Data_Field_Is_An_Error;
+
+   procedure A_Step_Naming_A_Field_Without_A_Pipeline_Data_Is_An_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Namer.synapse",
+         "System Namer [Harness => Claude, Prompt => ""Name."", "
+         & "Data => [""task_note""]];");
+      F.Add_File
+        ("/defs/Plain.synapse",
+         "Pipeline Plain { A [System => Namer]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Plain");
+      begin
+         Assert_Count (P, 1, "the system's name has no declaration");
+         Assert_Has
+           (P, "/defs/Plain.synapse",
+            "step 'A' names the data field 'task_note', which the pipeline "
+            & "does not declare", "reported at the step, in the pipeline");
+      end;
+   end A_Step_Naming_A_Field_Without_A_Pipeline_Data_Is_An_Error;
+
+   procedure An_Inline_Field_Under_A_Declared_Name_Is_An_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Shadow.synapse",
+         Declaring ("Shadow", Field ("task_note"))
+         & "{ A [Prompt => ""x"", Data => {""fields"": {"
+         & Field ("task_note") & ", " & Field ("item") & "}}];"
+         & " B [Prompt => ""x"", Data => [""task_note""]]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Shadow");
+      begin
+         Assert_Count (P, 1, "only the field under a declared name");
+         Assert_Has
+           (P, "/defs/Shadow.synapse",
+            "step 'A' declares the data field 'task_note' inline, which the "
+            & "pipeline declares; name it instead", "named at the step");
+      end;
+   end An_Inline_Field_Under_A_Declared_Name_Is_An_Error;
+
+   procedure An_Inline_Outcome_Field_Under_A_Declared_Name_Is_An_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Shadow.synapse",
+         Declaring ("Shadow", Field ("problems"))
+         & "{ A [Prompt => ""x"", Outcomes => {""Changes_Requested"": {"
+         & """description"": ""Fix it."", ""data"": {" & Field ("problems")
+         & "}}, ""Done"": ""Done.""}]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Shadow");
+      begin
+         Assert_Count (P, 1, "the outcome's field under a declared name");
+         Assert_Has
+           (P, "/defs/Shadow.synapse",
+            "step 'A' declares the data field 'problems' in its outcome "
+            & "'Changes_Requested' inline, which the pipeline declares; "
+            & "name it instead", "named at the step, with the outcome");
+      end;
+   end An_Inline_Outcome_Field_Under_A_Declared_Name_Is_An_Error;
+
+   procedure A_Guard_May_Read_A_Field_That_Came_From_A_Name
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Guarded.synapse",
+         Declaring ("Guarded", Field ("item") & ", " & Field ("blocker"))
+         & "{ A [Prompt => ""x"", Data => [""item""], Outcomes => {"
+         & """Blocked"": {""description"": ""Stuck."", ""data"": "
+         & "[""blocker""]}, ""Done"": ""Done.""}]; B [Prompt => ""x""];"
+         & " A -> B [When => {""=="": [{""var"": ""data.item""}, ""x""]}];"
+         & " A -> End [When => {""=="": [{""var"": [""data.blocker"", """"]},"
+         & " ""x""]}];"
+         & " A -> End [When => {""=="": [{""var"": ""data.other""}, 1]}]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Guarded");
+      begin
+         Assert_Count (P, 1, "named fields are declared, 'other' is not");
+         Assert_Has
+           (P, "/defs/Guarded.synapse",
+            "step 'A' does not declare the data field 'other'",
+            "the field no name gives");
+      end;
+   end A_Guard_May_Read_A_Field_That_Came_From_A_Name;
+
+   procedure A_Name_In_Both_A_Steps_Data_And_An_Outcomes_Data_Is_An_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Both.synapse",
+         Declaring ("Both", Field ("item") & ", " & Field ("blocker"))
+         & "{ A [Prompt => ""x"", Data => [""item""], Outcomes => {"
+         & """Blocked"": {""description"": ""Stuck."", ""data"": "
+         & "[""item"", ""blocker""]}, ""Done"": ""Done.""}]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Both");
+      begin
+         Assert_Count (P, 1, "only the name in both");
+         Assert_Has
+           (P, "/defs/Both.synapse",
+            "step 'A' declares the data field 'item' that its Data "
+            & "declares", "reported as for inline fields");
+      end;
+   end A_Name_In_Both_A_Steps_Data_And_An_Outcomes_Data_Is_An_Error;
+
+   procedure A_Pipeline_Without_Data_And_Inline_Steps_Are_Checked_As_Before
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Inline.synapse",
+         "Pipeline Inline { A [Prompt => ""x"", Data => {""fields"": {"
+         & Field ("item") & "}}, Outcomes => {""Blocked"": {"
+         & """description"": ""Stuck."", ""data"": {" & Field ("blocker")
+         & "}}, ""Done"": ""Done.""}]; B [Prompt => ""x""];"
+         & " A -> B [When => {""=="": [{""var"": ""data.item""}, ""x""]}];"
+         & " A -> End [When => Done]; }");
+      Assert_Count
+        (Problems_Of (F, "Inline"), 0, "inline data with no pipeline Data");
+      Assert_Count
+        (Advise (Definitions.Load (F, Defs_Roots).Definitions, "Inline"), 0,
+         "and nothing to advise");
+   end A_Pipeline_Without_Data_And_Inline_Steps_Are_Checked_As_Before;
+
+   procedure A_Declared_Data_Field_No_Step_Names_Is_A_Warning
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Unused.synapse",
+         Declaring
+           ("Unused",
+            Field ("task_note") & ", " & Field ("blocker") & ", "
+            & Field ("spare"))
+         & "{ A [Prompt => ""x"", Data => [""task_note""], Outcomes => {"
+         & """Blocked"": {""description"": ""Stuck."", ""data"": "
+         & "[""blocker""]}, ""Done"": ""Done.""}]; }");
+      declare
+         P : constant Problem_List :=
+           Advise (Definitions.Load (F, Defs_Roots).Definitions, "Unused");
+      begin
+         Assert_Count (P, 1, "only the field nothing names");
+         Assert_Has
+           (P, "/defs/Unused.synapse",
+            "the pipeline declares the data field 'spare', which no step "
+            & "names", "named at the pipeline");
+         Assert
+           (P.First_Element.Line = 1 and then P.First_Element.Column = 10,
+            "at the pipeline's name: " & Describe (P));
+      end;
+   end A_Declared_Data_Field_No_Step_Names_Is_A_Warning;
+
+   procedure A_Declared_Data_Field_A_System_Names_Is_Not_A_Warning
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Namer.synapse",
+         "System Namer [Harness => Claude, Prompt => ""Name."", "
+         & "Data => [""task_note""], Outcomes => {""Blocked"": {"
+         & """description"": ""Stuck."", ""data"": [""blocker""]}, "
+         & """Done"": ""Done.""}];");
+      F.Add_File
+        ("/defs/Used.synapse",
+         Declaring ("Used", Field ("task_note") & ", " & Field ("blocker"))
+         & "{ A [System => Namer]; }");
+      Assert_Count
+        (Problems_Of (F, "Used"), 0, "the system's names are declared");
+      Assert_Count
+        (Advise (Definitions.Load (F, Defs_Roots).Definitions, "Used"), 0,
+         "the system names both fields");
+   end A_Declared_Data_Field_A_System_Names_Is_Not_A_Warning;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -889,6 +1144,40 @@ package body Synapse.Pipeline.Validation.Tests is
         (T, A_Step_Without_Data_Is_Not_Checked_For_Its_Guards'Access,
          "A step without Data is not checked for the fields its guards "
          & "read");
+      Register_Routine
+        (T, A_Step_Naming_An_Undeclared_Data_Field_Is_An_Error'Access,
+         "A step naming an undeclared data field is an error");
+      Register_Routine
+        (T, An_Outcome_Naming_An_Undeclared_Data_Field_Is_An_Error'Access,
+         "An outcome naming an undeclared data field is an error");
+      Register_Routine
+        (T, A_Step_Naming_A_Field_Without_A_Pipeline_Data_Is_An_Error'Access,
+         "A step naming a field without a pipeline Data is an error");
+      Register_Routine
+        (T, An_Inline_Field_Under_A_Declared_Name_Is_An_Error'Access,
+         "An inline field under a declared name is an error");
+      Register_Routine
+        (T,
+         An_Inline_Outcome_Field_Under_A_Declared_Name_Is_An_Error'Access,
+         "An inline outcome field under a declared name is an error");
+      Register_Routine
+        (T, A_Guard_May_Read_A_Field_That_Came_From_A_Name'Access,
+         "A guard may read a field that came from a name");
+      Register_Routine
+        (T,
+         A_Name_In_Both_A_Steps_Data_And_An_Outcomes_Data_Is_An_Error'Access,
+         "A name in both a step's Data and an outcome's data is an error");
+      Register_Routine
+        (T,
+         A_Pipeline_Without_Data_And_Inline_Steps_Are_Checked_As_Before'Access,
+         "A pipeline without Data and steps with inline Data are checked as "
+         & "before");
+      Register_Routine
+        (T, A_Declared_Data_Field_No_Step_Names_Is_A_Warning'Access,
+         "A declared data field no step names is a warning");
+      Register_Routine
+        (T, A_Declared_Data_Field_A_System_Names_Is_Not_A_Warning'Access,
+         "A declared data field a system names is not a warning");
    end Register_Tests;
 
 end Synapse.Pipeline.Validation.Tests;

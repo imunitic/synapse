@@ -15,6 +15,9 @@ with Synapse.Pipeline.Resolved;
 --             description, and min_length, const, pattern, enum and items
 --             when written), checks (as written, [] when none) and
 --             single_text_field (the field a plain string fills, or null)
+--    data     the pipeline's `Data` declaration, the shapes its steps name,
+--             or null when it declares none: fields, in the shape of
+--             `input`'s
 --    steps    in the order declared: name, harness, model, permissions (the
 --             level in effect), timeout_seconds (the limit in
 --             effect), retries, data, outcomes, role, assignment, origins
@@ -35,6 +38,9 @@ with Synapse.Pipeline.Resolved;
 --  `input`'s) and checks, or null when it declares none. `outcomes` is null
 --  when the step declares none, else one entry per word: word, meaning and
 --  data, the fields of that outcome's data in the same shape, or null.
+--  Each field of a step's `data` and of an outcome's `data` also has `from`:
+--  "pipeline" when the step named it and its rules are the pipeline's
+--  declaration, else "step".
 --
 --  The members are fixed names: a change to them is a new Format.
 

@@ -1,7 +1,9 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Object_Schema;
+with Synapse.Core.JSON;
 with Synapse.Core.Text_Lists;
+with Synapse.Pipeline.Data_Shapes;
 with Synapse.Pipeline.Durations;
 with Synapse.Pipeline.Guards;
 with Synapse.Pipeline.Harnesses;
@@ -13,6 +15,7 @@ package body Synapse.Pipeline.Attributes is
 
    use Ada.Strings.Unbounded;
    use type Syntax.Value_Kind;
+   use type Synapse.Core.JSON.Kind;
 
    type Context_Set is array (Context) of Boolean;
    type Value_Set is array (Syntax.Value_Kind) of Boolean;
@@ -83,7 +86,10 @@ package body Synapse.Pipeline.Attributes is
             [Syntax.JSON_Value => True, others => False]);
       elsif Name = "Data" then
          return
-           (True, Both, [Syntax.JSON_Value => True, others => False]);
+           (True,
+            [Step_Context | System_Context | Pipeline_Context => True,
+             others => False],
+            [Syntax.JSON_Value => True, others => False]);
       elsif Name = "Max_Iterations" then
          return
            (True, [Edge_Context => True, others => False],
@@ -171,7 +177,30 @@ package body Synapse.Pipeline.Attributes is
             "'" & Name & "' takes " & Accepts (Spec.Values) & ", not "
             & Describe (Item.Item.Kind));
       end if;
-      if Name = "Input" or else Name = "Data" then
+      if Name = "Data" and then Where = Pipeline_Context
+        and then Data_Shapes.Is_Named (Item.Item.Json)
+      then
+         return At_Value
+           (Item,
+            "'Data': a pipeline's Data declares fields, not a list of names");
+      elsif Name = "Data" and then Where = Pipeline_Context
+        and then Synapse.Core.JSON.Kind_Of (Item.Item.Json)
+                   = Synapse.Core.JSON.JSON_Object
+        and then Synapse.Core.JSON.Has_Member (Item.Item.Json, "checks")
+      then
+         return At_Value
+           (Item,
+            "'Data': a pipeline's Data declares fields only, not checks");
+      elsif Name = "Data" and then Data_Shapes.Is_Named (Item.Item.Json) then
+         declare
+            Problems : constant Synapse.Core.Text_Lists.Vector :=
+              Data_Shapes.Name_List_Problems (Item.Item.Json, Root => "Data");
+         begin
+            if not Problems.Is_Empty then
+               return At_Value (Item, Joined (Problems));
+            end if;
+         end;
+      elsif Name = "Input" or else Name = "Data" then
          declare
             Root     : constant String :=
               (if Name = "Input" then "input" else Name);
