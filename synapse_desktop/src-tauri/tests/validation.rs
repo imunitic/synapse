@@ -115,6 +115,50 @@ fn the_lists_of_a_generation_request_are_held_to_a_thousand() {
     assert!(check_params("agent.run", &bad_name).is_err());
 }
 
+fn run_input(pipeline: &str, prompt: &str) -> Value {
+    json!({ "kind": "run-input", "pipeline": pipeline, "prompt": prompt })
+}
+
+#[test]
+fn a_run_input_request_with_a_bad_pipeline_name_is_refused() {
+    for name in ["Bad Name", "", "../x", "a/b"] {
+        assert!(
+            check_params("agent.run", &run_input(name, "p")).is_err(),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn an_empty_prompt_of_a_run_input_request_is_refused() {
+    assert!(check_params("agent.run", &run_input("Implement", "")).is_err());
+    assert!(check_params("agent.run", &run_input("Implement", &"x".repeat(20_001))).is_err());
+}
+
+#[test]
+fn a_run_id_with_a_slash_in_a_run_input_request_is_refused() {
+    let mut request = run_input("Implement", "p");
+    request["run"] = json!("a/b");
+    assert!(check_params("agent.run", &request).is_err());
+}
+
+#[test]
+fn current_json_over_the_draft_limit_in_a_run_input_request_is_refused() {
+    let mut request = run_input("Implement", "p");
+    request["current"] = json!("x".repeat(200_001));
+    assert!(check_params("agent.run", &request).is_err());
+}
+
+#[test]
+fn a_valid_run_input_request_passes() {
+    let request = json!({
+        "kind": "run-input", "pipeline": "Implement", "prompt": "the design note about cloning",
+        "harness": "Claude", "model": "sonnet", "current": "{}", "run": "abc_1",
+    });
+    assert!(check_params("agent.run", &request).is_ok());
+    assert!(check_params("agent.run", &run_input("Implement", "p")).is_ok());
+}
+
 #[test]
 fn the_registries_the_vault_folders_and_the_terminals_have_their_limits() {
     refused("registry.add", "entry", json!("x".repeat(1001)));
@@ -168,6 +212,7 @@ fn a_run_id_of_an_agent_run_is_the_form_of_a_run_name_and_a_stop_needs_one() {
         json!({ "kind": "definition", "what": "pipeline", "prompt": "x", "definitions": [] }),
         json!({ "kind": "note", "what": "note", "prompt": "x" }),
         json!({ "kind": "note-edit", "path": "a.md", "prompt": "x" }),
+        json!({ "kind": "run-input", "pipeline": "Implement", "prompt": "x" }),
     ];
     for kind in kinds {
         let with = |run: Value| {

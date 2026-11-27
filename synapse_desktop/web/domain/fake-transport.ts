@@ -108,6 +108,7 @@ export function fakeTransport(world: FakeWorld): FakeTransport {
     generateDefinition: unavailable,
     createNote: unavailable,
     editNote: unavailable,
+    fillRunInput: unavailable,
     restoreNote: unavailable,
     setNoteStatus: unavailable,
     listProjects: unavailable,

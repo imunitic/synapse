@@ -527,6 +527,19 @@ pub enum AgentRunParams {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         run: Option<String>,
     },
+    RunInput {
+        pipeline: String,
+        prompt: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness: Option<Harness>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// The JSON in the editor now, which the description may add to.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        current: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<String>,
+    },
 }
 
 /// Ends the agent run the client started with this id.
@@ -548,6 +561,7 @@ pub enum AgentRunAnswer {
     Definition { text: String },
     Note { path: String },
     NoteEdit { edit: NoteEdit },
+    RunInput { text: String },
 }
 
 /// What a task note's status may be.
@@ -1067,6 +1081,22 @@ impl Validate for AgentRunParams {
                 within("the prompt", prompt, 1, 20_000)?;
                 run_choice(run)?;
                 agent_choice(model)
+            }
+            AgentRunParams::RunInput {
+                pipeline,
+                prompt,
+                model,
+                current,
+                run,
+                ..
+            } => {
+                named("definition name", is_definition_name(pipeline), pipeline)?;
+                within("the prompt", prompt, 1, 20_000)?;
+                if let Some(current) = current {
+                    at_most("the text", current, DRAFT)?;
+                }
+                agent_choice(model)?;
+                run_choice(run)
             }
         }
     }

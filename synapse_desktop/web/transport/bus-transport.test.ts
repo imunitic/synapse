@@ -84,6 +84,37 @@ describe('the Transport over a bus', () => {
     expect(asked.map((a) => (a.params as { run?: string }).run)).toEqual(['r1', 'r2', 'r3'])
   })
 
+  it('fillRunInput sends a run-input agent.run and returns the text', async () => {
+    const { client, host: end } = linkPair()
+    const asked: unknown[] = []
+    serve(end, {
+      handlers: {
+        'agent.run': (params: unknown) => {
+          asked.push(params)
+          return { kind: 'run-input', text: '{\n  "task_id": "synapse-1"\n}' }
+        },
+      } as unknown as Handlers,
+      capabilities: { host: 'fake', shell: true, installActions: false },
+    })
+    const transport = new BusTransport(new Bus(client))
+    const filled = await transport.fillRunInput({
+      pipeline: 'Implement',
+      prompt: 'the task about cloning',
+      current: '{}',
+      run: 'r4',
+    })
+    expect(filled).toEqual({ text: '{\n  "task_id": "synapse-1"\n}' })
+    expect(asked).toEqual([
+      {
+        kind: 'run-input',
+        pipeline: 'Implement',
+        prompt: 'the task about cloning',
+        current: '{}',
+        run: 'r4',
+      },
+    ])
+  })
+
   it('stops an agent run with agent.stop and its id', async () => {
     const { transport, asked } = host()
     await transport.stopAgentRun('run_1')

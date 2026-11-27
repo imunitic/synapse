@@ -324,6 +324,14 @@ const stubScript = (claudeUsage: string): string =>
     '    *FAILCASE*) ev_end "FAILED: the stub was asked to fail"; exit 0 ;;',
     '    *LIVECASE*) exec "$(dirname "$0")/stub-live" ;;',
     '    *"Change one note that already exists"*) exec "$(dirname "$0")/stub-edit" "$prompt" ;;',
+    // Asked to fill in the input of a run, which never streams, it answers in plain text: the
+    // JSON of a task id, or with NOTJSONCASE a sentence instead.
+    '    *"Fill in the input of the pipeline"*)',
+    '      case "$prompt" in *NOTJSONCASE*) echo "I could not find that note."; exit 0 ;; esac',
+    // With SLOWCASE it answers only after 8 seconds, and notes that it did, so a test can see a
+    // stopped run never answered.
+    '      case "$prompt" in *SLOWCASE*) sleep 8; [ -n "$SYNAPSE_STUB_LOG" ] && echo "answered $prompt" >> "$SYNAPSE_STUB_LOG" ;; esac',
+    `      printf '%s\\n' '{"task_id": "synapse-1"}'; exit 0 ;;`,
     '  esac',
     '  ev_start; ev_slow "$prompt"',
     `  printf '%s\\n' "# Stub note" "" "Written by $name" "$prompt" | synapse vault-write "research/Stub note.md"`,

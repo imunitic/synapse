@@ -105,6 +105,20 @@ export interface GenerateRequest {
   run?: string
 }
 
+// A description of the input of a run of a pipeline that declares its Input.
+export interface RunInputRequest {
+  pipeline: string
+  prompt: string
+  // The harness that writes it; the default harness when absent.
+  harness?: Harness
+  // The model it is asked to use; the default model of the harness when absent.
+  model?: string
+  // The JSON in the editor now, which the description may add to.
+  current?: string
+  // The id the client made for this run, to watch and stop it by.
+  run?: string
+}
+
 // The kinds of note an agent can be asked to write.
 export type NoteKind = 'note' | 'task' | 'design'
 
@@ -435,6 +449,8 @@ export interface Transport {
   createNote(request: NoteRequest): Promise<{ path: string }>
   // Has an agent change a note that exists, and puts the text from before back.
   editNote(request: EditNoteRequest): Promise<NoteEdit>
+  // Has an agent write the input of a run from a description; the JSON it wrote, checked but not run.
+  fillRunInput(request: RunInputRequest): Promise<{ text: string }>
   // Ends the run of an agent that has this id. The call that started it then ends as it does
   // after any run; an id that is not running is not an error.
   stopAgentRun(run: string): Promise<void>

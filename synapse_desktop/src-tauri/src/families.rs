@@ -3,7 +3,7 @@
 
 use crate::agents::{
     created_path, edit_note, generate_text, note_prompt, paths_of, reason_of, restore_note,
-    set_note_status, vault_dir_of, AgentChoice, AgentRunner, GenerateRequest, NoteSession,
+    set_note_status, vault_dir_of, Access, AgentChoice, AgentRunner, GenerateRequest, NoteSession,
     NoteSessionRun, OnLine,
 };
 use crate::cli::{refuse_cli, CliRun, CliRunner};
@@ -474,6 +474,7 @@ async fn note_session_of(
             stop: stop.lock().unwrap().take(),
             on_line: on_line.clone(),
             stream,
+            access: Access::Write,
         };
         Box::pin(async move { session.run(run).await })
             as std::pin::Pin<
@@ -560,7 +561,8 @@ fn run_of(request: &AgentRunParams) -> Option<&str> {
     match request {
         AgentRunParams::Definition { run, .. }
         | AgentRunParams::Note { run, .. }
-        | AgentRunParams::NoteEdit { run, .. } => run.as_deref(),
+        | AgentRunParams::NoteEdit { run, .. }
+        | AgentRunParams::RunInput { run, .. } => run.as_deref(),
     }
 }
 
@@ -642,10 +644,14 @@ async fn run_agent(
             let edit = edit_note(&c.cli, config, harness, session, path, prompt, stopped).await?;
             Ok(AgentRunAnswer::NoteEdit { edit })
         }
+        AgentRunParams::RunInput { .. } => Ok(AgentRunAnswer::RunInput {
+            text: crate::run_input::fill_run_input(c, config, request, stop, stopped).await?,
+        }),
     }
 }
 
-/// Makes `handlers` answer what an agent writes: a definition, a note, a change to a note.
+/// Makes `handlers` answer what an agent writes: a definition, a note, a change to a note, the input of
+/// a run.
 pub fn agent_families(handlers: &mut Handlers, context: Arc<Context>) {
     let c = context.clone();
     handlers.on::<AgentRunParams, AgentRunAnswer, _, _>("agent.run", move |request| {

@@ -9,7 +9,9 @@ import {
   noteCommand,
   notePrompt,
   OPENCODE_PERMISSION,
+  OPENCODE_READ_PERMISSION,
   pathsOf,
+  READ_TOOLS,
   reasonOf,
   sessionPrompt,
   streamResult,
@@ -287,6 +289,56 @@ describe('what the session left', () => {
 
   it('reads a listing as one path to a line', () => {
     expect(pathsOf('Index.md\n\nresearch/A.md\n')).toEqual(['Index.md', 'research/A.md'])
+  })
+})
+
+describe('a read session', () => {
+  it('a read session of Claude may only read and search the vault', () => {
+    const loaded: SessionPlan = { ...plan, env: { SYNAPSE_CONTENT_ROOT: '/pkg/synapse' } }
+    const command = noteCommand('Claude', loaded, 'p', [], undefined, false, 'read')
+    const at = command.args.indexOf('--allowedTools')
+    expect(command.args[at + 1]).toBe(READ_TOOLS)
+    expect(READ_TOOLS.split(',')).toEqual([
+      'Bash(synapse vault-search-text *)',
+      'Bash(synapse vault-list)',
+      'Bash(synapse vault-list *)',
+      'Bash(synapse vault-read *)',
+    ])
+    expect(command.args.join(' ')).not.toMatch(/Skill|Read\(|Edit\(/)
+    expect(command.args).toEqual(expect.arrayContaining(['--permission-mode', 'dontAsk']))
+  })
+
+  it('a read session of Codex is read-only with no added folders', () => {
+    const codexPlan: SessionPlan = { ...plan, command: 'codex', args: [] }
+    const command = noteCommand('Codex', codexPlan, 'p', ['/vault'], undefined, false, 'read')
+    expect(command.args).toEqual(expect.arrayContaining(['-s', 'read-only']))
+    expect(command.args).not.toContain('workspace-write')
+    expect(command.args).not.toContain('--add-dir')
+  })
+
+  it('a read session of OpenCode denies edits and all other commands', () => {
+    const opencodePlan: SessionPlan = { ...plan, command: 'opencode', args: [] }
+    const command = noteCommand('Opencode', opencodePlan, 'p', [], undefined, false, 'read')
+    const given = JSON.parse(command.env.OPENCODE_CONFIG_CONTENT ?? '{}') as {
+      permission: typeof OPENCODE_READ_PERMISSION
+    }
+    expect(given.permission).toEqual(OPENCODE_READ_PERMISSION)
+    expect(given.permission.bash).toEqual({
+      '*': 'deny',
+      'synapse vault-search-text *': 'allow',
+      'synapse vault-list*': 'allow',
+      'synapse vault-read *': 'allow',
+    })
+    expect(given.permission.edit).toEqual({ '*': 'deny' })
+    expect(given.permission.webfetch).toBe('deny')
+  })
+
+  it('leaves the write session args unchanged', () => {
+    for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
+      expect(noteCommand(harness, plan, 'p', ['/v'], 'm', false, 'write')).toEqual(
+        noteCommand(harness, plan, 'p', ['/v'], 'm'),
+      )
+    }
   })
 })
 
