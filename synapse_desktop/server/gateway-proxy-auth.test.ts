@@ -22,7 +22,9 @@ describe('authenticated proxy ingress', () => {
     dispatcher.on('upgrade', (req, socket) => {
       dispatched++
       expect(req.headers['x-synapse-proxy-token']).toBeUndefined()
-      socket.end('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n')
+      socket.end(
+        'HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n',
+      )
     })
     const server = createAuthenticatedProxyServer(dispatcher, token)
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
