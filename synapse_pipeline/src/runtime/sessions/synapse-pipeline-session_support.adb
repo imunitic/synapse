@@ -118,7 +118,9 @@ package body Synapse.Pipeline.Session_Support is
          Previous_Output => Request.Previous_Output,
          Outcomes        => Step.Outcomes,
          Interactive     => Interactive,
-         Declared_Input  => Request.Declared_Input);
+         Declared_Input  => Request.Declared_Input,
+         Data            => Step.Data,
+         Refused         => Request.Refused);
    end Prompt_Of;
 
    procedure Add_Settings

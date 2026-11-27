@@ -13,7 +13,9 @@ import {
 import { layoutGraph } from '../domain/graph.ts'
 import type { LiveSession } from '../domain/live.ts'
 import { progressOf, visitsOf, type StepProgress, type Visit } from '../domain/progress.ts'
-import { describeRun } from '../domain/run-graph.ts'
+import type { InputField, PipelineDescription } from '../domain/pipelines.ts'
+import { describeRun, type RunGraph as RunDescription } from '../domain/run-graph.ts'
+import { dataFieldsFor } from '../domain/step-data.ts'
 import { problemsOf, type VisitOutputRead } from '../domain/visit-outputs.ts'
 import { isLiveRun, type TerminalSession } from '../state/state.ts'
 import { transport } from '../transport/index.ts'
@@ -25,7 +27,7 @@ import { JsonTree } from '../components/JsonTree.tsx'
 import { measureGraphText } from '../components/measure-text.ts'
 import { TerminalView } from '../components/TerminalView.tsx'
 import { StatusBadge } from '../components/StatusBadge.tsx'
-import { useLoad } from '../state/useLoad.ts'
+import { useLoad, type LoadState } from '../state/useLoad.ts'
 import { useVisitOutputs } from '../state/useVisitOutputs.ts'
 import { useWatch } from '../state/useWatch.ts'
 
@@ -164,24 +166,41 @@ function TraceVisit({
   )
 }
 
-// What one visit reported: its summary, the problems it listed and its data. A visit that is going
-// on, or that failed, has no outcome and nothing is read for it.
+// The fields the step declares for its data that the data holds, so each can be named with its
+// description. Empty without a description of the pipeline.
+function declaredFieldsHeld(
+  description: PipelineDescription | null,
+  visit: Visit,
+  data: unknown,
+): InputField[] {
+  if (description === null || visit.outcome === null) return []
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return []
+  return dataFieldsFor(description, visit.step, visit.outcome).filter((field) => field.name in data)
+}
+
+// What one visit reported: its summary, the problems it listed, what its declared data fields
+// mean, and its data. A visit that is going on, or that failed, has no outcome and nothing is read
+// for it.
 function OutcomeVisit({
   visit,
   status,
   output,
+  description,
   open,
   onToggle,
 }: {
   visit: Visit
   status: ExecutionRecord['summary']['status']
   output: VisitOutputRead | undefined
+  description: PipelineDescription | null
   open: boolean
   onToggle: () => void
 }) {
   const finished = visit.outcome !== null
   const said = visitText(visit, status)
   const problems = output?.status === 'recorded' ? problemsOf(output.output.data) : []
+  const fields =
+    output?.status === 'recorded' ? declaredFieldsHeld(description, visit, output.output.data) : []
   return (
     <div>
       <div className="trace-row mono">
@@ -221,6 +240,16 @@ function OutcomeVisit({
                   ))}
                 </ul>
               )}
+              {fields.length > 0 && (
+                <dl className="data-fields" aria-label="Data fields">
+                  {fields.map((field) => (
+                    <div key={field.name}>
+                      <dt className="mono">{field.name}</dt>
+                      <dd>{field.description}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
               <JsonTree value={output.output.data} />
             </>
           )}
@@ -230,15 +259,39 @@ function OutcomeVisit({
   )
 }
 
+// The pipeline the run is drawn on, loaded once for the graph and the Outcomes card. A run that
+// is going gives its pipeline exactly, and the answer does not change while it runs. Until the
+// record is read there is nothing to load, and the load stays pending.
+function useRunDescription(
+  id: string,
+  read: boolean,
+  pipeline: string | null,
+  going: boolean,
+): LoadState<RunDescription | null> {
+  const load = useCallback(
+    (): Promise<RunDescription | null> =>
+      !read
+        ? new Promise<never>(() => {})
+        : pipeline === null
+          ? Promise.resolve(null)
+          : describeRun(transport, id, pipeline, going),
+    [id, read, pipeline, going],
+  )
+  return useLoad(load).state
+}
+
 // What each visit of the run reported, in order. The newest finished visit is open; a row the
-// person opened or closed stays so while the page is shown.
+// person opened or closed stays so while the page is shown. The pipeline's description, the one
+// the graph is drawn on, names the data fields each visit declares.
 function Outcomes({
   id,
+  description,
   visits,
   sessions,
   status,
 }: {
   id: string
+  description: PipelineDescription | null
   visits: Visit[]
   sessions: RecordedSession[][]
   status: ExecutionRecord['summary']['status']
@@ -259,6 +312,7 @@ function Outcomes({
               visit={visit}
               status={status}
               output={outputs.get(visit.n)}
+              description={description}
               open={open}
               onToggle={() => {
                 if (!open) read(visit)
@@ -273,16 +327,14 @@ function Outcomes({
 }
 
 // The run on its pipeline: where it has been, which edges it took, where it is.
-function RunGraph({ id, record }: { id: string; record: ExecutionRecord }) {
+function RunGraph({
+  record,
+  state,
+}: {
+  record: ExecutionRecord
+  state: LoadState<RunDescription | null>
+}) {
   const pipeline = record.summary.pipeline
-  // Loaded once: a run that is going gives its pipeline exactly, and the
-  // answer does not change while it runs.
-  const going = record.summary.status === 'running'
-  const load = useCallback(
-    () => (pipeline === null ? Promise.resolve(null) : describeRun(transport, id, pipeline, going)),
-    [id, pipeline, going],
-  )
-  const { state } = useLoad(load)
   const drawn = state.status === 'ready' && state.data?.ok ? state.data : null
   const graph = useMemo(
     () => (drawn === null ? null : layoutGraph(drawn.description, measureGraphText)),
@@ -442,6 +494,12 @@ export function ExecutionPage({
   const load = useCallback(() => readExecution(transport, id), [id])
   const { state, reload } = useLoad(load, REFRESH_MS)
   useWatch('work', reload)
+  const described = useRunDescription(
+    id,
+    state.status === 'ready',
+    state.status === 'ready' ? state.data.summary.pipeline : null,
+    state.status === 'ready' && state.data.summary.status === 'running',
+  )
   // What went wrong when the run was stopped, renamed or deleted.
   const [actionError, setActionError] = useState<string | null>(null)
   // Whether the person opened or closed the card of the terminal; until then it is open while the
@@ -561,7 +619,7 @@ export function ExecutionPage({
           {summary.failure}
         </div>
       )}
-      <RunGraph id={id} record={record} />
+      <RunGraph record={record} state={described} />
       {live !== null && terminal === undefined && <LiveCard live={live} activity={activity} />}
       {terminal !== undefined && (
         <section className="card terminal-card" aria-label="Terminal">
@@ -601,7 +659,17 @@ export function ExecutionPage({
         </dl>
       </section>
       <RecordedFiles id={id} />
-      <Outcomes id={id} visits={visits} sessions={sessions} status={summary.status} />
+      <Outcomes
+        id={id}
+        description={
+          described.status === 'ready' && described.data?.ok === true
+            ? described.data.description
+            : null
+        }
+        visits={visits}
+        sessions={sessions}
+        status={summary.status}
+      />
       <FoldingCard
         label="Trace"
         count={visits.length === 1 ? '1 visit' : `${visits.length} visits`}

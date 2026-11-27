@@ -4,6 +4,7 @@ with Ada.Strings.Unbounded;
 with AUnit.Assertions;
 
 with Synapse.Core.JSON;
+with Synapse.Core.Text_Lists;
 
 package body Synapse.Pipeline.Prompts.Tests is
 
@@ -304,6 +305,172 @@ package body Synapse.Pipeline.Prompts.Tests is
          "no input and no declaration: no input part");
    end Without_A_Declaration_The_Input_Is_Raw_JSON;
 
+   --  A step's Data: a required task note and an optional list of
+   --  problems with fields; and outcomes, one of which has data.
+   Step_Data : constant String :=
+     "{""fields"": {"
+     & """task_note"": {""type"": ""string"", ""required"": true, "
+     & """description"": ""The task note's path.""}, "
+     & """problems"": {""type"": ""list"", ""items"": {""fields"": {"
+     & """file"": {""type"": ""string"", ""required"": true, "
+     & """description"": ""The file.""}}}, "
+     & """description"": ""What is wrong.""}}}";
+
+   Outcomes_With_Data : constant String :=
+     "{""Done"": ""It is done."", "
+     & """Blocked"": {""description"": ""It could not be done."", "
+     & """data"": {""blocker"": {""type"": ""string"", ""required"": true, "
+     & """description"": ""Why.""}}}}";
+
+   procedure The_Contract_Lists_The_Step_s_Data_Fields
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Text : constant String :=
+        Build
+          (Role            => "",
+           Assignment      => "Do it.",
+           Step            => "Implement",
+           Initial_Input   => JSON.Null_Value,
+           Previous_Output => JSON.Null_Value,
+           Outcomes        =>
+             JSON.Parse ("{""Done"": ""It is done.""}").Item,
+           Data            => JSON.Parse (Step_Data).Item);
+   begin
+      Assert
+        (Has (Text, "- Done: It is done." & LF & LF
+                    & "Put these fields in data:" & LF
+                    & "- task_note (string, required): The task note's path."
+                    & LF
+                    & "- problems (list of items with fields, optional): "
+                    & "What is wrong." & LF
+                    & "  - file (string, required): The file." & LF & LF
+                    & "The pipeline decides"),
+         "each field with its type, whether it is required and its "
+         & "description, after the outcome words; got: " & Text);
+      declare
+         Free : constant String :=
+           Build
+             (Role            => "",
+              Assignment      => "Do it.",
+              Step            => "Implement",
+              Initial_Input   => JSON.Null_Value,
+              Previous_Output => JSON.Null_Value,
+              Data            => JSON.Parse (Step_Data).Item);
+      begin
+         Assert
+           (Has (Free, "and may be empty. The object has no other members."
+                       & LF & LF & "Put these fields in data:" & LF
+                       & "- task_note (string, required)"),
+            "with no outcomes declared, the fields follow the contract");
+      end;
+   end The_Contract_Lists_The_Step_s_Data_Fields;
+
+   procedure The_Contract_Lists_An_Outcome_s_Data_Under_Its_Word
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Text : constant String :=
+        Build
+          (Role            => "",
+           Assignment      => "Do it.",
+           Step            => "Implement",
+           Initial_Input   => JSON.Null_Value,
+           Previous_Output => JSON.Null_Value,
+           Outcomes        => JSON.Parse (Outcomes_With_Data).Item);
+   begin
+      Assert
+        (Has (Text, "- Done: It is done." & LF
+                    & "- Blocked: It could not be done." & LF & LF
+                    & "With Blocked, also put:" & LF
+                    & "- blocker (string, required): Why." & LF & LF
+                    & "The pipeline decides"),
+         "the outcome's fields under its word; got: " & Text);
+      Assert
+        (not Has (Text, "Put these fields in data:"),
+         "no step fields without the step's Data");
+   end The_Contract_Lists_An_Outcome_s_Data_Under_Its_Word;
+
+   procedure A_Retry_s_Contract_Names_The_Refused_Problems
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Refused : Synapse.Core.Text_Lists.Vector;
+   begin
+      Refused.Append
+        (To_Unbounded_String ("data.task_note: required field is missing"));
+      Refused.Append (To_Unbounded_String ("data.extra: is not declared"));
+      declare
+         Made : constant Part_Vectors.Vector :=
+           Parts
+             (Role            => "",
+              Assignment      => "Do it.",
+              Step            => "Implement",
+              Initial_Input   => JSON.Null_Value,
+              Previous_Output => JSON.Null_Value,
+              Data            => JSON.Parse (Step_Data).Item,
+              Refused         => Refused);
+         Contract : constant String := To_String (Made.Last_Element.Text);
+         Start    : constant String :=
+           "Your last answer was refused:" & LF
+           & "- data.task_note: required field is missing" & LF
+           & "- data.extra: is not declared" & LF & LF
+           & "When you are done, reply";
+      begin
+         Assert
+           (Made.Last_Element.Kind = Contract_Part
+            and then Contract'Length >= Start'Length
+            and then Contract
+                       (Contract'First .. Contract'First + Start'Length - 1)
+                     = Start,
+            "the contract starts with the problems; got: " & Contract);
+      end;
+   end A_Retry_s_Contract_Names_The_Refused_Problems;
+
+   procedure Without_Data_Or_Refused_The_Prompt_Is_Unchanged
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Outcomes : constant JSON.Value :=
+        JSON.Parse ("{""Done"": ""It is done."", ""Failed"": ""No.""}").Item;
+      Text     : constant String :=
+        Build
+          (Role            => "",
+           Assignment      => "Do it.",
+           Step            => "Implement",
+           Initial_Input   => JSON.Null_Value,
+           Previous_Output => JSON.Null_Value,
+           Outcomes        => Outcomes,
+           Data            => JSON.Null_Value,
+           Refused         => Synapse.Core.Text_Lists.Vectors.Empty_Vector);
+      Free     : constant String :=
+        Build
+          (Role            => "",
+           Assignment      => "Do it.",
+           Step            => "Implement",
+           Initial_Input   => JSON.Null_Value,
+           Previous_Output => JSON.Null_Value);
+   begin
+      Assert
+        (Has (Text, "- Done: It is done." & LF & "- Failed: No." & LF & LF
+                    & "The pipeline decides which step runs next from it, "
+                    & "so report what is true, not what would be "
+                    & "convenient. `summary` says what you did, for a "
+                    & "person. `data` is an object holding anything the next "
+                    & "step needs, and may be empty. The object has no other "
+                    & "members." & LF & LF)
+         and then not Has (Text, "Put these fields")
+         and then not Has (Text, "also put:")
+         and then not Has (Text, "refused"),
+         "the declared-outcome contract is as before; got: " & Text);
+      Assert
+        (Free'Length > 2
+         and then Free (Free'Last - 2 .. Free'Last) = "." & LF & LF
+         and then Has (Free, "The object has no other members." & LF & LF)
+         and then not Has (Free, "Put these fields"),
+         "the free-word contract is as before; got: " & Free);
+   end Without_Data_Or_Refused_The_Prompt_Is_Unchanged;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -341,6 +508,18 @@ package body Synapse.Pipeline.Prompts.Tests is
       Register_Routine
         (T, Without_A_Declaration_The_Input_Is_Raw_JSON'Access,
          "Without a declaration the input is raw JSON as before");
+      Register_Routine
+        (T, The_Contract_Lists_The_Step_s_Data_Fields'Access,
+         "The contract lists the step's data fields");
+      Register_Routine
+        (T, The_Contract_Lists_An_Outcome_s_Data_Under_Its_Word'Access,
+         "The contract lists an outcome's data under its word");
+      Register_Routine
+        (T, A_Retry_s_Contract_Names_The_Refused_Problems'Access,
+         "A retry's contract names the refused problems");
+      Register_Routine
+        (T, Without_Data_Or_Refused_The_Prompt_Is_Unchanged'Access,
+         "Without Data or Refused the prompt is unchanged");
    end Register_Tests;
 
 end Synapse.Pipeline.Prompts.Tests;

@@ -16,37 +16,8 @@ const originSchema = z.object({
   file: z.string(),
 })
 
-// What a step may end with: the word guards test, and what it means.
-const outcomeSchema = z.object({ word: z.string(), meaning: z.string() })
-
-export type StepOutcome = z.infer<typeof outcomeSchema>
-
-const stepSchema = z.object({
-  name: z.string(),
-  harness: z.string(),
-  model: z.string().nullable(),
-  permissions: z.string(),
-  timeout_seconds: z.number(),
-  retries: z.number(),
-  // Null when the step declares none and may end with any word.
-  outcomes: z.array(outcomeSchema).nullable().default(null),
-  role: instructionSchema,
-  assignment: instructionSchema,
-  origins: z.array(originSchema),
-})
-
-const edgeSchema = z.object({
-  index: z.number(),
-  from: z.string(),
-  // A step's name, or End.
-  to: z.string(),
-  // A JsonLogic rule over the step's result; null when the edge is unconditional.
-  guard: z.unknown(),
-  max_iterations: z.number().nullable(),
-})
-
-// One field of a pipeline's `Input`: its rules as written. A list's `items` is a type name, or
-// fields of the same shape.
+// One field of a pipeline's `Input` or a step's `Data`: its rules as written. A list's `items`
+// is a type name, or fields of the same shape.
 export interface InputField {
   name: string
   type: string
@@ -72,6 +43,50 @@ const inputFieldSchema: z.ZodType<InputField> = z.lazy(() =>
     items: z.union([z.string(), z.object({ fields: z.array(inputFieldSchema) })]).optional(),
   }),
 )
+
+// What a step may end with: the word guards test, what it means, and the fields its result's
+// `data` holds with that word, or null when the outcome declares none.
+const outcomeSchema = z.object({
+  word: z.string(),
+  meaning: z.string(),
+  data: z.array(inputFieldSchema).nullable().default(null),
+})
+
+export type StepOutcome = z.infer<typeof outcomeSchema>
+
+// The fields a step's result holds in `data`, whatever its outcome.
+const dataDeclarationSchema = z.object({
+  fields: z.array(inputFieldSchema),
+  checks: z.array(z.unknown()),
+})
+
+export type DataDeclaration = z.infer<typeof dataDeclarationSchema>
+
+const stepSchema = z.object({
+  name: z.string(),
+  harness: z.string(),
+  model: z.string().nullable(),
+  permissions: z.string(),
+  timeout_seconds: z.number(),
+  retries: z.number(),
+  // Null when the step declares no `Data` and its result's data is not checked.
+  data: dataDeclarationSchema.nullable().default(null),
+  // Null when the step declares none and may end with any word.
+  outcomes: z.array(outcomeSchema).nullable().default(null),
+  role: instructionSchema,
+  assignment: instructionSchema,
+  origins: z.array(originSchema),
+})
+
+const edgeSchema = z.object({
+  index: z.number(),
+  from: z.string(),
+  // A step's name, or End.
+  to: z.string(),
+  // A JsonLogic rule over the step's result; null when the edge is unconditional.
+  guard: z.unknown(),
+  max_iterations: z.number().nullable(),
+})
 
 // What a pipeline declares it is started with. `single_text_field` is the field a plain
 // sentence fills, or null when the input must be JSON.

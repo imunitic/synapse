@@ -3,7 +3,11 @@ with Synapse.Core.Optional_Text;
 
 --  The outcomes a step may declare: the words it can end with, each with a
 --  line saying what it means, written as a JSON object from word to meaning.
---  A step that declares none ends with any word.
+--  A meaning is either that line or an object
+--  `{"description": "<line>", "data": {<fields>}}`, whose `data` names the
+--  fields a result with that word puts in `data`, in the field shape of an
+--  object schema (see Synapse.Core.Object_Schema). A step that declares none
+--  ends with any word.
 --
 --  A word is written the way a name is: a letter and then letters, digits and
 --  underscores, so that a guard can name it bare. The words that are keywords
@@ -18,9 +22,18 @@ package Synapse.Pipeline.Outcomes is
 
    --  What is wrong with Declared as the value of an `Outcomes` attribute, or
    --  nothing: it must be an object with at least one member, every key a
-   --  word and every value a one-line string that is not empty.
+   --  word and every value a one-line string that is not empty, or an object
+   --  with only `description` (such a line, required) and `data` (a field
+   --  mapping, optional). Every problem with a `data` is reported, joined by
+   --  "; ", with paths under `Outcomes.<Word>.data`.
    function Problem (Declared : JSON.Value)
       return Synapse.Core.Optional_Text.Option;
+
+   --  What Word means in Declared, from either form; "" when it is not one.
+   function Meaning_Of (Declared : JSON.Value; Word : String) return String;
+
+   --  The field mapping that comes with Word, or null when it has none.
+   function Data_Of (Declared : JSON.Value; Word : String) return JSON.Value;
 
    --  Whether Declared, as given by a step, declares outcomes at all.
    function Is_Declared (Declared : JSON.Value) return Boolean;

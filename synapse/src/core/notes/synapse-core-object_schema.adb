@@ -209,26 +209,30 @@ package body Synapse.Core.Object_Schema is
       end;
    end Check_Fields;
 
-   --  Entry_Rule reports under "schema.checks[N]"; an input says "input.".
-   function As_Input (Message : Unbounded_String) return String is
+   --  Entry_Rule reports under "schema.checks[N]"; a declaration says
+   --  "<Root>.".
+   function Under_Root
+     (Message : Unbounded_String; Root : String) return String
+   is
       Text : constant String := To_String (Message);
       Old  : constant String := "schema.";
    begin
       if Text'Length >= Old'Length
         and then Text (Text'First .. Text'First + Old'Length - 1) = Old
       then
-         return "input." & Text (Text'First + Old'Length .. Text'Last);
+         return Root & "." & Text (Text'First + Old'Length .. Text'Last);
       end if;
       return Text;
-   end As_Input;
+   end Under_Root;
 
    function Validate_Declaration
-     (Declared : JSON.Value) return Synapse.Core.Text_Lists.Vector
+     (Declared : JSON.Value; Root : String := "input")
+      return Synapse.Core.Text_Lists.Vector
    is
       List : Problems;
    begin
       if Kind_Of (Declared) /= JSON_Object then
-         Add (List, "input: must be a mapping");
+         Add (List, Root & ": must be a mapping");
          return List;
       end if;
 
@@ -236,18 +240,18 @@ package body Synapse.Core.Object_Schema is
          if Member_Key (Declared, I) not in "fields" | "checks" then
             Add
               (List,
-               "input." & Member_Key (Declared, I) & ": unsupported key");
+               Root & "." & Member_Key (Declared, I) & ": unsupported key");
          end if;
       end loop;
 
-      Check_Fields (Declared, "input.fields", List);
+      Check_Fields (Declared, Root & ".fields", List);
 
       if Has (Declared, "checks") then
          declare
             Checks : constant Value := Child (Declared, "checks");
          begin
             if Kind_Of (Checks) /= JSON_Array then
-               Add (List, "input.checks: must be a list");
+               Add (List, Root & ".checks: must be a list");
             else
                for I in 1 .. Length (Checks) loop
                   declare
@@ -259,8 +263,9 @@ package body Synapse.Core.Object_Schema is
                      if not Note_Schema.Check_Results.Is_Success (Result) then
                         Add
                           (List,
-                           As_Input
-                             (Note_Schema.Check_Results.Error (Result)));
+                           Under_Root
+                             (Note_Schema.Check_Results.Error (Result),
+                              Root));
                      end if;
                   end;
                end loop;
@@ -373,7 +378,7 @@ package body Synapse.Core.Object_Schema is
    end Failure_Message;
 
    procedure Run_Checks
-     (Checks : Value; Given : Value; List : in out Problems)
+     (Checks : Value; Given : Value; Root : String; List : in out Problems)
    is
    begin
       for I in 1 .. Length (Checks) loop
@@ -403,7 +408,7 @@ package body Synapse.Core.Object_Schema is
                     | JSON_Logic.Pattern_Too_Complex =>
                      Add
                        (List,
-                        "input.checks" & Index_Image (I) & ": " &
+                        Root & ".checks" & Index_Image (I) & ": " &
                         Note_Check.Fault_Name (E));
                end;
             end if;
@@ -412,17 +417,18 @@ package body Synapse.Core.Object_Schema is
    end Run_Checks;
 
    function Validate_Object
-     (Declared, Given : JSON.Value) return Synapse.Core.Text_Lists.Vector
+     (Declared, Given : JSON.Value; Root : String := "input")
+      return Synapse.Core.Text_Lists.Vector
    is
       List : Problems;
    begin
       if Kind_Of (Given) /= JSON_Object then
-         Add (List, "input: expected a JSON object");
+         Add (List, Root & ": expected a JSON object");
          return List;
       end if;
-      Check_Object (Child (Declared, "fields"), Given, "input", List);
+      Check_Object (Child (Declared, "fields"), Given, Root, List);
       if List.Is_Empty and then Has (Declared, "checks") then
-         Run_Checks (Child (Declared, "checks"), Given, List);
+         Run_Checks (Child (Declared, "checks"), Given, Root, List);
       end if;
       return List;
    end Validate_Object;

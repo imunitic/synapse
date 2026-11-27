@@ -2,6 +2,7 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.Failures;
@@ -40,6 +41,11 @@ package Synapse.Pipeline.Sessions is
       Declared_Input  : Synapse.Core.JSON.Value :=
         Synapse.Core.JSON.Null_Value;
 
+      --  The problems with the answer the step's previous attempt gave, its
+      --  outcome or its data, that made the engine refuse it; empty on a
+      --  first attempt and after a session that gave no answer.
+      Refused         : Synapse.Core.Text_Lists.Vector;
+
       --  How long the session may take: the step's own limit, else the
       --  configuration's.
       Timeout_Seconds : Positive := Configs.Default_Timeout;
@@ -57,14 +63,18 @@ package Synapse.Pipeline.Sessions is
    end record;
 
    --  The request to run Item as the next session of the run in State, for
-   --  a pipeline whose `Input` declaration is Declared_Input.
+   --  a pipeline whose `Input` declaration is Declared_Input. Refused holds
+   --  the problems with the previous attempt's answer, when the engine
+   --  refused one.
    function Request_For
      (Item           : Resolved.Step;
       Run            : States.State;
       Settings       : Configs.Config;
       Attempt        : Positive := 1;
       Declared_Input : Synapse.Core.JSON.Value :=
-        Synapse.Core.JSON.Null_Value) return Session_Request;
+        Synapse.Core.JSON.Null_Value;
+      Refused        : Synapse.Core.Text_Lists.Vector :=
+        Synapse.Core.Text_Lists.Vectors.Empty_Vector) return Session_Request;
 
    --  What a session came to: a result that passed the envelope's checks, or
    --  a failure. A runner never reports that the ceiling was reached; only the

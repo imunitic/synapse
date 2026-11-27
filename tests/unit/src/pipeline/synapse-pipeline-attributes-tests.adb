@@ -454,6 +454,69 @@ package body Synapse.Pipeline.Attributes.Tests is
          "the second field");
    end A_Declaration_Problem_Is_Reported_With_Its_Path;
 
+   procedure Data_Is_Accepted_On_A_Step_And_A_System
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert (Is_Known ("Data"), "Data is known");
+      Assert_Fine
+        (Step_Context, Named ("Data", A_JSON (Valid_Input)), "on a step");
+      Assert_Fine
+        (System_Context, Named ("Data", A_JSON (Valid_Input)),
+         "on a system");
+      Assert_Wrong
+        (Step_Context, Named ("Data", A_String ("x")), 9,
+         "'Data' takes a JSON value, not a string", "a string");
+   end Data_Is_Accepted_On_A_Step_And_A_System;
+
+   procedure Data_Is_Refused_On_A_Pipeline (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Pipeline_Context, Named ("Data", A_JSON (Valid_Input)), 1,
+         "'Data' is not an attribute of a pipeline", "a pipeline");
+      Assert_Wrong
+        (Edge_Context, Named ("Data", A_JSON (Valid_Input)), 1,
+         "'Data' is not an attribute of an edge", "an edge");
+      Assert_Wrong
+        (Agent_Context, Named ("Data", A_JSON (Valid_Input)), 1,
+         "'Data' is not an attribute of an agent", "an agent");
+   end Data_Is_Refused_On_A_Pipeline;
+
+   procedure Carry_Is_An_Unknown_Attribute (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (not Is_Known ("Carry"), "Carry is not known");
+      for Where in Context loop
+         Assert_Wrong
+           (Where, Named ("Carry", A_JSON (Valid_Input)), 1,
+            "unknown attribute 'Carry'", Context'Image (Where));
+      end loop;
+   end Carry_Is_An_Unknown_Attribute;
+
+   --  Two fields, both without a description.
+   Two_Bad_Fields : constant String :=
+     "{""fields"": {""x"": {""type"": ""string""}, "
+     & """y"": {""type"": ""integer""}}}";
+
+   procedure Data_That_Is_Not_A_Valid_Declaration_Lists_Every_Problem
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Declared : constant Syntax.Attribute :=
+        Named ("Data", A_JSON (Two_Bad_Fields));
+   begin
+      Assert_Wrong
+        (Step_Context, Declared, 9,
+         "'Data': Data.fields.x.description: required string is missing",
+         "the first problem, under Data");
+      Assert_Wrong
+        (Step_Context, Declared, 9,
+         "; Data.fields.y.description: required string is missing",
+         "the second problem, joined");
+   end Data_That_Is_Not_A_Valid_Declaration_Lists_Every_Problem;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -523,6 +586,18 @@ package body Synapse.Pipeline.Attributes.Tests is
       Register_Routine
         (T, A_Declaration_Problem_Is_Reported_With_Its_Path'Access,
          "A declaration problem is reported with its path");
+      Register_Routine
+        (T, Data_Is_Accepted_On_A_Step_And_A_System'Access,
+         "Data is accepted on a step and a system");
+      Register_Routine
+        (T, Data_Is_Refused_On_A_Pipeline'Access,
+         "Data is refused on a pipeline");
+      Register_Routine
+        (T, Carry_Is_An_Unknown_Attribute'Access,
+         "Carry is an unknown attribute");
+      Register_Routine
+        (T, Data_That_Is_Not_A_Valid_Declaration_Lists_Every_Problem'Access,
+         "Data that is not a valid declaration lists every problem");
    end Register_Tests;
 
 end Synapse.Pipeline.Attributes.Tests;

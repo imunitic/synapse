@@ -69,7 +69,15 @@ export const DSL_ATTRIBUTES: readonly DslAttribute[] = [
     name: 'Outcomes',
     on: ['step', 'system'],
     value: 'JSON object',
-    meaning: 'The outcomes the step may end with, each with what it means. Optional.',
+    meaning:
+      'The outcomes the step may end with, each with what it means. A meaning may be `{"description": "...", "data": {...}}`, with the fields the result holds with that outcome. Optional.',
+  },
+  {
+    name: 'Data',
+    on: ['step', 'system'],
+    value: 'JSON object',
+    meaning:
+      "The fields the step's result holds in `data`, each with what it means. The next step gets them as its input. Optional.",
   },
   {
     name: 'Input',

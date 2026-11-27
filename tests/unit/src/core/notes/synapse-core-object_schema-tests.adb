@@ -354,6 +354,50 @@ package body Synapse.Core.Object_Schema.Tests is
          "input.count: expected integer", "a field is wrong");
    end Checks_Wait_For_Fields;
 
+   procedure Object_Under_Root (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Declared : constant Value :=
+        Json_Of
+          ("{""fields"": {""item"": {""type"": ""string""," &
+           " ""required"": true, ""description"": ""The item.""}}}");
+   begin
+      Expect
+        (Joined (Validate_Object (Declared, Json_Of ("{}"), Root => "data")),
+         "data.item: required field is missing",
+         "a missing field under data");
+   end Object_Under_Root;
+
+   procedure List_Item_Under_Root (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Declared : constant Value :=
+        Json_Of
+          ("{""fields"": {""problems"": {""type"": ""list""," &
+           " ""description"": ""What is wrong."", ""items"": {""fields"":" &
+           " {""issue"": {""type"": ""string"", ""required"": true," &
+           " ""description"": ""The issue.""}}}}}}");
+   begin
+      Expect
+        (Joined
+           (Validate_Object
+              (Declared,
+               Json_Of ("{""problems"": [{""issue"": ""a""}, {}]}"),
+               Root => "data")),
+         "data.problems[2].issue: required field is missing",
+         "a list item under data");
+   end List_Item_Under_Root;
+
+   procedure Declaration_Under_Root (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Expect
+        (Joined
+           (Validate_Declaration
+              (Json_Of ("{""fields"": {""x"": {""type"": ""string""}}}"),
+               Root => "Data")),
+         "Data.fields.x.description: required string is missing",
+         "a declaration under Data");
+   end Declaration_Under_Root;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -405,6 +449,15 @@ package body Synapse.Core.Object_Schema.Tests is
       Register_Routine
         (T, Checks_Wait_For_Fields'Access,
          "Checks do not run while a field is wrong");
+      Register_Routine
+        (T, Object_Under_Root'Access,
+         "Validate_Object names paths under the given root");
+      Register_Routine
+        (T, List_Item_Under_Root'Access,
+         "A list item field is named under the root");
+      Register_Routine
+        (T, Declaration_Under_Root'Access,
+         "Validate_Declaration names paths under the given root");
    end Register_Tests;
 
 end Synapse.Core.Object_Schema.Tests;

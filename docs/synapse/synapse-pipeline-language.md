@@ -126,7 +126,8 @@ Pipeline Name [Description => "..."] {
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` or `Full_Access` | What the session may do. Default `Workspace_Write`. |
 | `Timeout` | step, system | duration | The most one session may take. |
 | `Retries` | step, system | integer | Extra tries after an execution error or a result that breaks the contract. |
-| `Outcomes` | step, system | JSON object | The outcomes the step may end with, each with what it means. Optional; see [Declaring outcomes](#declaring-outcomes). |
+| `Outcomes` | step, system | JSON object | The outcomes the step may end with, each with what it means and, optionally, the data it hands on. Optional; see [Declaring outcomes](#declaring-outcomes). |
+| `Data` | step, system | JSON object | The fields the step puts in `data` whatever its outcome, each with what it means. Optional; see [Declaring data](#declaring-data). |
 | `When` | edge | outcome name or JSON | The guard. |
 | `Max_Iterations` | edge | integer, at least 1 | How many times the edge may fire. |
 
@@ -228,8 +229,8 @@ Every step ends with one result, in a fixed shape:
 
 - `outcome` is a non-empty string: one word naming what happened. Guards route on it.
 - `summary` is a string, for a person.
-- `data` is an object, empty if there is nothing to hand on. The step's prompt says which fields it
-  should hold.
+- `data` is an object, empty if there is nothing to hand on. The step's `Data` and its outcomes'
+  `data` say which fields it holds; see [Declaring data](#declaring-data).
 - Any other member makes the result invalid, so a guard has exactly these three things to read.
 
 The next step is given the pipeline's initial input and the previous step's result. The last step's
@@ -259,7 +260,7 @@ A step may say which outcomes it can end with:
 ```
 Review [System => Reviewer, Outcomes => {
   "Approved": "Every requirement is met and the tests pass. Choose this only if you found nothing to fix.",
-  "Changes_Requested": "At least one requirement is unmet or a test fails. List each problem in data.problems."
+  "Changes_Requested": "At least one requirement is unmet or a test fails."
 }];
 Review -> Develop [When => Changes_Requested, Max_Iterations => 5];
 ```
@@ -275,13 +276,162 @@ them is strongly suggested wherever an edge tests the outcome, because then:
 
 A word is written like a name: a letter, then letters, digits and underscores, and not a keyword. Each
 meaning is one line of text, and it is all the guidance the session gets on when to choose the word, so
-it should state the condition for choosing it and, where something follows from it, what `data` holds. A step takes its own `Outcomes`, else its system's; an agent has none, so a
+it should state the condition for choosing it. What `data` holds with the word is declared, not
+described; see the object form below and [Declaring data](#declaring-data). A step takes its own `Outcomes`, else its system's; an agent has none, so a
 role can be used in pipelines that choose different words. Only a guard that tests nothing but the
 outcome counts: a bare name or `{"==": [{"var": "outcome"}, "Word"]}`. A rule over `data` is not checked
 against the words.
 
 `check` warns, and still succeeds, when a step has edges that test its outcome and declares no
 `Outcomes`. `show` reports them as `outcomes` on each step.
+
+A meaning may also be written as an object, when the outcome hands on data of its own:
+
+```
+Implement [Agent => Developer, Harness => Claude, Prompt => Implement_Task_Item, Outcomes => {
+  "Done": "The item is implemented and its tests pass.",
+  "Blocked": {"description": "You could not finish the item.",
+              "data": {"blocker": {"type": "string", "required": true,
+                                   "description": "What stopped you, and what a person has to decide."}}}
+}];
+```
+
+The object has only the keys `description`, the one-line meaning as above, and `data`, a mapping from
+field names to field rules, as in `fields` of [Declaring data](#declaring-data). Both forms can be
+mixed in one `Outcomes`. The prompt shows the `description` as the meaning.
+
+### Declaring data
+
+A step may say which fields it puts in `data` with `Data`. Its value has the shape of a pipeline's
+[Input](#input): `fields`, each with its rules and a `description`, and optional JsonLogic `checks`.
+The field rules are the same, and so is the rule that every field has a `description`:
+
+```
+Implement [Harness => Claude, Prompt => Implement_Task_Item, Data => {"fields": {
+  "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
+  "remaining": {"type": "integer", "required": true, "description": "The number of unchecked items left."}
+}}];
+```
+
+- A step's data is the next step's input. The next step is given the previous step's result, `data`
+  included, and nothing else: no field is kept for the rest of the run. A value that several later
+  steps need, such as the name of a task note, is declared in the `Data` of every step that hands it
+  on.
+- A step's data is its `Data` fields and the `data` fields of the outcome it ends with, merged.
+  `Data` holds whatever the outcome; an outcome's `data` holds only with that outcome. A field another
+  outcome declares is not part of it.
+- A field is declared once per step: a name in both the step's `Data` and an outcome's `data` is an
+  error.
+- A step takes its own `Data`, else its system's, as it does `Outcomes`.
+- The program writes the fields into the step's prompt, after the outcome words: "Put these fields in
+  data:" with one line per field (its name, type, whether it is required, and its description), then
+  "With <Word>, also put:" for each outcome that has `data`. So a prompt does not list what goes in
+  `data` or tell the session to hand a field on.
+- The answer's `data` is checked against the merged declaration. It is closed: a field the step does
+  not declare is a problem, as is a missing required field or a value that breaks a rule. An answer
+  with a problem is a `result_contract_failure` and is tried again as `Retries` says. The prompt of
+  the next try starts its contract with "Your last answer was refused:" and one line per problem,
+  such as `- data.remaining: required field is missing`.
+- A step with neither `Data` nor an outcome with `data` has its `data` unchecked, as before.
+- A guard of an edge that leaves a step that declares data may read only fields that step declares,
+  in its `Data` or in one of its outcomes' `data`. `{"var": "data.blocker"}` on an edge from a step
+  that declares no `blocker` is an error in the definition. A step that declares no data is not
+  checked, and the prose of a prompt is never read for fields.
+
+`show` reports a step's `Data` as `data`, and each outcome's fields with the outcome.
+
+This is a whole pipeline written with `Data`. `task_note` and `design_note` are in the `Data` of every
+step that hands them on, and the outcomes that hand on more say so in their own `data`:
+
+```
+-- Turn a Ready design note into a task note, then implement, review and finalize it.
+Pipeline Build_Task [Description => "Compile a Ready design note, then implement, review and finalize it."] {
+   Check_Ready [Harness => Claude, Permissions => Read_Only,
+      Prompt => "Find the design note the input names, and say whether it is ready to build.",
+      Outcomes => {
+        "Ready": {"description": "Exactly one design note matches the input and its status is Ready.",
+                  "data": {"design_note": {"type": "string", "required": true,
+                                           "description": "The design note's vault note name."}}},
+        "Not_Ready": {"description": "No design note matches, more than one does, or its status is not Ready.",
+                      "data": {"reason": {"type": "string", "required": true,
+                                          "description": "Which of these it is."},
+                               "candidates": {"type": "list", "items": "string",
+                                              "description": "The vault note names of near matches."}}}
+      }];
+
+   Compile [Harness => Claude, Prompt => "Compile the task note for the design note named by design_note.",
+      Data => {"fields": {
+        "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
+        "design_note": {"type": "string", "required": true, "description": "The design note's vault note name."},
+        "tasks": {"type": "integer", "required": true, "description": "The number of checklist items."}
+      }}];
+
+   Implement [Harness => Claude, Retries => 1,
+      Prompt => "Implement the next unchecked item of the task note named by task_note. Fix every problem in problems first.",
+      Data => {"fields": {
+        "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
+        "design_note": {"type": "string", "required": true, "description": "The design note's vault note name."},
+        "remaining": {"type": "integer", "required": true, "description": "The number of unchecked items left."}
+      }},
+      Outcomes => {
+        "More_Remaining": "The item is implemented, its tests pass and it is ticked, and at least one unchecked item remains.",
+        "All_Implemented": "Every item is ticked and all the tests you ran pass.",
+        "Blocked": {"description": "You could not finish the item. Nothing unverified was ticked.",
+                    "data": {"blocker": {"type": "string", "required": true,
+                                         "description": "What stopped you, and what a person has to decide."}}}
+      }];
+
+   Review [Harness => Claude, Permissions => Read_Only,
+      Prompt => "Review the change against the task note named by task_note and its design note.",
+      Data => {"fields": {
+        "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
+        "design_note": {"type": "string", "required": true, "description": "The design note's vault note name."}
+      }},
+      Outcomes => {
+        "Approved": "Every item is implemented, tested and ticked, and you found nothing to fix.",
+        "Changes_Requested": {"description": "At least one item is missing, wrong, untested or outside the plan.",
+                              "data": {"problems": {"type": "list", "required": true, "min_length": 1,
+                                                    "description": "Each problem found.",
+                                                    "items": {"fields": {
+                                                      "file": {"type": "string", "required": true, "description": "The file the problem is in."},
+                                                      "location": {"type": "string", "description": "Where in the file, such as a line or a function."},
+                                                      "issue": {"type": "string", "required": true, "description": "What is wrong."}
+                                                    }}}}}
+      }];
+
+   Finalize [Harness => Claude, Prompt => "Run the final checks of the task note named by task_note.",
+      Data => {"fields": {
+        "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
+        "design_note": {"type": "string", "required": true, "description": "The design note's vault note name."}
+      }},
+      Outcomes => {
+        "In_Review": "Every final check passed and the task note's status is REVIEW.",
+        "Checks_Failed": {"description": "At least one final check failed.",
+                          "data": {"problems": {"type": "list", "required": true, "min_length": 1,
+                                                "description": "Each failure.",
+                                                "items": {"fields": {
+                                                  "file": {"type": "string", "required": true, "description": "The file the failure points at."},
+                                                  "location": {"type": "string", "description": "Where in the file, such as a line or a test name."},
+                                                  "issue": {"type": "string", "required": true, "description": "What failed."}
+                                                }}}}}
+      }];
+
+   Check_Ready -> End [When => Not_Ready];
+   Implement -> Implement [When => More_Remaining, Max_Iterations => 100];
+   Implement -> End [When => More_Remaining];
+   Implement -> End [When => Blocked];
+   Review -> Implement [When => Changes_Requested, Max_Iterations => 5];
+   Review -> End [When => Changes_Requested];
+   Finalize -> Implement [When => Checks_Failed, Max_Iterations => 3];
+   Finalize -> End [When => Checks_Failed];
+}
+```
+
+The prompts name fields ("the task note named by task_note") and do not explain them or say what to
+put in `data`: the declarations do both. Implement is given whichever result came before it: from
+Compile on the first visit, from itself, from Review with `problems`, or from Finalize with
+`problems`. Each of those declares `task_note` and `design_note`, so the fields Implement needs are
+always there.
 
 ### Ending a run early
 
@@ -309,7 +459,7 @@ nothing in the pipeline can catch the failure.
 | Failure | Meaning |
 |---|---|
 | `execution_error` | The session could not be run, ran past its time limit, or failed. Retried as many times as `Retries` says. |
-| `result_contract_failure` | The session ended but its answer is not a valid result, or its outcome is not one the step declares. Retried as many times as `Retries` says. |
+| `result_contract_failure` | The session ended but its answer is not a valid result, its outcome is not one the step declares, or its `data` breaks the step's declared data. Retried as many times as `Retries` says, each try told what was wrong with the last. |
 | `quota_exhausted` | The harness said a limit was reached. Never retried; the harness's reset time is reported when it gives one. |
 | `ceiling_reached` | The run took `SYNAPSE_PIPELINE_MAX_STEPS` steps (default 50) without completing. |
 
@@ -323,6 +473,7 @@ nothing in the pipeline can catch the failure.
 - that a system does not name a system;
 - that every guard is a rule the evaluator can run, and every back-edge is bounded;
 - that a step that declares `Outcomes` declares well (words and one-line meanings) and has no edge testing a word it does not declare;
+- that a step's `Data` and its outcomes' `data` use only the known rules, give every field a `description`, and declare no field twice, and that a guard reads no data field the step it leaves does not declare;
 - that a pipeline's `Input` uses only the known rules, gives every field a `description`, has well-formed patterns, and has checks the evaluator can run.
 
 All the problems found are reported together.

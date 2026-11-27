@@ -64,6 +64,21 @@ test('a run without a terminal is followed on its page to its end', async ({ pag
   await expect(requested.locator('.json-tree')).toContainText('{ 3 }')
 })
 
+test('the Outcomes card names each data field with its description', async ({ page }) => {
+  await startRunWithoutTerminal(page, 'Data_Run')
+  await expect(
+    page.locator('.content').getByText('completed', { exact: true }).first(),
+  ).toBeVisible({ timeout: 30_000 })
+  const row = page.getByLabel('Outcomes').locator('.trace > div').first()
+  const fields = row.getByLabel('Data fields')
+  await expect(fields).toContainText('task_note')
+  await expect(fields).toContainText('The path of the task note to work on.')
+  await expect(fields).toContainText('reason')
+  await expect(fields).toContainText('Why this note was chosen.')
+  // The data itself is still shown as a tree below the names.
+  await expect(row.locator('.json-tree')).toContainText('tasks/a.md')
+})
+
 test('a run started with a name shows the name', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')

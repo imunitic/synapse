@@ -696,6 +696,127 @@ package body Synapse.Pipeline.Engine.Tests is
       end;
    end A_Result_Handed_In_From_Outside_Is_Held_To_The_Outcomes_Too;
 
+   --  A scripted answer that ends with Outcome and holds Data.
+   function With_Data (Outcome, Data : String) return String is
+     ("{""outcome"":""" & Outcome & """,""summary"":""ok"",""data"":" & Data
+      & "}");
+
+   --  A step's `Data`: a required `item`.
+   Item_Data : constant String :=
+     "{""fields"": {""item"": {""type"": ""string"", ""required"": true, "
+     & """description"": ""The item.""}}}";
+
+   --  The member Name of Output's `data`, as text; "" when it has none.
+   function Data_Text (Output : JSON.Value; Name : String) return String is
+   begin
+      if JSON.Kind_Of (Output) /= JSON.JSON_Object
+        or else not JSON.Has_Member (Output, "data")
+        or else not JSON.Has_Member (JSON.Member_Value (Output, "data"), Name)
+      then
+         return "";
+      end if;
+      return JSON.As_String
+               (JSON.Member_Value (JSON.Member_Value (Output, "data"), Name));
+   end Data_Text;
+
+   procedure Data_That_Breaks_The_Declaration_Is_Retried_With_The_Problems
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : Resolved.Pipeline;
+   begin
+      Add_Step (P, "A", Retries => 1);
+      P.Steps (1).Data := JSON.Parse (Item_Data).Item;
+      declare
+         R : Recording_Runner :=
+           (Inner =>
+              Runner_For
+                ("{""A"":[" & Done ("Done") & ","
+                 & With_Data ("Done", "{""item"":""one""}") & "]}"),
+            Seen  => <>);
+         Run : constant States.State :=
+           Execute_Step (P, Start (P), Settings, R);
+      begin
+         Assert
+           (Run.Status = States.Completed
+            and then Data_Text (Run.Previous_Output, "item") = "one",
+            "the second answer is taken");
+         Assert
+           (R.Seen (1).Refused.Is_Empty,
+            "the first attempt has nothing refused");
+         Assert
+           (Natural (R.Seen (2).Refused.Length) = 1
+            and then To_String (R.Seen (2).Refused (1)) =
+                     "data.item: required field is missing",
+            "the retry is told what was wrong with the first answer");
+      end;
+   end Data_That_Breaks_The_Declaration_Is_Retried_With_The_Problems;
+
+   procedure Data_Still_Wrong_After_The_Retries_Fails_The_Run
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : Resolved.Pipeline;
+   begin
+      Add_Step (P, "A", Retries => 1);
+      P.Steps (1).Data := JSON.Parse (Item_Data).Item;
+      declare
+         R : Scripted_Runners.Scripted_Runner :=
+           Runner_For
+             ("{""A"":[" & Done ("Done") & ","
+              & With_Data ("Done", "{""item"":1}") & "]}");
+         Run : constant States.State :=
+           Execute_Step (P, Start (P), Settings, R);
+      begin
+         Assert
+           (Run.Status = States.Failed
+            and then Run.Failure.Kind = Failures.Result_Contract_Failure
+            and then To_String (Run.Failure.Step) = "A"
+            and then Ada.Strings.Fixed.Index
+                       (To_String (Run.Failure.Message), "data.item") > 0,
+            "the run fails, naming the field: "
+            & To_String (Run.Failure.Message));
+         Assert
+           (Run.Steps_Run = 0
+            and then Scripted_Runners.Remaining (R, "A") = 0,
+            "after both tries, without moving");
+      end;
+      declare
+         Bad : constant States.State :=
+           Advance (P, Start (P), JSON.Parse (Done ("Done")).Item);
+      begin
+         Assert
+           (Bad.Status = States.Failed
+            and then Bad.Failure.Kind = Failures.Result_Contract_Failure,
+            "a result handed in from outside is held to the data too");
+      end;
+   end Data_Still_Wrong_After_The_Retries_Fails_The_Run;
+
+   procedure A_Step_Without_Data_Is_Not_Checked (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : Resolved.Pipeline;
+   begin
+      Add_Step (P, "A");
+      Add_Step (P, "B");
+      declare
+         R : Scripted_Runners.Scripted_Runner :=
+           Runner_For
+             ("{""A"":["
+              & With_Data ("Done", "{""task_note"":""t.md"",""extra"":1}")
+              & "],""B"":[" & Done ("Done") & "]}");
+         Final : States.State;
+      begin
+         Assert
+           (Trail (P, R, Final) = "A B "
+            and then Final.Status = States.Completed,
+            "A's undeclared extra field is not refused");
+         Assert
+           (Data_Text (Final.Previous_Output, "task_note") = "",
+            "and B's result is held as given, without A's task_note");
+      end;
+   end A_Step_Without_Data_Is_Not_Checked;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -763,6 +884,18 @@ package body Synapse.Pipeline.Engine.Tests is
       Register_Routine
         (T, A_Run_Ends_At_End_Without_Running_The_Rest'Access,
          "A run ends at End without running the rest");
+      Register_Routine
+        (T,
+         Data_That_Breaks_The_Declaration_Is_Retried_With_The_Problems'Access,
+         "Data that breaks the step's declaration is retried with the "
+         & "problems in the request");
+      Register_Routine
+        (T, Data_Still_Wrong_After_The_Retries_Fails_The_Run'Access,
+         "Data still wrong after the retries fails the run with "
+         & "result_contract_failure");
+      Register_Routine
+        (T, A_Step_Without_Data_Is_Not_Checked'Access,
+         "A step without Data is not checked");
    end Register_Tests;
 
 end Synapse.Pipeline.Engine.Tests;

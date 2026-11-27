@@ -120,8 +120,8 @@ describe('the outcomes of a step', () => {
   it('are the words and meanings a step declares, in order', () => {
     const parsed = parseDescription(withOutcomes())
     expect(parsed?.steps[2]?.outcomes).toEqual([
-      { word: 'Approved', meaning: 'Every requirement is met.' },
-      { word: 'Changes_Requested', meaning: 'Something is unmet.' },
+      { word: 'Approved', meaning: 'Every requirement is met.', data: null },
+      { word: 'Changes_Requested', meaning: 'Something is unmet.', data: null },
     ])
   })
 
@@ -173,6 +173,49 @@ describe('the input a pipeline declares', () => {
     const explicit = JSON.parse(DEVELOP_FEATURE_SHOW) as Record<string, unknown>
     explicit.input = null
     expect(parseDescription(explicit)?.input).toBeNull()
+  })
+})
+
+describe('the data a step declares', () => {
+  it("parses a step's data and an outcome's data", () => {
+    const description = JSON.parse(DEVELOP_FEATURE_SHOW) as { steps: Record<string, unknown>[] }
+    description.steps[2]!.data = {
+      fields: [{ name: 'task_note', type: 'string', required: true, description: 'The note.' }],
+      checks: [],
+    }
+    description.steps[2]!.outcomes = [
+      { word: 'Approved', meaning: 'Every requirement is met.', data: null },
+      {
+        word: 'Changes_Requested',
+        meaning: 'Something is unmet.',
+        data: [
+          {
+            name: 'problems',
+            type: 'list',
+            required: true,
+            description: 'What to fix.',
+            items: {
+              fields: [{ name: 'issue', type: 'string', required: true, description: 'What.' }],
+            },
+          },
+        ],
+      },
+    ]
+    const step = parseDescription(description)?.steps[2]
+    expect(step?.data?.fields.map((f) => f.name)).toEqual(['task_note'])
+    expect(step?.outcomes?.[0]?.data).toBeNull()
+    expect(step?.outcomes?.[1]?.data?.[0]).toMatchObject({ name: 'problems', type: 'list' })
+  })
+
+  it('a description without them parses with nulls', () => {
+    const parsed = parseDescription(JSON.parse(DEVELOP_FEATURE_SHOW))
+    expect(parsed?.steps[0]?.data).toBeNull()
+    const explicit = JSON.parse(DEVELOP_FEATURE_SHOW) as { steps: Record<string, unknown>[] }
+    explicit.steps[0]!.data = null
+    explicit.steps[0]!.outcomes = [{ word: 'Done', meaning: 'Done.' }]
+    const step = parseDescription(explicit)?.steps[0]
+    expect(step?.data).toBeNull()
+    expect(step?.outcomes?.[0]?.data).toBeNull()
   })
 })
 

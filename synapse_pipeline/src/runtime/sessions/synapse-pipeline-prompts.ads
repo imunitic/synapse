@@ -2,6 +2,7 @@ with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.JSON;
+with Synapse.Core.Text_Lists;
 
 --  The text a session is started with: who the agent is, what it is to do,
 --  what the pipeline has handed it so far, and how to report. The same for
@@ -49,6 +50,15 @@ package Synapse.Pipeline.Prompts is
    --  input does not give is `(not given)`; a string is written as it is, a
    --  list one item per line as `  - <item>` (an item with fields as compact
    --  JSON), and an integer or boolean as JSON.
+   --  Data is the step's `Data` declaration, null when it has none. The
+   --  contract then lists the fields to put in `data` after the outcome
+   --  words, each as `- <name> (<type>, required|optional): <description>`
+   --  (a list's item fields indented under it), and then, for each
+   --  outcome in Outcomes that has `data`, "With <Word>, also put:" and its
+   --  fields. Refused holds the problems with the step's previous answer,
+   --  empty on a first attempt: the contract then starts by naming them.
+   --  With no Data, no outcome `data` and nothing refused, the contract is
+   --  the same as without them.
    --  The parts of the prompt, in order, without the ones that are empty.
    function Parts
      (Role            : String;
@@ -60,7 +70,12 @@ package Synapse.Pipeline.Prompts is
         Synapse.Core.JSON.Null_Value;
       Interactive     : Boolean := False;
       Declared_Input  : Synapse.Core.JSON.Value :=
-        Synapse.Core.JSON.Null_Value) return Part_Vectors.Vector;
+        Synapse.Core.JSON.Null_Value;
+      Data            : Synapse.Core.JSON.Value :=
+        Synapse.Core.JSON.Null_Value;
+      Refused         : Synapse.Core.Text_Lists.Vector :=
+        Synapse.Core.Text_Lists.Vectors.Empty_Vector)
+      return Part_Vectors.Vector;
 
    --  The prompt the parts make: each followed by a blank line.
    function Text_Of (Parts : Part_Vectors.Vector) return String;
@@ -76,6 +91,10 @@ package Synapse.Pipeline.Prompts is
         Synapse.Core.JSON.Null_Value;
       Interactive     : Boolean := False;
       Declared_Input  : Synapse.Core.JSON.Value :=
-        Synapse.Core.JSON.Null_Value) return String;
+        Synapse.Core.JSON.Null_Value;
+      Data            : Synapse.Core.JSON.Value :=
+        Synapse.Core.JSON.Null_Value;
+      Refused         : Synapse.Core.Text_Lists.Vector :=
+        Synapse.Core.Text_Lists.Vectors.Empty_Vector) return String;
 
 end Synapse.Pipeline.Prompts;

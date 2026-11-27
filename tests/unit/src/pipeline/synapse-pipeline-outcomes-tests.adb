@@ -2,6 +2,8 @@ with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
 
+with Synapse.Core.Optional_Text;
+
 package body Synapse.Pipeline.Outcomes.Tests is
 
    use AUnit.Assertions;
@@ -94,6 +96,126 @@ package body Synapse.Pipeline.Outcomes.Tests is
          "any other rule is not a test of the outcome");
    end The_Test_Of_An_Outcome_Is_Recognised_Again;
 
+   procedure An_Outcome_Written_As_An_Object_Is_Accepted
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (not Problem
+               (Parsed
+                  ("{""Done"": ""It is done."","
+                   & " ""Blocked"": {""description"": ""Cannot."","
+                   & " ""data"": {""blocker"": {""type"": ""string"","
+                   & " ""required"": true,"
+                   & " ""description"": ""Why.""}}},"
+                   & " ""Waiting"": {""description"": ""Not yet.""}}"))
+               .Found,
+         "a string, an object with data, and one without");
+   end An_Outcome_Written_As_An_Object_Is_Accepted;
+
+   procedure An_Object_Outcome_Without_A_Description_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Missing : constant Synapse.Core.Optional_Text.Option :=
+        Problem (Parsed ("{""Done"": {""data"": {}}}"));
+   begin
+      Assert
+        (Missing.Found
+         and then To_String (Missing.Value) =
+                  "the description of 'Done' is one line of text",
+         "no description");
+      Assert
+        (Problem (Parsed ("{""Done"": {""description"": """"}}")).Found,
+         "an empty description");
+      Assert
+        (Problem (Parsed ("{""Done"": {""description"": ""a\nb""}}")).Found,
+         "a description of two lines");
+   end An_Object_Outcome_Without_A_Description_Is_Refused;
+
+   procedure An_Object_Outcome_With_An_Unknown_Key_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Found : constant Synapse.Core.Optional_Text.Option :=
+        Problem
+          (Parsed ("{""Done"": {""description"": ""Ok."", ""meaning"": 1}}"));
+   begin
+      Assert
+        (Found.Found
+         and then To_String (Found.Value) =
+                  "the outcome 'Done' has the unknown key 'meaning': only "
+                  & "'description' and 'data'",
+         "names the key: "
+         & (if Found.Found then To_String (Found.Value) else ""));
+   end An_Object_Outcome_With_An_Unknown_Key_Is_Refused;
+
+   procedure An_Outcomes_Data_Is_Checked_As_A_Field_Declaration
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Found : constant Synapse.Core.Optional_Text.Option :=
+        Problem
+          (Parsed
+             ("{""Blocked"": {""description"": ""Cannot."","
+              & " ""data"": {""x"": {""type"": ""string""},"
+              & " ""y"": {""type"": ""string""}}}}"));
+   begin
+      Assert
+        (Found.Found
+         and then To_String (Found.Value) =
+                  "Outcomes.Blocked.data.fields.x.description: required "
+                  & "string is missing; "
+                  & "Outcomes.Blocked.data.fields.y.description: required "
+                  & "string is missing",
+         "every problem, under the outcome: "
+         & (if Found.Found then To_String (Found.Value) else ""));
+      Assert
+        (Problem
+           (Parsed ("{""Blocked"": {""description"": ""C."", ""data"": {}}}"))
+           .Found,
+         "an empty mapping");
+   end An_Outcomes_Data_Is_Checked_As_A_Field_Declaration;
+
+   procedure Meaning_Of_Reads_Both_Forms (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Both : constant JSON.Value :=
+        Parsed
+          ("{""Done"": ""It is done."","
+           & " ""Blocked"": {""description"": ""Cannot."", ""data"": {}}}");
+   begin
+      Assert (Meaning_Of (Both, "Done") = "It is done.", "a string");
+      Assert (Meaning_Of (Both, "Blocked") = "Cannot.", "an object");
+      Assert
+        (Meaning_Of (Both, "Other") = ""
+         and then Meaning_Of (JSON.Null_Value, "Done") = "",
+         "not a word of it");
+   end Meaning_Of_Reads_Both_Forms;
+
+   procedure Data_Of_Is_Null_For_A_String_Outcome
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      use type JSON.Kind;
+      Both : constant JSON.Value :=
+        Parsed
+          ("{""Done"": ""It is done."","
+           & " ""Waiting"": {""description"": ""Not yet.""},"
+           & " ""Blocked"": {""description"": ""Cannot."","
+           & " ""data"": {""blocker"": {""type"": ""string"","
+           & " ""description"": ""Why.""}}}}");
+   begin
+      Assert
+        (JSON.Kind_Of (Data_Of (Both, "Done")) = JSON.JSON_Null
+         and then JSON.Kind_Of (Data_Of (Both, "Waiting")) = JSON.JSON_Null
+         and then JSON.Kind_Of (Data_Of (Both, "Other")) = JSON.JSON_Null,
+         "null without data");
+      Assert
+        (JSON.Has_Member (Data_Of (Both, "Blocked"), "blocker"),
+         "the field mapping with data");
+   end Data_Of_Is_Null_For_A_String_Outcome;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -117,6 +239,23 @@ package body Synapse.Pipeline.Outcomes.Tests is
       Register_Routine
         (T, The_Test_Of_An_Outcome_Is_Recognised_Again'Access,
          "The test of an outcome is recognised again");
+      Register_Routine
+        (T, An_Outcome_Written_As_An_Object_Is_Accepted'Access,
+         "An outcome written as an object is accepted");
+      Register_Routine
+        (T, An_Object_Outcome_Without_A_Description_Is_Refused'Access,
+         "An object outcome without a description is refused");
+      Register_Routine
+        (T, An_Object_Outcome_With_An_Unknown_Key_Is_Refused'Access,
+         "An object outcome with an unknown key is refused");
+      Register_Routine
+        (T, An_Outcomes_Data_Is_Checked_As_A_Field_Declaration'Access,
+         "An outcome's data is checked as a field declaration");
+      Register_Routine
+        (T, Meaning_Of_Reads_Both_Forms'Access, "Meaning_Of reads both forms");
+      Register_Routine
+        (T, Data_Of_Is_Null_For_A_String_Outcome'Access,
+         "Data_Of is null for a string outcome");
    end Register_Tests;
 
 end Synapse.Pipeline.Outcomes.Tests;

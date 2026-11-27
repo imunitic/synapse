@@ -59,6 +59,11 @@ package Synapse.Pipeline.Resolved is
       --  meaning; null when the step declares none and may end with any word.
       Outcomes    : Synapse.Core.JSON.Value := Synapse.Core.JSON.Null_Value;
 
+      --  The step's Data declaration as written, from the step itself or
+      --  else its system: the fields it puts in data whatever its outcome.
+      --  Null when neither declares one.
+      Data        : Synapse.Core.JSON.Value := Synapse.Core.JSON.Null_Value;
+
       --  The system, the agent and the prompts the step's values came from.
       Origins     : Origin_Vectors.Vector;
    end record;

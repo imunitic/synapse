@@ -23,6 +23,9 @@ with Synapse.Pipeline.Syntax;
 --    Input            pipeline       a JSON object declaring the input's
 --                                    fields, see Synapse.Core.Object_Schema;
 --                                    every problem with it is one error
+--    Data             step, system   a JSON object declaring the fields a
+--                                    step puts in data, in the shape of
+--                                    Input; every problem is one error
 --    When             edge           a name or a JSON value
 --    Max_Iterations   edge           an integer, from 1 to 100
 

@@ -28,6 +28,7 @@ function pipeline(
       role: null,
       assignment: null,
       origins: [],
+      data: null,
     })),
     edges: edges.map(([from, to, guard, max], index) => ({
       index,

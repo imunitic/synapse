@@ -13,7 +13,7 @@ Requires `synapse-pipeline` on `PATH`. Run `synapse-pipeline --help` first; if i
 
 1. **Pin down the workflow.** Ask only for what is missing: the steps and what each one does, which step decides to loop back and on what condition, what the first step is given, what the run should end with, and whether any step must be unable to change files. Do not invent requirements the user did not state.
 2. **Look at what exists.** List `${XDG_CONFIG_HOME:-$HOME/.config}/synapse-pipeline/` (and any directory in `SYNAPSE_PIPELINE_PATH`). Every definition lives in one namespace shared by pipelines, systems, agents and prompts, so reuse an existing agent, system or prompt where it fits and never write a name that is taken. If a file you would write already exists, show the user and ask before replacing it.
-3. **Write the definitions** into `${XDG_CONFIG_HOME:-$HOME/.config}/synapse-pipeline/`, one definition per file (see "Definitions"). **Write a single `Pipeline` file by default**, with each step's role and instructions in its own `Prompt`. Create an `Agent`, `System` or `Prompt` file only when it is useful beyond this pipeline: the user says it will be reused, or an existing one already fits. A role used by one pipeline is the opening sentences of that step's `Prompt`, not a file. Declare `Outcomes` on every step an edge tests, and keep the result format and the outcome words out of the prompts (see "Results and routing").
+3. **Write the definitions** into `${XDG_CONFIG_HOME:-$HOME/.config}/synapse-pipeline/`, one definition per file (see "Definitions"). **Write a single `Pipeline` file by default**, with each step's role and instructions in its own `Prompt`. Create an `Agent`, `System` or `Prompt` file only when it is useful beyond this pipeline: the user says it will be reused, or an existing one already fits. A role used by one pipeline is the opening sentences of that step's `Prompt`, not a file. Declare `Outcomes` on every step an edge tests, and `Data` on every step that hands data on, and keep the result format, the outcome words and the list of `data` fields out of the prompts (see "Results and routing" and "Declaring data").
 4. **Check**: `synapse-pipeline check <Pipeline>`. It reports every problem with file, line and column. Fix them all and re-run until it exits 0. A warning that a step has edges testing its outcome but declares no `Outcomes` is not left as it is: add them.
 5. **Review**: `synapse-pipeline show <Pipeline>` prints the steps with the settings each will run with (harness, permissions, timeout, role, assignment) and the edges. Read it against the workflow you were given and correct any difference.
 6. **Try it without cost** when the user wants confidence before a real run: write an answers file and run with `SYNAPSE_PIPELINE_RUNNER=scripted SYNAPSE_PIPELINE_SCRIPT=<file>` (see "Trying a pipeline without agents").
@@ -38,8 +38,10 @@ A pipeline that stands alone is one file, with the role at the start of each ste
 -- Develop_Feature.synapse
 Pipeline Develop_Feature {
    Develop [Harness => Claude, Prompt => "You are a careful engineer. Implement the supplied task and change nothing else."];
-   Review  [Harness => Codex, Permissions => Read_Only, Prompt => "You are a reviewer. Find what is wrong with the change; do not fix it. Put the problems in data.",
-            Outcomes => {"Approved": "Every requirement is met and the tests pass. Choose this only if you found nothing to fix.", "Changes_Requested": "At least one requirement is unmet or a test fails. List each problem in data.problems."}];
+   Review  [Harness => Codex, Permissions => Read_Only, Prompt => "You are a reviewer. Find what is wrong with the change; do not fix it.",
+            Outcomes => {"Approved": "Every requirement is met and the tests pass. Choose this only if you found nothing to fix.",
+                         "Changes_Requested": {"description": "At least one requirement is unmet or a test fails.",
+                                               "data": {"problems": {"type": "list", "items": "string", "required": true, "min_length": 1, "description": "Each problem found, one per item."}}}}];
    Review -> Develop [When => Changes_Requested, Max_Iterations => 5];
 }
 ```
@@ -65,7 +67,10 @@ Agent Reviewer [Prompt => "You are a reviewer. Find what is wrong with the chang
 
 ```
 -- Strict_Reviewer.synapse
-System Strict_Reviewer [Agent => Reviewer, Harness => Codex, Permissions => Read_Only, Prompt => "Review the change. Report Approved, or Changes_Requested with the problems in data."];
+System Strict_Reviewer [Agent => Reviewer, Harness => Codex, Permissions => Read_Only, Prompt => "Review the change.",
+                       Outcomes => {"Approved": "You found nothing to fix.",
+                                    "Changes_Requested": {"description": "You found at least one problem.",
+                                                          "data": {"problems": {"type": "list", "items": "string", "required": true, "min_length": 1, "description": "Each problem found, one per item."}}}}];
 ```
 
 ```
@@ -92,7 +97,8 @@ Pipeline Review_Change {
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` (default) or `Full_Access` |
 | `Timeout` | step, system | quoted duration: `"90s"`, `"30m"`, `"2h"` (default 30 minutes) |
 | `Retries` | step, system | integer: extra tries after an execution error or an invalid result |
-| `Outcomes` | step, system | JSON object from each outcome word to a one-line meaning; declare it on every step an edge guard tests (see below) |
+| `Outcomes` | step, system | JSON object from each outcome word to a one-line meaning, or to `{"description": <meaning>, "data": {<fields>}}` for an outcome that hands on data of its own; declare it on every step an edge guard tests (see below) |
+| `Data` | step, system | JSON object declaring the fields the step puts in `data` whatever its outcome, each with a description (see "Declaring data") |
 | `When` | edge | outcome name, or a JsonLogic rule |
 | `Max_Iterations` | edge | integer, at least 1 |
 
@@ -128,7 +134,7 @@ A bad input is refused with exit code 2 and every problem listed, by `run`, `nex
 
 Every step ends with one result, `{"outcome": "<Word>", "summary": "<text>", "data": {...}}`. `outcome` is a single word naming what happened, `summary` is for a person, `data` is an object (empty when nothing is handed on). Any other member makes the result invalid. The next step is given the pipeline's input and the previous step's result.
 
-**The agent never picks the next step; guards on the outcome do.** So the words a step may report must match the words its `When` guards test, and a guard that names a word no step reports never fires. **Give every step whose outcome an edge tests `Outcomes`**, a JSON object from each word to a line saying what it means: the program then puts the words and meanings into the step's prompt itself, `check` rejects a guard that tests a word the step does not declare, and an answer with another word fails as a contract failure and is tried again as `Retries` says. Never write the words or the result format into the `Prompt` (not "Report exactly one outcome word: …"): the program adds the result format to every step's prompt, and the words too once `Outcomes` are declared, so repeating them only creates a second place that can drift. A prompt need not name the words, so one `Prompt` definition can serve pipelines that use different words. A word is a letter, then letters, digits and underscores. The meaning is the only guidance the session gets on when to choose the word, so write the condition for choosing it, not a restatement of the word (not `Done: It is done.`), and say what `data` holds when something reads it. A step takes its own `Outcomes`, else its system's; an agent has none. `Outcomes` is optional, but use it on every step whose outcome an edge tests: `check` warns when a step has such edges and declares none. Without `Outcomes` the outcome is any word, and the step's prompt must state the exact words it may report and when, spelled as in the `When` guards. Say which fields `data` holds when a later step or guard reads them.
+**The agent never picks the next step; guards on the outcome do.** So the words a step may report must match the words its `When` guards test, and a guard that names a word no step reports never fires. **Give every step whose outcome an edge tests `Outcomes`**, a JSON object from each word to a line saying what it means: the program then puts the words and meanings into the step's prompt itself, `check` rejects a guard that tests a word the step does not declare, and an answer with another word fails as a contract failure and is tried again as `Retries` says. Never write the words or the result format into the `Prompt` (not "Report exactly one outcome word: …"): the program adds the result format to every step's prompt, and the words too once `Outcomes` are declared, so repeating them only creates a second place that can drift. A prompt need not name the words, so one `Prompt` definition can serve pipelines that use different words. A word is a letter, then letters, digits and underscores. The meaning is the only guidance the session gets on when to choose the word, so write the condition for choosing it, not a restatement of the word (not `Done: It is done.`), and declare what `data` holds instead of describing it (see "Declaring data"). A step takes its own `Outcomes`, else its system's; an agent has none. `Outcomes` is optional, but use it on every step whose outcome an edge tests: `check` warns when a step has such edges and declares none. Without `Outcomes` the outcome is any word, and the step's prompt must state the exact words it may report and when, spelled as in the `When` guards.
 
 - `When => Changes_Requested` is shorthand for `{"==": [{"var": "outcome"}, "Changes_Requested"]}`.
 - `When => {">": [{"var": "data.failing"}, 0]}` is a JsonLogic rule over `outcome`, `summary` and `data` only; a missing field reads as `null`; a `var` path follows object members, not list positions. It must give true or false.
@@ -136,6 +142,28 @@ Every step ends with one result, `{"outcome": "<Word>", "summary": "<text>", "da
 - **To stop a run early, route to `End`**: `Check -> End [When => Discussing]` completes the run at once, successfully (exit code 0), with no session, and the run's result is the result of the step the edge leaves. `End` is not a step: it is reserved, so no step or definition can be called `End`, and nothing can leave it. Without an edge to `End`, a run only completes after its last step, and a step with no edge taken falls to the next declared step.
 - **Every back-edge** (to an earlier step or to itself) **must have `Max_Iterations`.** A run is also held to 50 steps in all (`SYNAPSE_PIPELINE_MAX_STEPS`).
 - A failed step ends the run; nothing in a pipeline catches a failure. Use `Retries` for steps that may time out or answer badly.
+
+## Declaring data
+
+**A step's data is the next step's input.** The next step is given the previous step's result and nothing else; no field is kept for the rest of the run. So declare, on every step that hands data on, the fields it puts in `data`, with `Data` in the shape of `Input` (`fields`, each with its rules and a `description`, and optional `checks`):
+
+```
+Implement [Harness => Claude, Prompt => "Implement the next unchecked item of the task note named by task_note.",
+   Data => {"fields": {
+     "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
+     "remaining": {"type": "integer", "required": true, "description": "The number of unchecked items left."}
+   }},
+   Outcomes => {"Done": "Every item is ticked.",
+                "More_Remaining": "At least one unchecked item remains.",
+                "Blocked": {"description": "You could not finish the item.",
+                            "data": {"blocker": {"type": "string", "required": true, "description": "What stopped you."}}}}];
+```
+
+- `Data` holds whatever the outcome; an outcome's `data` (a bare field mapping) holds only with that outcome. The step's data is the two merged, and a field is declared once per step: not in both.
+- **A value later steps need, such as `task_note`, is in the `Data` of every step that hands it on.** Never write "carry data.x forward" or a list of `data` fields into a prompt: the program writes the declared fields into the prompt itself, each with its type, whether it is required and its description.
+- The answer's `data` is checked: a missing required field, a field not declared, or a value that breaks a rule is a contract failure, tried again under `Retries` with a prompt that names each problem. A step with no `Data` and no outcome `data` is not checked.
+- A guard leaving a step that declares data may read only the fields that step declares: `check` refuses `{"var": "data.x"}` when `x` is not declared there.
+- A step takes its own `Data`, else its system's. `show` lists the fields, and `show <Pipeline> --step <Step>` shows the prompt with them.
 
 ## Choosing settings
 
@@ -151,7 +179,7 @@ A step, a system or an agent can use `Prompt => Name` to take its instructions f
 ```
 -- Review_Code.synapse
 Prompt Review_Code [Description => "Review a change against its task.", Prompt => """
-Read the change and the task it was made for. Put every problem you find in data.problems.
+Read the change and the task it was made for, and find every problem in it.
 """];
 ```
 

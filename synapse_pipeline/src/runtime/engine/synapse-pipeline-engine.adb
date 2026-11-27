@@ -1,11 +1,13 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Optional_Text;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.Failures;
 with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Routing;
 with Synapse.Pipeline.Sessions;
+with Synapse.Pipeline.Step_Data;
 with Synapse.Pipeline.Syntax;
 
 package body Synapse.Pipeline.Engine is
@@ -79,6 +81,20 @@ package body Synapse.Pipeline.Engine is
              (Synapse.Core.JSON.Member_Value (Output, "outcome"))
       else "");
 
+   --  Problems, one after the other, separated by "; ".
+   function Joined (Problems : Synapse.Core.Text_Lists.Vector) return String
+   is
+      Text : Unbounded_String;
+   begin
+      for Problem of Problems loop
+         if Length (Text) > 0 then
+            Append (Text, "; ");
+         end if;
+         Append (Text, Problem);
+      end loop;
+      return To_String (Text);
+   end Joined;
+
    function Advance
      (Pipeline : Resolved.Pipeline;
       Run      : States.State;
@@ -102,11 +118,16 @@ package body Synapse.Pipeline.Engine is
          end if;
       end;
       declare
-         Route : constant Routing.Route_Results.Result :=
+         Problems : constant Synapse.Core.Text_Lists.Vector :=
+           Step_Data.Problems (Pipeline.Steps (Index), Output);
+         Route    : constant Routing.Route_Results.Result :=
            Routing.Route_After (Pipeline.Edges, Run.Fired, Name, Output);
-         Next  : States.State := Run;
+         Next     : States.State := Run;
       begin
-         if not Routing.Route_Results.Is_Success (Route) then
+         if not Problems.Is_Empty then
+            return Failed_Run
+              (Run, Failures.Result_Contract_Failure, Name, Joined (Problems));
+         elsif not Routing.Route_Results.Is_Success (Route) then
             return Failed_Run
               (Run, Failures.Execution_Error, Name,
                To_String (Routing.Route_Results.Error (Route)));
@@ -156,14 +177,32 @@ package body Synapse.Pipeline.Engine is
       end if;
 
       declare
-         Step   : constant Resolved.Step := Pipeline.Steps (Index);
-         Answer : Sessions.Session_Result;
+         Step    : constant Resolved.Step := Pipeline.Steps (Index);
+         Answer  : Sessions.Session_Result;
+
+         --  What was wrong with the previous attempt's answer, for the next.
+         Refused : Synapse.Core.Text_Lists.Vector;
+
+         --  Answer, now refused for Problems.
+         procedure Refuse (Problems : Synapse.Core.Text_Lists.Vector) is
+         begin
+            Answer :=
+              Sessions.Failed
+                ((Kind    => Failures.Result_Contract_Failure,
+                  Step    => Step.Name,
+                  Message => To_Unbounded_String (Joined (Problems)),
+                  Reset   => Synapse.Core.Optional_Text.None),
+                 Answer.Usage, Answer.Transcript);
+            Refused := Problems;
+         end Refuse;
       begin
          for Attempt in 1 .. Step.Retries + 1 loop
             Answer :=
               Runner.Run_Session
                 (Sessions.Request_For
-                   (Step, Run, Settings, Attempt, Pipeline.Input));
+                   (Step, Run, Settings, Attempt, Pipeline.Input,
+                    Refused));
+            Refused.Clear;
             if Answer.Succeeded then
                declare
                   Broken : constant Synapse.Core.Optional_Text.Option :=
@@ -171,13 +210,19 @@ package body Synapse.Pipeline.Engine is
                       (Step.Outcomes, To_String (Answer.Result.Outcome));
                begin
                   if Broken.Found then
-                     Answer :=
-                       Sessions.Failed
-                         ((Kind    => Failures.Result_Contract_Failure,
-                           Step    => Step.Name,
-                           Message => Broken.Value,
-                           Reset   => Synapse.Core.Optional_Text.None),
-                          Answer.Usage, Answer.Transcript);
+                     Refuse (Synapse.Core.Text_Lists.Vectors.To_Vector
+                               (Broken.Value, 1));
+                  else
+                     Refuse_Data :
+                     declare
+                        Problems : constant Synapse.Core.Text_Lists.Vector :=
+                          Step_Data.Problems
+                            (Step, Envelopes.To_JSON (Answer.Result));
+                     begin
+                        if not Problems.Is_Empty then
+                           Refuse (Problems);
+                        end if;
+                     end Refuse_Data;
                   end if;
                end;
             end if;

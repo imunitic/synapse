@@ -735,6 +735,81 @@ package body Synapse.Pipeline.Commands.Show.Tests is
          "every problem: " & F.Base.Console.Err_Text);
    end Show_Step_Refuses_A_Bad_Input_With_Code_2;
 
+   --  A pipeline whose first step declares a task note in its Data and a
+   --  blocker with its Blocked outcome.
+   procedure Add_A_Pipeline_With_Data (F : in out Fixture) is
+   begin
+      F.Files.Add_File
+        ("/defs/Handing.synapse",
+         "Pipeline Handing { A [Harness => Claude, Prompt => ""Do A."","
+         & " Outcomes => {""Done"": ""It is done."","
+         & " ""Blocked"": {""description"": ""It is not."","
+         & " ""data"": {""blocker"": {""type"": ""string"","
+         & " ""required"": true, ""description"": ""Why.""}}}},"
+         & " Data => {""fields"": {""task_note"": {""type"": ""string"","
+         & " ""required"": true, ""description"": ""The task note.""}}}];"
+         & " B [Harness => Claude, Prompt => ""Do B.""];"
+         & " A -> B [When => Done]; }");
+   end Add_A_Pipeline_With_Data;
+
+   procedure Show_Step_Writes_The_Step_s_Data_Contract
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Pipeline_With_Data (F);
+      Assert
+        (Run (Env (F), Args ("Handing", "--step", "A")) = 0,
+         "the step: " & F.Base.Console.Err_Text);
+      declare
+         Prompt : constant String := F.Base.Console.Out_Text;
+      begin
+         Assert
+           (Has (Prompt, "Put these fields in data:" & LF
+                         & "- task_note (string, required): The task note."
+                         & LF),
+            "the step's data fields: " & Prompt);
+         Assert
+           (Has (Prompt, "With Blocked, also put:" & LF
+                         & "- blocker (string, required): Why." & LF),
+            "the outcome's data fields: " & Prompt);
+      end;
+   end Show_Step_Writes_The_Step_s_Data_Contract;
+
+   procedure Show_Prints_Each_Steps_Data (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Pipeline_With_Data (F);
+      Assert
+        (Run (Env (F), Args ("Handing")) = 0,
+         "it can run: " & F.Base.Console.Err_Text);
+      declare
+         Out_Text : constant String := F.Base.Console.Out_Text;
+      begin
+         Assert
+           (Has
+              (Out_Text,
+               "    assignment prompt, 5 characters" & LF
+               & "    data:" & LF
+               & "      task_note  string  required  The task note." & LF),
+            "the step's data, a line per field: " & Out_Text);
+         Assert
+           (Has
+              (Out_Text,
+               "    outcome Done  It is done." & LF
+               & "    outcome Blocked  It is not." & LF
+               & "      blocker  string  required  Why." & LF),
+            "an outcome's data under it: " & Out_Text);
+         Assert
+           (Ada.Strings.Fixed.Count (Out_Text, "    data:") = 1,
+            "nothing for a step without Data: " & Out_Text);
+      end;
+   end Show_Prints_Each_Steps_Data;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -806,6 +881,12 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Register_Routine
         (T, Show_Step_Refuses_A_Bad_Input_With_Code_2'Access,
          "Show --step refuses a bad input with code 2");
+      Register_Routine
+        (T, Show_Step_Writes_The_Step_s_Data_Contract'Access,
+         "show --step writes the step's data contract");
+      Register_Routine
+        (T, Show_Prints_Each_Steps_Data'Access,
+         "show prints each step's data");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Show.Tests;

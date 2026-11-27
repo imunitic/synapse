@@ -3,6 +3,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
 with Synapse.Core.Results;
+with Synapse.Core.Text_Lists;
 
 --  The guards on a pipeline's edges: what a guard may see, whether a guard is
 --  a rule that can be evaluated, and whether it holds of a step's result.
@@ -26,6 +27,14 @@ package Synapse.Pipeline.Guards is
    --  evaluator has. Nothing when it looks fine.
    function Problem (Guard : JSON.Value)
       return Synapse.Core.Optional_Text.Option;
+
+   --  The data fields Guard reads: the first segment after `data.` of every
+   --  `{"var": ...}` in it whose path is a literal string starting with
+   --  `data.`, each named once, in the order first seen. A `var` given as a
+   --  list reads its first element; a path that is not a literal string is
+   --  skipped, since what it reads is not known until the guard runs.
+   function Data_Fields_Read (Guard : JSON.Value)
+      return Synapse.Core.Text_Lists.Vector;
 
    package Guard_Results is new Synapse.Core.Results
      (Boolean, Ada.Strings.Unbounded.Unbounded_String);

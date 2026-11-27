@@ -113,6 +113,7 @@ with Synapse.Pipeline.Recording_Runners.Tests;
 with Synapse.Pipeline.Resolution.Tests;
 with Synapse.Pipeline.Retrying_Registry.Tests;
 with Synapse.Pipeline.Guards.Tests;
+with Synapse.Pipeline.Step_Data.Tests;
 with Synapse.Pipeline.Routing.Tests;
 with Synapse.Pipeline.Failures.Tests;
 with Synapse.Pipeline.States.Tests;
@@ -384,6 +385,8 @@ package body Test_Suites is
    Pipeline_Retrying_Registry_Tests :
      aliased Synapse.Pipeline.Retrying_Registry.Tests.Test_Case;
    Pipeline_Guards_Tests : aliased Synapse.Pipeline.Guards.Tests.Test_Case;
+   Pipeline_Step_Data_Tests :
+     aliased Synapse.Pipeline.Step_Data.Tests.Test_Case;
    Pipeline_Routing_Tests :
      aliased Synapse.Pipeline.Routing.Tests.Test_Case;
    Pipeline_Failures_Tests :
@@ -573,6 +576,7 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Resolution_Tests'Access);
       Result.Add_Test (Pipeline_Retrying_Registry_Tests'Access);
       Result.Add_Test (Pipeline_Guards_Tests'Access);
+      Result.Add_Test (Pipeline_Step_Data_Tests'Access);
       Result.Add_Test (Pipeline_Routing_Tests'Access);
       Result.Add_Test (Pipeline_Failures_Tests'Access);
       Result.Add_Test (Pipeline_States_Tests'Access);

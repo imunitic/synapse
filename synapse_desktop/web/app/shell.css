@@ -826,6 +826,22 @@
   margin: 2px 0;
 }
 
+.data-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.data-fields > div {
+  display: contents;
+}
+
+.data-fields dd {
+  margin: 0;
+}
+
 /* Page header and actions */
 .page-head {
   display: flex;

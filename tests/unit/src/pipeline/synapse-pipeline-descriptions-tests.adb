@@ -313,6 +313,131 @@ package body Synapse.Pipeline.Descriptions.Tests is
          & JSON.To_String (Input));
    end A_List_Of_Items_With_Fields_Nests;
 
+   procedure An_Object_Outcome_Is_Described_By_Its_Description
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Settings : Configs.Config;
+      Pipeline : Resolved.Pipeline := Sample;
+   begin
+      declare
+         First : Resolved.Step := Pipeline.Steps (1);
+      begin
+         First.Outcomes :=
+           Parsed
+             ("{""Done"": ""It is done."","
+              & " ""Blocked"": {""description"": ""Cannot."","
+              & " ""data"": {""blocker"": {""type"": ""string"","
+              & " ""description"": ""Why.""}}}}");
+         Pipeline.Steps.Replace_Element (1, First);
+      end;
+      declare
+         Document : constant JSON.Value := Describe (Pipeline, Settings);
+         Outcomes : constant JSON.Value :=
+           JSON.Member_Value
+             (JSON.Element (JSON.Member_Value (Document, "steps"), 1),
+              "outcomes");
+      begin
+         Assert
+           (JSON.To_String (Outcomes) =
+            "[{""word"":""Done"",""meaning"":""It is done."",""data"":null},"
+            & "{""word"":""Blocked"",""meaning"":""Cannot."",""data"":["
+            & "{""name"":""blocker"",""type"":""string"",""required"":false,"
+            & """description"":""Why.""}]}]",
+            "each meaning is a line: " & JSON.To_String (Outcomes));
+      end;
+   end An_Object_Outcome_Is_Described_By_Its_Description;
+
+   --  The first step of Sample described with Data as its `Data` and
+   --  Declared as its `Outcomes`, each left as it is when empty.
+   function First_Step_With (Data, Declared : String) return JSON.Value is
+      Settings : Configs.Config;
+      Pipeline : Resolved.Pipeline := Sample;
+      First    : Resolved.Step := Pipeline.Steps (1);
+   begin
+      if Data'Length > 0 then
+         First.Data := Parsed (Data);
+      end if;
+      if Declared'Length > 0 then
+         First.Outcomes := Parsed (Declared);
+      end if;
+      Pipeline.Steps.Replace_Element (1, First);
+      return JSON.Element
+        (JSON.Member_Value (Describe (Pipeline, Settings), "steps"), 1);
+   end First_Step_With;
+
+   procedure A_Steps_Data_Is_Described (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Data : constant JSON.Value :=
+        JSON.Member_Value
+          (First_Step_With
+             ("{""fields"": {"
+              & """task_note"": {""type"": ""string"", ""required"": true,"
+              & " ""description"": ""The task note.""},"
+              & """item"": {""type"": ""string"","
+              & " ""description"": ""The item.""}},"
+              & """checks"": [{""rule"": {""!!"": [{""var"": ""item""}]},"
+              & " ""message"": ""needs an item""}]}",
+              ""),
+           "data");
+   begin
+      Assert
+        (JSON.To_String (Data) =
+         "{""fields"":["
+         & "{""name"":""task_note"",""type"":""string"",""required"":true,"
+         & """description"":""The task note.""},"
+         & "{""name"":""item"",""type"":""string"",""required"":false,"
+         & """description"":""The item.""}],"
+         & """checks"":[{""rule"":{""!!"":[{""var"":""item""}]},"
+         & """message"":""needs an item""}]}",
+         "the fields in declared order, and the checks, without "
+         & "single_text_field: " & JSON.To_String (Data));
+   end A_Steps_Data_Is_Described;
+
+   procedure An_Outcomes_Data_Is_Described_With_The_Outcome
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Outcomes : constant JSON.Value :=
+        JSON.Member_Value
+          (First_Step_With
+             ("",
+              "{""Changes_Requested"": {""description"": ""Fix these."","
+              & " ""data"": {""problems"": {""type"": ""list"","
+              & " ""required"": true, ""description"": ""What to fix."","
+              & " ""items"": {""fields"": {""issue"": {""type"": ""string"","
+              & " ""required"": true, ""description"": ""The issue.""}}}}}}}"),
+           "outcomes");
+   begin
+      Assert
+        (JSON.To_String
+           (JSON.Member_Value (JSON.Element (Outcomes, 1), "data")) =
+         "[{""name"":""problems"",""type"":""list"",""required"":true,"
+         & """description"":""What to fix."",""items"":{""fields"":["
+         & "{""name"":""issue"",""type"":""string"",""required"":true,"
+         & """description"":""The issue.""}]}}]",
+         "the outcome's fields, in the shape of input's: "
+         & JSON.To_String (Outcomes));
+   end An_Outcomes_Data_Is_Described_With_The_Outcome;
+
+   procedure Without_Them_Data_Is_Null (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Step : constant JSON.Value :=
+        First_Step_With ("", "{""Done"": ""It is done.""}");
+   begin
+      Assert
+        (JSON.Has_Member (Step, "data")
+         and then JSON.Kind_Of (JSON.Member_Value (Step, "data")) =
+                  JSON.JSON_Null,
+         "a step without Data has a null data");
+      Assert
+        (JSON.Kind_Of
+           (JSON.Member_Value
+              (JSON.Element (JSON.Member_Value (Step, "outcomes"), 1),
+               "data")) = JSON.JSON_Null,
+         "an outcome without data has a null data");
+   end Without_Them_Data_Is_Null;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -347,6 +472,16 @@ package body Synapse.Pipeline.Descriptions.Tests is
       Register_Routine
         (T, A_List_Of_Items_With_Fields_Nests'Access,
          "A list of items with fields nests");
+      Register_Routine
+        (T, An_Object_Outcome_Is_Described_By_Its_Description'Access,
+         "An object outcome is described by its description");
+      Register_Routine
+        (T, A_Steps_Data_Is_Described'Access, "A step's Data is described");
+      Register_Routine
+        (T, An_Outcomes_Data_Is_Described_With_The_Outcome'Access,
+         "An outcome's data is described with the outcome");
+      Register_Routine
+        (T, Without_Them_Data_Is_Null'Access, "Without them, data is null");
    end Register_Tests;
 
 end Synapse.Pipeline.Descriptions.Tests;

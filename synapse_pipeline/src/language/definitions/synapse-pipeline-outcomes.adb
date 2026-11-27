@@ -1,5 +1,7 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Object_Schema;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Syntax;
 
 package body Synapse.Pipeline.Outcomes is
@@ -29,6 +31,54 @@ package body Synapse.Pipeline.Outcomes is
    function Is_Declared (Declared : JSON.Value) return Boolean is
      (JSON.Kind_Of (Declared) = JSON.JSON_Object);
 
+   --  Whether Item is one line of text that is not empty.
+   function Is_Line (Item : JSON.Value) return Boolean is
+     (JSON.Kind_Of (Item) = JSON.JSON_String
+      and then JSON.As_String (Item)'Length > 0
+      and then (for all C of JSON.As_String (Item) =>
+                  C /= Character'Val (10)));
+
+   --  The value Word has in Declared, or null when it is not one.
+   function Value_Of (Declared : JSON.Value; Word : String) return JSON.Value
+   is
+   begin
+      if JSON.Kind_Of (Declared) = JSON.JSON_Object then
+         for I in 1 .. JSON.Length (Declared) loop
+            if JSON.Member_Key (Declared, I) = Word then
+               return JSON.Member_At (Declared, I);
+            end if;
+         end loop;
+      end if;
+      return JSON.Null_Value;
+   end Value_Of;
+
+   function Meaning_Of (Declared : JSON.Value; Word : String) return String is
+      Meaning : constant JSON.Value := Value_Of (Declared, Word);
+   begin
+      if JSON.Kind_Of (Meaning) = JSON.JSON_String then
+         return JSON.As_String (Meaning);
+      elsif JSON.Kind_Of (Meaning) = JSON.JSON_Object
+        and then JSON.Has_Member (Meaning, "description")
+        and then JSON.Kind_Of (JSON.Member_Value (Meaning, "description")) =
+                 JSON.JSON_String
+      then
+         return JSON.As_String (JSON.Member_Value (Meaning, "description"));
+      end if;
+      return "";
+   end Meaning_Of;
+
+   function Data_Of (Declared : JSON.Value; Word : String) return JSON.Value
+   is
+      Meaning : constant JSON.Value := Value_Of (Declared, Word);
+   begin
+      if JSON.Kind_Of (Meaning) = JSON.JSON_Object
+        and then JSON.Has_Member (Meaning, "data")
+      then
+         return JSON.Member_Value (Meaning, "data");
+      end if;
+      return JSON.Null_Value;
+   end Data_Of;
+
    function Problem (Declared : JSON.Value)
       return Synapse.Core.Optional_Text.Option
    is
@@ -50,11 +100,48 @@ package body Synapse.Pipeline.Outcomes is
                return Found
                  ("'" & Word & "' is not an outcome: a letter and then "
                   & "letters, digits and underscores, and not a keyword");
-            elsif JSON.Kind_Of (Meaning) /= JSON.JSON_String
-              or else JSON.As_String (Meaning)'Length = 0
-              or else (for some C of JSON.As_String (Meaning) =>
-                         C = Character'Val (10))
-            then
+            elsif JSON.Kind_Of (Meaning) = JSON.JSON_Object then
+               for K in 1 .. JSON.Length (Meaning) loop
+                  if JSON.Member_Key (Meaning, K) /= "description"
+                    and then JSON.Member_Key (Meaning, K) /= "data"
+                  then
+                     return Found
+                       ("the outcome '" & Word & "' has the unknown key '"
+                        & JSON.Member_Key (Meaning, K)
+                        & "': only 'description' and 'data'");
+                  end if;
+               end loop;
+               if not JSON.Has_Member (Meaning, "description")
+                 or else not Is_Line
+                               (JSON.Member_Value (Meaning, "description"))
+               then
+                  return Found
+                    ("the description of '" & Word
+                     & "' is one line of text");
+               end if;
+               if JSON.Has_Member (Meaning, "data") then
+                  declare
+                     Problems : constant Synapse.Core.Text_Lists.Vector :=
+                       Synapse.Core.Object_Schema.Validate_Declaration
+                         (JSON.Make_Object
+                            ([1 => (Key  => To_Unbounded_String ("fields"),
+                                    Item => JSON.Member_Value
+                                              (Meaning, "data"))]),
+                          Root => "Outcomes." & Word & ".data");
+                     Joined : Unbounded_String;
+                  begin
+                     if not Problems.Is_Empty then
+                        for Line of Problems loop
+                           if Length (Joined) > 0 then
+                              Append (Joined, "; ");
+                           end if;
+                           Append (Joined, Line);
+                        end loop;
+                        return Synapse.Core.Optional_Text.Of_Value (Joined);
+                     end if;
+                  end;
+               end if;
+            elsif not Is_Line (Meaning) then
                return Found
                  ("the meaning of '" & Word & "' is one line of text");
             end if;
