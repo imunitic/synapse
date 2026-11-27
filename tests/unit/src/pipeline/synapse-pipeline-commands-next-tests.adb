@@ -414,6 +414,91 @@ package body Synapse.Pipeline.Commands.Next.Tests is
       end;
    end Next_Input_Starts_With_The_Accepted_Input;
 
+   --  A pipeline whose first step declares one required data field.
+   Data_Pipeline : constant String :=
+     "Pipeline Handed { Make [Harness => Claude, Prompt => ""Make."","
+     & " Data => {""fields"": {""task_note"": {""type"": ""string"","
+     & " ""required"": true, ""description"": ""The note.""}}}];"
+     & " Use [Harness => Claude, Prompt => ""Use.""]; }";
+
+   --  The code and the standard output and error of `next` for a result of
+   --  Handed's first step.
+   procedure Advance_Handed
+     (Result : String; Code : out Exit_Code;
+      Printed, Complained : out Ada.Strings.Unbounded.Unbounded_String)
+   is
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File ("/defs/Handed.synapse", Data_Pipeline);
+      Assert (Run (Env (F), Args ("Handed")) = 0, "a run starts");
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         G.Files.Add_File ("/defs/Handed.synapse", Data_Pipeline);
+         G.Files.Add_File ("/state.json", F.Base.Console.Out_Text);
+         G.Files.Add_File ("/result.json", Result);
+         Code :=
+           Run (Env (G),
+                Args ("Handed", "--state", "/state.json", "--result",
+                      "/result.json"));
+         Printed :=
+           Ada.Strings.Unbounded.To_Unbounded_String
+             (G.Base.Console.Out_Text);
+         Complained :=
+           Ada.Strings.Unbounded.To_Unbounded_String
+             (G.Base.Console.Err_Text);
+      end;
+   end Advance_Handed;
+
+   procedure Next_Refuses_Data_That_Breaks_The_Steps_Data
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      use Ada.Strings.Unbounded;
+      Code       : Exit_Code;
+      Printed    : Unbounded_String;
+      Complained : Unbounded_String;
+   begin
+      Advance_Handed
+        ("{""outcome"":""Done"",""summary"":""made"","
+         & """data"":{""note"":""x""}}",
+         Code, Printed, Complained);
+      Assert
+        (Code = 1 and then To_String (Printed) = "",
+         "refused with code 1 and no output: " & To_String (Printed));
+      Assert
+        (Has (To_String (Complained),
+              "error: --result is not a valid result: ")
+         and then Has (To_String (Complained),
+                       "data.task_note: required field is missing")
+         and then Has (To_String (Complained), "; ")
+         and then Has (To_String (Complained), "data.note"),
+         "every problem on one line: " & To_String (Complained));
+   end Next_Refuses_Data_That_Breaks_The_Steps_Data;
+
+   procedure Next_Accepts_Data_That_Matches_The_Steps_Data
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      use Ada.Strings.Unbounded;
+      Code       : Exit_Code;
+      Printed    : Unbounded_String;
+      Complained : Unbounded_String;
+   begin
+      Advance_Handed
+        ("{""outcome"":""Done"",""summary"":""made"","
+         & """data"":{""task_note"":""tasks/a""}}",
+         Code, Printed, Complained);
+      Assert
+        (Code = 0
+         and then Has (To_String (Printed), """current_step"":""Use""")
+         and then Has (To_String (Printed), """task_note"":""tasks/a"""),
+         "it goes on with the data: " & To_String (Complained)
+         & To_String (Printed));
+   end Next_Accepts_Data_That_Matches_The_Steps_Data;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -452,6 +537,12 @@ package body Synapse.Pipeline.Commands.Next.Tests is
       Register_Routine
         (T, Next_Input_Starts_With_The_Accepted_Input'Access,
          "next --input starts with the accepted input");
+      Register_Routine
+        (T, Next_Refuses_Data_That_Breaks_The_Steps_Data'Access,
+         "next refuses a result whose data breaks the step's Data");
+      Register_Routine
+        (T, Next_Accepts_Data_That_Matches_The_Steps_Data'Access,
+         "next accepts a result whose data matches the step's Data");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Next.Tests;

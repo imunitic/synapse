@@ -697,6 +697,97 @@ package body Synapse.Pipeline.Validation.Tests is
       Assert_Count (Advice_For ("Nothing_Like_It"), 0, "no such pipeline");
    end Advice_Names_A_Step_That_Tests_Outcomes_It_Never_Declared;
 
+   --  A field declaration named Name, as Data and an outcome's data write
+   --  it.
+   function Field (Name : String) return String is
+     ("""" & Name & """: {""type"": ""string"", ""description"": ""A "
+      & Name & "."", ""required"": false}");
+
+   procedure A_Data_Field_In_A_Steps_Data_And_An_Outcomes_Data_Is_An_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Both.synapse",
+         "Pipeline Both { A [Prompt => ""x"", Data => {""fields"": {"
+         & Field ("item") & "}}, Outcomes => {""Blocked"": {"
+         & """description"": ""Stuck."", ""data"": {" & Field ("item")
+         & ", " & Field ("blocker") & "}}, ""Done"": ""Done.""}]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Both");
+      begin
+         Assert_Count (P, 1, "only the field in both");
+         Assert_Has
+           (P, "/defs/Both.synapse",
+            "step 'A' declares the data field 'item' that its Data "
+            & "declares", "named at the step");
+      end;
+   end A_Data_Field_In_A_Steps_Data_And_An_Outcomes_Data_Is_An_Error;
+
+   procedure A_Guard_Reading_An_Undeclared_Data_Field_Is_An_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Unknown.synapse",
+         "Pipeline Unknown { A [Prompt => ""x"", Data => {""fields"": {"
+         & Field ("item") & "}}]; B [Prompt => ""x""];"
+         & " A -> B [When => {""=="": [{""var"": ""data.item""}, ""x""]}];"
+         & " A -> End [When => {""=="": [{""var"": ""data.reason.text""},"
+         & " 1]}];"
+         & " }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Unknown");
+      begin
+         Assert_Count (P, 1, "only the field A does not declare");
+         Assert_Has
+           (P, "/defs/Unknown.synapse",
+            "step 'A' does not declare the data field 'reason'",
+            "named by its first segment");
+      end;
+   end A_Guard_Reading_An_Undeclared_Data_Field_Is_An_Error;
+
+   procedure A_Guard_Reading_An_Outcomes_Data_Field_Is_Accepted
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/By_Word.synapse",
+         "Pipeline By_Word { A [Prompt => ""x"", Outcomes => {""Blocked"": {"
+         & """description"": ""Stuck."", ""data"": {" & Field ("blocker")
+         & "}}, ""Done"": ""Done.""}]; B [Prompt => ""x""];"
+         & " A -> B [When => {""=="": [{""var"": [""data.blocker"", """"]},"
+         & " ""x""]}];"
+         & " A -> End [When => Done]; }");
+      Assert_Count
+        (Problems_Of (F, "By_Word"), 0, "an outcome's data field is declared");
+   end A_Guard_Reading_An_Outcomes_Data_Field_Is_Accepted;
+
+   procedure A_Step_Without_Data_Is_Not_Checked_For_Its_Guards
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Unchecked.synapse",
+         "Pipeline Unchecked { A [Prompt => ""x""]; B [Prompt => ""x""];"
+         & " A -> B [When => {""=="": [{""var"": ""data.anything""}, 1]}]; }");
+      Assert_Count
+        (Problems_Of (F, "Unchecked"), 0,
+         "A declares no Data and no outcome data");
+   end A_Step_Without_Data_Is_Not_Checked_For_Its_Guards;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -783,6 +874,21 @@ package body Synapse.Pipeline.Validation.Tests is
       Register_Routine
         (T, Advice_Names_A_Step_That_Tests_Outcomes_It_Never_Declared'Access,
          "Advice names a step that tests outcomes it never declared");
+      Register_Routine
+        (T,
+         A_Data_Field_In_A_Steps_Data_And_An_Outcomes_Data_Is_An_Error'Access,
+         "A data field in both a step's Data and an outcome's data is an "
+         & "error");
+      Register_Routine
+        (T, A_Guard_Reading_An_Undeclared_Data_Field_Is_An_Error'Access,
+         "A guard reading an undeclared data field is an error");
+      Register_Routine
+        (T, A_Guard_Reading_An_Outcomes_Data_Field_Is_Accepted'Access,
+         "A guard reading an outcome's data field is accepted");
+      Register_Routine
+        (T, A_Step_Without_Data_Is_Not_Checked_For_Its_Guards'Access,
+         "A step without Data is not checked for the fields its guards "
+         & "read");
    end Register_Tests;
 
 end Synapse.Pipeline.Validation.Tests;

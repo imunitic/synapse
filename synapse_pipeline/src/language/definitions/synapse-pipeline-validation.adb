@@ -4,6 +4,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.Text_Lists;
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Attributes;
+with Synapse.Pipeline.Guards;
 with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Source_Errors;
 with Synapse.Pipeline.Syntax;
@@ -49,13 +50,14 @@ package body Synapse.Pipeline.Validation is
       return Synapse.Core.JSON.Null_Value;
    end Json_Of;
 
-   function Declared_Outcomes
-     (Defs : Namespaces.Namespace; Step : Syntax.Step)
+   --  The JSON attribute Key of Step, else of the system it names, null when
+   --  neither has it: how a step comes by its Outcomes and its Data.
+   function Step_Or_System_Json
+     (Defs : Namespaces.Namespace; Step : Syntax.Step; Key : String)
       return Synapse.Core.JSON.Value
    is
       use type Synapse.Core.JSON.Kind;
-      Own : constant Synapse.Core.JSON.Value :=
-        Json_Of (Step.Attributes, "Outcomes");
+      Own : constant Synapse.Core.JSON.Value := Json_Of (Step.Attributes, Key);
    begin
       if Synapse.Core.JSON.Kind_Of (Own) /= Synapse.Core.JSON.JSON_Null then
          return Own;
@@ -70,13 +72,53 @@ package body Synapse.Pipeline.Validation is
                  Namespaces.Element (Defs, To_String (A.Item.Name)).Item;
             begin
                if Named.Kind = Syntax.System_Definition then
-                  return Json_Of (Named.Attributes, "Outcomes");
+                  return Json_Of (Named.Attributes, Key);
                end if;
             end;
          end if;
       end loop;
       return Synapse.Core.JSON.Null_Value;
-   end Declared_Outcomes;
+   end Step_Or_System_Json;
+
+   function Declared_Outcomes
+     (Defs : Namespaces.Namespace; Step : Syntax.Step)
+      return Synapse.Core.JSON.Value is
+     (Step_Or_System_Json (Defs, Step, "Outcomes"));
+
+   --  The keys of Mapping, in source order; none when it is not an object.
+   function Keys_Of
+     (Mapping : Synapse.Core.JSON.Value) return Synapse.Core.Text_Lists.Vector
+   is
+      use type Synapse.Core.JSON.Kind;
+      Result : Synapse.Core.Text_Lists.Vector;
+   begin
+      if Synapse.Core.JSON.Kind_Of (Mapping) = Synapse.Core.JSON.JSON_Object
+      then
+         for I in 1 .. Synapse.Core.JSON.Length (Mapping) loop
+            Result.Append
+              (To_Unbounded_String
+                 (Synapse.Core.JSON.Member_Key (Mapping, I)));
+         end loop;
+      end if;
+      return Result;
+   end Keys_Of;
+
+   --  The field names a `{"fields": ..., "checks": ...}` declaration holds.
+   function Fields_Of
+     (Declaration : Synapse.Core.JSON.Value)
+      return Synapse.Core.Text_Lists.Vector
+   is
+      use type Synapse.Core.JSON.Kind;
+   begin
+      if Synapse.Core.JSON.Kind_Of (Declaration) =
+         Synapse.Core.JSON.JSON_Object
+        and then Synapse.Core.JSON.Has_Member (Declaration, "fields")
+      then
+         return Keys_Of
+           (Synapse.Core.JSON.Member_Value (Declaration, "fields"));
+      end if;
+      return Synapse.Core.Text_Lists.Vectors.Empty_Vector;
+   end Fields_Of;
 
    --  The outcome the guard of Item tests and where it is written, when the
    --  edge has a guard that does nothing but test the outcome.
@@ -377,6 +419,79 @@ package body Synapse.Pipeline.Validation is
          File  : constant String := To_String (Loaded.Path);
          Index : Step_Maps.Map;
          Count : Natural := 0;
+
+         --  The data fields S's outcomes declare, each once.
+         function Outcome_Fields (S : Syntax.Step)
+            return Synapse.Core.Text_Lists.Vector
+         is
+            Declared : constant Synapse.Core.JSON.Value :=
+              Declared_Outcomes (Defs, S);
+            Result   : Synapse.Core.Text_Lists.Vector;
+         begin
+            for Word of Keys_Of (Declared) loop
+               for Field of Keys_Of
+                 (Outcomes.Data_Of (Declared, To_String (Word)))
+               loop
+                  if not Result.Contains (Field) then
+                     Result.Append (Field);
+                  end if;
+               end loop;
+            end loop;
+            return Result;
+         end Outcome_Fields;
+
+         --  Reports every data field S declares twice: in its Data and an
+         --  outcome's data.
+         procedure Check_Declared_Once (S : Syntax.Step) is
+            Own : constant Synapse.Core.Text_Lists.Vector :=
+              Fields_Of (Step_Or_System_Json (Defs, S, "Data"));
+         begin
+            for Field of Outcome_Fields (S) loop
+               if Own.Contains (Field) then
+                  Add_At
+                    (File, S.Name,
+                     "step '" & Name_Of (S.Name) & "' declares the data "
+                     & "field '" & To_String (Field)
+                     & "' that its Data declares");
+               end if;
+            end loop;
+         end Check_Declared_Once;
+
+         --  Reports every data field a guard on E reads that the step it
+         --  leaves, From, does not declare, when From declares data at all.
+         procedure Check_Guard_Data (E : Syntax.Edge; From : Syntax.Step) is
+            use type Synapse.Core.JSON.Kind;
+            Data     : constant Synapse.Core.JSON.Value :=
+              Step_Or_System_Json (Defs, From, "Data");
+            Own      : constant Synapse.Core.Text_Lists.Vector :=
+              Fields_Of (Data);
+            By_Words : constant Synapse.Core.Text_Lists.Vector :=
+              Outcome_Fields (From);
+         begin
+            if Synapse.Core.JSON.Kind_Of (Data) = Synapse.Core.JSON.JSON_Null
+              and then By_Words.Is_Empty
+            then
+               return;
+            end if;
+            for A of E.Attributes loop
+               if Name_Of (A.Name) = "When"
+                 and then A.Item.Kind = Syntax.JSON_Value
+               then
+                  for Field of Guards.Data_Fields_Read (A.Item.Json) loop
+                     if not Own.Contains (Field)
+                       and then not By_Words.Contains (Field)
+                     then
+                        Add
+                          (File,
+                           Source_Errors.Make
+                             ("step '" & Name_Of (From.Name) & "' does not "
+                              & "declare the data field '" & To_String (Field)
+                              & "'", A.Item.Line, A.Item.Column));
+                     end if;
+                  end loop;
+               end if;
+            end loop;
+         end Check_Guard_Data;
       begin
          if Item.Steps.Is_Empty then
             Add_At (File, Item.Name, "a pipeline needs at least one step");
@@ -427,6 +542,7 @@ package body Synapse.Pipeline.Validation is
                      & "one");
                end if;
             end;
+            Check_Declared_Once (S);
          end loop;
 
          for E of Item.Edges loop
@@ -471,6 +587,8 @@ package body Synapse.Pipeline.Validation is
                               & "'", Where.Line, Where.Column));
                      end if;
                   end;
+                  Check_Guard_Data
+                    (E, Step_Called (Item, Name_Of (E.From)));
                end if;
                if From_Known and then To_Known and then not Ends
                  and then Index.Element (Name_Of (E.To)) <=

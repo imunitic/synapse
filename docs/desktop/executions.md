@@ -26,7 +26,7 @@ The page shows, from the top:
 - The diagram of the pipeline, with the run on it: each box says whether the step is running, done (with the outcome it ended with), failed, interrupted or not reached, and how many times it ran. The edges the run took are marked.
 - Summary: when the run started and ended, the step it is on and how many steps it ran.
 - Definitions it ran: the pipeline and the files it used, as they were when the run began. Click one to read it. The files may have changed since.
-- Outcomes: one row per visit, with its outcome and the step that came next. Open a row to read what the step reported: its summary, the problems a review listed, and its data as a tree that you can fold and copy. The newest visit's row is open. A run recorded by an older version of synapse-pipeline shows "not recorded".
+- Outcomes: one row per visit, with its outcome and the step that came next. Open a row to read what the step reported: its summary, the problems a review listed, and its data as a tree that you can fold and copy. When the step declares its data, the row names each declared field the data holds, with its description. The newest visit's row is open. A run recorded by an older version of synapse-pipeline shows "not recorded".
 - Trace: each visit to a step, in order, with its outcome and the step that came next. "Activity" opens what the agent did in that visit: its messages and the commands it ran.
 - Events: everything the run recorded, in order.
 

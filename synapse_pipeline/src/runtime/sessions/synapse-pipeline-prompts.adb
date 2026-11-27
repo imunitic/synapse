@@ -25,7 +25,8 @@ package body Synapse.Pipeline.Prompts is
          Append
            (Lines,
             "- " & JSON.Member_Key (Declared, I) & ": "
-            & JSON.As_String (JSON.Member_At (Declared, I)) & LF);
+            & Outcome_Words.Meaning_Of
+                (Declared, JSON.Member_Key (Declared, I)) & LF);
       end loop;
       return To_String (Lines);
    end Listed;
@@ -78,6 +79,98 @@ package body Synapse.Pipeline.Prompts is
       return To_String (Lines);
    end Listed_Input;
 
+   --  One line for each field Fields maps, `- <name> (<type>, required or
+   --  optional): <description>`, each started with Indent. A list of items
+   --  with fields says so in its type and has its item fields under it.
+   function Listed_Fields (Fields : JSON.Value; Indent : String) return String
+   is
+      Lines : Unbounded_String;
+   begin
+      for I in 1 .. JSON.Length (Fields) loop
+         declare
+            Name     : constant String := JSON.Member_Key (Fields, I);
+            Rules    : constant JSON.Value := JSON.Member_At (Fields, I);
+            Type_Of  : constant String :=
+              JSON.As_String (JSON.Member_Value (Rules, "type"));
+            Items    : constant JSON.Value :=
+              (if JSON.Has_Member (Rules, "items")
+               then JSON.Member_Value (Rules, "items") else JSON.Null_Value);
+            Required : constant Boolean :=
+              JSON.Has_Member (Rules, "required")
+              and then JSON.Kind_Of (JSON.Member_Value (Rules, "required"))
+                       = JSON.JSON_Boolean
+              and then JSON.As_Boolean (JSON.Member_Value (Rules, "required"));
+            Shown    : constant String :=
+              (if JSON.Kind_Of (Items) = JSON.JSON_String
+               then Type_Of & " of " & JSON.As_String (Items)
+               elsif JSON.Kind_Of (Items) = JSON.JSON_Object
+               then Type_Of & " of items with fields"
+               else Type_Of);
+         begin
+            Append
+              (Lines,
+               Indent & "- " & Name & " (" & Shown & ", "
+               & (if Required then "required" else "optional") & "): "
+               & JSON.As_String (JSON.Member_Value (Rules, "description"))
+               & LF);
+            if JSON.Kind_Of (Items) = JSON.JSON_Object then
+               Append
+                 (Lines,
+                  Listed_Fields
+                    (JSON.Member_Value (Items, "fields"), Indent & "  "));
+            end if;
+         end;
+      end loop;
+      return To_String (Lines);
+   end Listed_Fields;
+
+   --  What to put in `data`: the fields of the step's Data, then those of
+   --  each outcome in Outcomes that has `data`, under its word. Every line
+   --  ends with a line feed; "" when nothing is declared.
+   function Data_Contract (Outcomes, Data : JSON.Value) return String is
+      Lines : Unbounded_String;
+   begin
+      if JSON.Kind_Of (Data) = JSON.JSON_Object then
+         Append
+           (Lines,
+            "Put these fields in data:" & LF
+            & Listed_Fields (JSON.Member_Value (Data, "fields"), ""));
+      end if;
+      if Outcome_Words.Is_Declared (Outcomes) then
+         for I in 1 .. JSON.Length (Outcomes) loop
+            declare
+               Word   : constant String := JSON.Member_Key (Outcomes, I);
+               Fields : constant JSON.Value :=
+                 Outcome_Words.Data_Of (Outcomes, Word);
+            begin
+               if JSON.Kind_Of (Fields) = JSON.JSON_Object then
+                  Append
+                    (Lines,
+                     "With " & Word & ", also put:" & LF
+                     & Listed_Fields (Fields, ""));
+               end if;
+            end;
+         end loop;
+      end if;
+      return To_String (Lines);
+   end Data_Contract;
+
+   --  The problems the step's previous answer was refused for, one line
+   --  each and a blank line after; "" when there are none.
+   function Refusal (Refused : Synapse.Core.Text_Lists.Vector) return String
+   is
+      Lines : Unbounded_String;
+   begin
+      if Refused.Is_Empty then
+         return "";
+      end if;
+      Append (Lines, "Your last answer was refused:" & LF);
+      for Problem of Refused loop
+         Append (Lines, "- " & Problem & LF);
+      end loop;
+      return To_String (Lines) & LF;
+   end Refusal;
+
    function Parts
      (Role            : String;
       Assignment      : String;
@@ -86,10 +179,15 @@ package body Synapse.Pipeline.Prompts is
       Previous_Output : JSON.Value;
       Outcomes        : JSON.Value := JSON.Null_Value;
       Interactive     : Boolean := False;
-      Declared_Input  : JSON.Value := JSON.Null_Value)
+      Declared_Input  : JSON.Value := JSON.Null_Value;
+      Data            : JSON.Value := JSON.Null_Value;
+      Refused         : Synapse.Core.Text_Lists.Vector :=
+        Synapse.Core.Text_Lists.Vectors.Empty_Vector)
       return Part_Vectors.Vector
    is
-      Result : Part_Vectors.Vector;
+      Result   : Part_Vectors.Vector;
+      Wanted   : constant String := Data_Contract (Outcomes, Data);
+      Refusing : constant String := Refusal (Refused);
 
       procedure Paragraph (Kind : Part_Kind; Item : String) is
       begin
@@ -138,24 +236,29 @@ package body Synapse.Pipeline.Prompts is
       if Outcome_Words.Is_Declared (Outcomes) then
          Paragraph
            (Contract_Part,
-            "When you are done, reply with one JSON object and nothing "
+            Refusing
+            & "When you are done, reply with one JSON object and nothing "
             & "else: no text before or after it and no code fence." & LF
             & "{""outcome"": ""<one of the outcomes below>"", ""summary"": "
             & """<text>"", ""data"": {}}" & LF
             & "`outcome` is exactly one of these words, the one that says "
-            & "what actually happened:" & LF & Listed (Outcomes) & LF
+            & "what actually happened:" & LF & Listed (Outcomes)
+            & (if Wanted = "" then "" else LF & Wanted) & LF
             & "The pipeline decides which step runs next from it, so report "
             & "what is true, not what would be convenient. " & Tail);
       else
          Paragraph
            (Contract_Part,
-            "When you are done, reply with one JSON object and nothing "
+            Refusing
+            & "When you are done, reply with one JSON object and nothing "
             & "else: no text before or after it and no code fence." & LF
             & "{""outcome"": ""<one word>"", ""summary"": ""<text>"", "
             & """data"": {}}" & LF
             & "`outcome` is one word naming what actually happened, never "
             & "empty. The pipeline decides which step runs next from it, so "
-            & "report what is true, not what would be convenient. " & Tail);
+            & "report what is true, not what would be convenient. " & Tail
+            & (if Wanted = "" then ""
+               else LF & LF & Wanted (Wanted'First .. Wanted'Last - 1)));
       end if;
       return Result;
    end Parts;
@@ -177,11 +280,14 @@ package body Synapse.Pipeline.Prompts is
       Previous_Output : JSON.Value;
       Outcomes        : JSON.Value := JSON.Null_Value;
       Interactive     : Boolean := False;
-      Declared_Input  : JSON.Value := JSON.Null_Value) return String
+      Declared_Input  : JSON.Value := JSON.Null_Value;
+      Data            : JSON.Value := JSON.Null_Value;
+      Refused         : Synapse.Core.Text_Lists.Vector :=
+        Synapse.Core.Text_Lists.Vectors.Empty_Vector) return String
    is
      (Text_Of
         (Parts
            (Role, Assignment, Step, Initial_Input, Previous_Output, Outcomes,
-            Interactive, Declared_Input)));
+            Interactive, Declared_Input, Data, Refused)));
 
 end Synapse.Pipeline.Prompts;

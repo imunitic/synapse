@@ -106,6 +106,15 @@ Pipeline Develop_Feature {
    Work [Harness => Claude, Prompt => "Do what the request asks."];
 }
 `,
+  // A pipeline whose step declares its data, and an outcome that declares more.
+  'Data_Run.synapse': `Pipeline Data_Run {
+   Note [Harness => Claude, Prompt => "Find the task note.",
+         Outcomes => {"Done": {"description": "The note is found.",
+                               "data": {"reason": {"type": "string", "description": "Why this note was chosen."}}}},
+         Data => {"fields": {"task_note": {"type": "string", "required": true,
+                                           "description": "The path of the task note to work on."}}}];
+}
+`,
   // A run that stays running until a test stops it: its one step answers only after two minutes.
   'Held_Run.synapse': `Pipeline Held_Run {
    Hold [Harness => Claude, Prompt => "Take your time."];
@@ -134,6 +143,14 @@ const ANSWERS = {
     { outcome: 'Approved', summary: 'looks good', data: {}, delay_seconds: 0.3 },
   ],
   Work: [{ outcome: 'Done', summary: 'worked', data: {}, delay_seconds: 0.1 }],
+  Note: [
+    {
+      outcome: 'Done',
+      summary: 'found the note',
+      data: { task_note: 'tasks/a.md', reason: 'it is open' },
+      delay_seconds: 0.1,
+    },
+  ],
   Hold: [{ outcome: 'Done', summary: 'held', data: {}, delay_seconds: 120 }],
 }
 

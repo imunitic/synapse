@@ -363,6 +363,143 @@ package body Acceptance.Agent_Pipeline_Tests is
       end;
    end A_Bad_Input_Is_Refused_Before_Anything_Starts;
 
+   --  A step's `Data` with one required string field Name, described as
+   --  Description.
+   function Data_With (Name, Description : String) return String is
+     ("{""fields"": {""" & Name & """: {""type"": ""string"", "
+      & """required"": true, ""description"": """ & Description & """}}}");
+
+   --  A `claude` body that keeps the prompt of its Nth session in
+   --  prompt-N.txt under the root, and answers Done with First_Data in its
+   --  first session and with Later_Data in every later one.
+   function Numbering_Sessions
+     (F : Fixture; First_Data, Later_Data : String) return String
+   is
+      Dir : constant String := Root (F);
+      function Says (Data : String) return String is
+        ("printf '%s' '{""type"":""result"",""is_error"":false,"
+         & """structured_output"":{""outcome"":""Done"",""summary"":"
+         & """did it"",""data"":" & Data & "}}'");
+   begin
+      return
+        "n=$(cat """ & Dir & "/count"" 2>/dev/null || echo 0); n=$((n+1));"
+        & " echo $n > """ & Dir & "/count""" & LF
+        & "printf '%s' ""$prompt"" > """ & Dir & "/prompt-$n.txt""" & LF
+        & "if [ $n -eq 1 ]; then " & Says (First_Data) & "; else "
+        & Says (Later_Data) & "; fi";
+   end Numbering_Sessions;
+
+   procedure A_Steps_Data_Reaches_The_Next_Step (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define
+        (F, "Handing",
+         "Pipeline Handing {" & LF
+         & "   Find [Harness => Claude, Prompt => ""Find the note."", "
+         & "Data => " & Data_With ("task_note", "The task note.") & "];" & LF
+         & "   Work [Harness => Claude, Prompt => ""Work on it."", "
+         & "Data => " & Data_With ("item", "The item worked on.") & "];"
+         & LF & "}" & LF);
+      Install_Claude
+        (F,
+         Numbering_Sessions
+           (F, "{""task_note"":""tasks/t.md""}", "{""item"":""first""}"));
+      declare
+         R      : constant Result := Run_Pipeline (F, "run", "Handing");
+         First  : constant String := Read_File (Root (F) & "/prompt-1.txt");
+         Second : constant String := Read_File (Root (F) & "/prompt-2.txt");
+      begin
+         Assert_Exit (R, 0, "run");
+         Assert_Contains
+           (First,
+            "Put these fields in data:" & LF
+            & "- task_note (string, required): The task note.",
+            "the first step is told what data to hand on");
+         Assert_Contains
+           (Second, """task_note"":""tasks/t.md""",
+            "the second step sees the first step's task_note");
+         Assert_Contains
+           (Second,
+            "Put these fields in data:" & LF
+            & "- item (string, required): The item worked on.",
+            "and its own data contract");
+         Assert_Contains
+           (Out_Of (R), """item"":""first""", "the last result has its data");
+      end;
+   end A_Steps_Data_Reaches_The_Next_Step;
+
+   procedure Data_That_Breaks_A_Steps_Data_Fails_The_Run
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define
+        (F, "Strict",
+         "Pipeline Strict {" & LF
+         & "   Work [Harness => Claude, Prompt => ""Do it."", Retries => 1, "
+         & "Data => " & Data_With ("item", "The item.") & "];" & LF
+         & "}" & LF);
+      Install_Claude (F, Numbering_Sessions (F, "{}", "{}"));
+      declare
+         R : constant Result := Run_Pipeline (F, "run", "Strict");
+      begin
+         Assert_Exit (R, 1, "run");
+         Assert_Equal
+           (Read_File (Root (F) & "/count"), "2" & LF, "two sessions ran");
+         Assert
+           (not Contains
+                  (Read_File (Root (F) & "/prompt-1.txt"),
+                   "Your last answer was refused:"),
+            "the first prompt refuses nothing");
+         Assert_Contains
+           (Read_File (Root (F) & "/prompt-2.txt"),
+            "Your last answer was refused:" & LF
+            & "- data.item: required field is missing",
+            "the retry names the problem");
+         Assert_Contains
+           (Err_Of (R),
+            "error: step Work failed: result_contract_failure: "
+            & "data.item: required field is missing",
+            "the run fails with that kind");
+         Assert_Equal (Out_Of (R), "", "no result is printed");
+      end;
+   end Data_That_Breaks_A_Steps_Data_Fails_The_Run;
+
+   procedure Check_Refuses_A_Guard_That_Reads_An_Undeclared_Data_Field
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define
+        (F, "Guarded",
+         "Pipeline Guarded {" & LF
+         & "   Work [Harness => Claude, Prompt => ""Do it."", "
+         & "Data => " & Data_With ("item", "The item.") & "];" & LF
+         & "   Again [Harness => Claude, Prompt => ""Again.""];" & LF
+         & "   Work -> Again [When => {""=="": [{""var"": ""data.other""}, "
+         & """x""]}];" & LF
+         & "   Work -> End;" & LF & "}" & LF);
+      declare
+         R : constant Result := Run_Pipeline (F, "check", "Guarded");
+      begin
+         Assert_Exit (R, 1, "check");
+         Assert_Contains
+           (Err_Of (R), Root (F) & "/defs/Guarded.synapse:4:",
+            "at the guard");
+         Assert_Contains
+           (Err_Of (R),
+            "step 'Work' does not declare the data field 'other'",
+            "naming the field");
+      end;
+   end Check_Refuses_A_Guard_That_Reads_An_Undeclared_Data_Field;
+
    procedure A_Session_Past_Its_Limit_Is_Stopped (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
@@ -946,6 +1083,16 @@ package body Acceptance.Agent_Pipeline_Tests is
       Register_Routine
         (T, A_Bad_Input_Is_Refused_Before_Anything_Starts'Access,
          "a bad input is refused before anything starts");
+      Register_Routine
+        (T, A_Steps_Data_Reaches_The_Next_Step'Access,
+         "a step's data reaches the next step");
+      Register_Routine
+        (T, Data_That_Breaks_A_Steps_Data_Fails_The_Run'Access,
+         "data that breaks a step's Data fails the run with "
+         & "result_contract_failure");
+      Register_Routine
+        (T, Check_Refuses_A_Guard_That_Reads_An_Undeclared_Data_Field'Access,
+         "check refuses a guard that reads an undeclared data field");
    end Register_Tests;
 
 end Acceptance.Agent_Pipeline_Tests;

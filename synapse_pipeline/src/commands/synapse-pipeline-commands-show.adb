@@ -248,35 +248,41 @@ package body Synapse.Pipeline.Commands.Show is
         & " characters";
    end Instruction_Line;
 
+   --  One line per field of a described field list, each after Indent:
+   --  name, type, required or optional, and description.
+   function Field_Lines (Fields : JSON.Value; Indent : String) return String
+   is
+      Result : Unbounded_String;
+   begin
+      for I in 1 .. JSON.Length (Fields) loop
+         declare
+            F : constant JSON.Value := JSON.Element (Fields, I);
+         begin
+            Append
+              (Result,
+               Indent & Text_Of (F, "name") & "  " & Text_Of (F, "type")
+               & "  "
+               & (if JSON.As_Boolean (JSON.Member_Value (F, "required"))
+                  then "required" else "optional")
+               & "  " & Text_Of (F, "description") & LF);
+         end;
+      end loop;
+      return To_String (Result);
+   end Field_Lines;
+
    --  The declared input, one line per field, or nothing without a
    --  declaration.
    function Input_Lines (Declared : JSON.Value) return String is
-      Result : Unbounded_String;
-   begin
-      if JSON.Kind_Of (Declared) /= JSON.JSON_Object then
-         return "";
-      end if;
-      declare
-         Fields : constant JSON.Value :=
-           JSON.Member_Value (Declared, "fields");
-      begin
-         Append (Result, "input:" & LF);
-         for I in 1 .. JSON.Length (Fields) loop
-            declare
-               F : constant JSON.Value := JSON.Element (Fields, I);
-            begin
-               Append
-                 (Result,
-                  "  " & Text_Of (F, "name") & "  " & Text_Of (F, "type")
-                  & "  "
-                  & (if JSON.As_Boolean (JSON.Member_Value (F, "required"))
-                     then "required" else "optional")
-                  & "  " & Text_Of (F, "description") & LF);
-            end;
-         end loop;
-      end;
-      return To_String (Result);
-   end Input_Lines;
+     (if JSON.Kind_Of (Declared) /= JSON.JSON_Object then ""
+      else "input:" & LF
+           & Field_Lines (JSON.Member_Value (Declared, "fields"), "  "));
+
+   --  A step's declared data, one line per field under `data:`, or nothing
+   --  without a declaration.
+   function Data_Lines (Declared : JSON.Value) return String is
+     (if JSON.Kind_Of (Declared) /= JSON.JSON_Object then ""
+      else "    data:" & LF
+           & Field_Lines (JSON.Member_Value (Declared, "fields"), "      "));
 
    --  The description for a person.
    function Layout (Document : JSON.Value) return String is
@@ -298,7 +304,8 @@ package body Synapse.Pipeline.Commands.Show is
                & Shown (S, "timeout_seconds") & "s  retries "
                & Shown (S, "retries") & LF
                & "    role " & Instruction_Line (S, "role") & LF
-               & "    assignment " & Instruction_Line (S, "assignment") & LF);
+               & "    assignment " & Instruction_Line (S, "assignment") & LF
+               & Data_Lines (JSON.Member_Value (S, "data")));
             declare
                Declared : constant JSON.Value :=
                  JSON.Member_Value (S, "outcomes");
@@ -306,11 +313,19 @@ package body Synapse.Pipeline.Commands.Show is
                for K in 1 .. (if JSON.Kind_Of (Declared) = JSON.JSON_Array
                               then JSON.Length (Declared) else 0)
                loop
-                  Append
-                    (Result,
-                     "    outcome "
-                     & Text_Of (JSON.Element (Declared, K), "word") & "  "
-                     & Text_Of (JSON.Element (Declared, K), "meaning") & LF);
+                  declare
+                     O    : constant JSON.Value := JSON.Element (Declared, K);
+                     Data : constant JSON.Value :=
+                       JSON.Member_Value (O, "data");
+                  begin
+                     Append
+                       (Result,
+                        "    outcome " & Text_Of (O, "word") & "  "
+                        & Text_Of (O, "meaning") & LF);
+                     if JSON.Kind_Of (Data) = JSON.JSON_Array then
+                        Append (Result, Field_Lines (Data, "      "));
+                     end if;
+                  end;
                end loop;
             end;
             declare
@@ -490,7 +505,8 @@ package body Synapse.Pipeline.Commands.Show is
                           else JSON.Make_String (Slot)),
                        Outcomes        => Chosen.Outcomes,
                        Interactive     => Interactive,
-                       Declared_Input  => Item.Input);
+                       Declared_Input  => Item.Input,
+                       Data            => Chosen.Data);
                   Prompt : constant String := Prompts.Text_Of (Parts);
                begin
                   Say

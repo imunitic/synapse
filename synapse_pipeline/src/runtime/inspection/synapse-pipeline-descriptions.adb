@@ -3,6 +3,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.Optional_Text;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Inputs;
+with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Permission_Levels;
 
 package body Synapse.Pipeline.Descriptions is
@@ -56,54 +57,6 @@ package body Synapse.Pipeline.Descriptions is
       end loop;
       return JSON.Make_Array (Result);
    end Origins_JSON;
-
-   --  The outcomes a step declares, each as its word and meaning; null when it
-   --  declares none.
-   function Outcomes_JSON (Declared : JSON.Value) return JSON.Value is
-   begin
-      if JSON.Kind_Of (Declared) /= JSON.JSON_Object then
-         return JSON.Null_Value;
-      end if;
-      declare
-         Items : JSON.Value_Array (1 .. JSON.Length (Declared));
-      begin
-         for I in Items'Range loop
-            Items (I) :=
-              JSON.Make_Object
-                ([Member
-                    ("word", JSON.Make_String (JSON.Member_Key (Declared, I))),
-                  Member ("meaning", JSON.Member_At (Declared, I))]);
-         end loop;
-         return JSON.Make_Array (Items);
-      end;
-   end Outcomes_JSON;
-
-   function Step_JSON
-     (Item : Resolved.Step; Settings : Configs.Config) return JSON.Value
-   is
-     (JSON.Make_Object
-        ([Member ("name", Text (Item.Name)),
-          Member
-            ("harness", JSON.Make_String (Harnesses.Name_Of (Item.Harness))),
-          Member
-            ("model",
-             (if Item.Model.Found then Text (Item.Model.Value)
-              else JSON.Null_Value)),
-          Member
-            ("permissions",
-             (if Item.Permissions.Found then Text (Item.Permissions.Value)
-              else JSON.Make_String
-                     (Permission_Levels.Name_Of (Permission_Levels.Default)))),
-          Member
-            ("timeout_seconds",
-             Count
-               (if Item.Timeout_Seconds > 0 then Item.Timeout_Seconds
-                else Settings.Default_Timeout_Seconds)),
-          Member ("retries", Count (Item.Retries)),
-          Member ("outcomes", Outcomes_JSON (Item.Outcomes)),
-          Member ("role", Instruction_JSON (Item.Role)),
-          Member ("assignment", Instruction_JSON (Item.Assignment)),
-          Member ("origins", Origins_JSON (Item.Origins))]));
 
    function Edge_JSON (Index : Natural; Item : Resolved.Edge) return JSON.Value
    is
@@ -215,6 +168,89 @@ package body Synapse.Pipeline.Descriptions is
                  else JSON.Null_Value))]);
       end;
    end Input_JSON;
+
+   --  A step's `Data` declaration, as `fields` and `checks`; null when it
+   --  declares none.
+   function Data_JSON (Declared : JSON.Value) return JSON.Value is
+   begin
+      if JSON.Kind_Of (Declared) /= JSON.JSON_Object then
+         return JSON.Null_Value;
+      end if;
+      declare
+         Checks : constant JSON.Value := Member_Or_Null (Declared, "checks");
+      begin
+         return JSON.Make_Object
+           ([Member ("fields",
+                     Fields_JSON (Member_Or_Null (Declared, "fields"))),
+             Member
+               ("checks",
+                (if JSON.Kind_Of (Checks) = JSON.JSON_Array then Checks
+                 else JSON.Make_Array ([])))]);
+      end;
+   end Data_JSON;
+
+   --  The fields of an outcome's data, or null when it has none.
+   function Outcome_Data_JSON (Fields : JSON.Value) return JSON.Value is
+     (if JSON.Kind_Of (Fields) = JSON.JSON_Object then Fields_JSON (Fields)
+      else JSON.Null_Value);
+
+   --  The outcomes a step declares, each as its word, meaning and the fields
+   --  of its data (null when it has none); null when it declares none.
+   function Outcomes_JSON (Declared : JSON.Value) return JSON.Value is
+   begin
+      if JSON.Kind_Of (Declared) /= JSON.JSON_Object then
+         return JSON.Null_Value;
+      end if;
+      declare
+         Items : JSON.Value_Array (1 .. JSON.Length (Declared));
+      begin
+         for I in Items'Range loop
+            Items (I) :=
+              JSON.Make_Object
+                ([Member
+                    ("word", JSON.Make_String (JSON.Member_Key (Declared, I))),
+                  Member
+                    ("meaning",
+                     JSON.Make_String
+                       (Outcomes.Meaning_Of
+                          (Declared, JSON.Member_Key (Declared, I)))),
+                  Member
+                    ("data",
+                     Outcome_Data_JSON
+                       (Outcomes.Data_Of
+                          (Declared, JSON.Member_Key (Declared, I))))]);
+         end loop;
+         return JSON.Make_Array (Items);
+      end;
+   end Outcomes_JSON;
+
+   function Step_JSON
+     (Item : Resolved.Step; Settings : Configs.Config) return JSON.Value
+   is
+     (JSON.Make_Object
+        ([Member ("name", Text (Item.Name)),
+          Member
+            ("harness", JSON.Make_String (Harnesses.Name_Of (Item.Harness))),
+          Member
+            ("model",
+             (if Item.Model.Found then Text (Item.Model.Value)
+              else JSON.Null_Value)),
+          Member
+            ("permissions",
+             (if Item.Permissions.Found then Text (Item.Permissions.Value)
+              else JSON.Make_String
+                     (Permission_Levels.Name_Of (Permission_Levels.Default)))),
+          Member
+            ("timeout_seconds",
+             Count
+               (if Item.Timeout_Seconds > 0 then Item.Timeout_Seconds
+                else Settings.Default_Timeout_Seconds)),
+          Member ("retries", Count (Item.Retries)),
+          Member ("data", Data_JSON (Item.Data)),
+          Member ("outcomes", Outcomes_JSON (Item.Outcomes)),
+          Member ("role", Instruction_JSON (Item.Role)),
+          Member ("assignment", Instruction_JSON (Item.Assignment)),
+          Member ("origins", Origins_JSON (Item.Origins))]));
 
    function Runner_Name (Kind : Configs.Runner_Kind) return String is
      (case Kind is

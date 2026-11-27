@@ -81,6 +81,9 @@ package body Synapse.Pipeline.Attributes is
          return
            (True, [Pipeline_Context => True, others => False],
             [Syntax.JSON_Value => True, others => False]);
+      elsif Name = "Data" then
+         return
+           (True, Both, [Syntax.JSON_Value => True, others => False]);
       elsif Name = "Max_Iterations" then
          return
            (True, [Edge_Context => True, others => False],
@@ -168,14 +171,17 @@ package body Synapse.Pipeline.Attributes is
             "'" & Name & "' takes " & Accepts (Spec.Values) & ", not "
             & Describe (Item.Item.Kind));
       end if;
-      if Name = "Input" then
+      if Name = "Input" or else Name = "Data" then
          declare
+            Root     : constant String :=
+              (if Name = "Input" then "input" else Name);
             Problems : constant Synapse.Core.Text_Lists.Vector :=
               Synapse.Core.Object_Schema.Validate_Declaration
-                (Item.Item.Json);
+                (Item.Item.Json, Root => Root);
          begin
             if not Problems.Is_Empty then
-               return At_Value (Item, "'Input': " & Joined (Problems));
+               return At_Value
+                 (Item, "'" & Name & "': " & Joined (Problems));
             end if;
          end;
       elsif Name = "Prompt" and then Item.Item.Kind = Syntax.String_Value

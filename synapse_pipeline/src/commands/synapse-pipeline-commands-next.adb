@@ -2,6 +2,7 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Commands.Loading;
 with Synapse.Pipeline.Commands.Usage;
 with Synapse.Pipeline.Configs;
@@ -12,6 +13,7 @@ with Synapse.Pipeline.File_System;
 with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.States;
+with Synapse.Pipeline.Step_Data;
 
 package body Synapse.Pipeline.Commands.Next is
 
@@ -37,6 +39,34 @@ package body Synapse.Pipeline.Commands.Next is
       end loop;
       return JSON.Null_Value;
    end Outcomes_Of;
+
+   --  Every problem with the `data` of Output, a result of the step called
+   --  Step_Name, under what that step declares; empty when it is not there.
+   function Data_Problems
+     (Item : Resolved.Pipeline; Step_Name : String; Output : JSON.Value)
+      return Synapse.Core.Text_Lists.Vector is
+   begin
+      for S of Item.Steps loop
+         if To_String (S.Name) = Step_Name then
+            return Step_Data.Problems (S, Output);
+         end if;
+      end loop;
+      return Synapse.Core.Text_Lists.Vectors.Empty_Vector;
+   end Data_Problems;
+
+   --  The problems as one line, joined by "; ".
+   function Joined (Problems : Synapse.Core.Text_Lists.Vector) return String
+   is
+      Line : Unbounded_String;
+   begin
+      for Problem of Problems loop
+         if Length (Line) > 0 then
+            Append (Line, "; ");
+         end if;
+         Append (Line, To_String (Problem));
+      end loop;
+      return To_String (Line);
+   end Joined;
 
    --  The text of a file, or of standard input for `-`. Says what is wrong
    --  and leaves Ok False when it cannot be read.
@@ -238,6 +268,19 @@ package body Synapse.Pipeline.Commands.Next is
                end;
                Output :=
                  Envelopes.To_JSON (Envelopes.Envelope_Results.Value (Read));
+               declare
+                  Problems : constant Synapse.Core.Text_Lists.Vector :=
+                    Data_Problems
+                      (Item, To_String (Run_State.Current_Step), Output);
+               begin
+                  if not Problems.Is_Empty then
+                     Complain
+                       (Env,
+                        "error: --result is not a valid result: "
+                        & Joined (Problems) & LF);
+                     return 1;
+                  end if;
+               end;
             end;
 
             Say

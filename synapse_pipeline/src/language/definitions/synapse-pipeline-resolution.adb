@@ -285,6 +285,9 @@ package body Synapse.Pipeline.Resolution is
          if Given ("Outcomes") then
             Made.Outcomes := Picked ("Outcomes").Json;
          end if;
+         if Given ("Data") then
+            Made.Data := Picked ("Data").Json;
+         end if;
          return Resolve_Results.Success (Result);
       end Merge_Step;
 
@@ -342,7 +345,7 @@ package body Synapse.Pipeline.Resolution is
                  (Name => <>, Harness => Harnesses.Claude, Role => <>,
                   Assignment => <>, Model => <>, Permissions => <>,
                   Timeout_Seconds => 0, Retries => 0, Outcomes => <>,
-                  Origins => <>);
+                  Data => <>, Origins => <>);
                Merged : constant Resolve_Results.Result :=
                  Merge_Step (S, File, Made);
             begin

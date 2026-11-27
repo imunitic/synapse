@@ -17,7 +17,7 @@ with Synapse.Pipeline.Resolved;
 --             single_text_field (the field a plain string fills, or null)
 --    steps    in the order declared: name, harness, model, permissions (the
 --             level in effect), timeout_seconds (the limit in
---             effect), retries, role, assignment, origins
+--             effect), retries, data, outcomes, role, assignment, origins
 --    edges    in the order declared: index, from, to, guard, max_iterations
 --    limits   default_timeout_seconds, step_ceiling, runner
 --
@@ -30,6 +30,11 @@ with Synapse.Pipeline.Resolved;
 --  configuration's environment is not part of the document. A field's
 --  `items` is a type name, or {"fields": [...]} with fields in the same
 --  shape.
+--
+--  A step's `data` is its `Data` declaration, as fields (in the shape of
+--  `input`'s) and checks, or null when it declares none. `outcomes` is null
+--  when the step declares none, else one entry per word: word, meaning and
+--  data, the fields of that outcome's data in the same shape, or null.
 --
 --  The members are fixed names: a change to them is a new Format.
 

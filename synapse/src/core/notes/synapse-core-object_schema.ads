@@ -13,7 +13,8 @@ with Synapse.Core.Text_Lists;
 --  `{"fields": {...}}` with the same rules. `checks` is the note schema's
 --  `checks:` list, with the built-in operators only, evaluated over the
 --  object itself. Both functions report every problem, not only the first,
---  each as "<path>: <problem>" with paths under `input`.
+--  each as "<path>: <problem>" with paths under Root: `input` by default,
+--  or another name such as `data` for a step's result.
 
 package Synapse.Core.Object_Schema is
 
@@ -21,15 +22,18 @@ package Synapse.Core.Object_Schema is
 
    --  Every problem with Declared as an input declaration; empty when valid.
    function Validate_Declaration
-     (Declared : JSON.Value) return Synapse.Core.Text_Lists.Vector;
+     (Declared : JSON.Value; Root : String := "input")
+      return Synapse.Core.Text_Lists.Vector;
 
    --  Every problem with Given under Declared (valid per
    --  Validate_Declaration); empty when Given is accepted. An optional field
    --  given as "" or [] counts as not given. List items are numbered from 1,
-   --  as in `input.files[1].path`. The `checks` run only when no field has a
+   --  as in `input.files[1].path` (or `data.files[1].path` under Root
+   --  `data`). The `checks` run only when no field has a
    --  problem; a failing check gives its `message`, or "rule failed: " and
    --  the rule.
    function Validate_Object
-     (Declared, Given : JSON.Value) return Synapse.Core.Text_Lists.Vector;
+     (Declared, Given : JSON.Value; Root : String := "input")
+      return Synapse.Core.Text_Lists.Vector;
 
 end Synapse.Core.Object_Schema;

@@ -4,6 +4,7 @@ with Ada.Strings.Unbounded;
 with AUnit.Assertions;
 
 with Synapse.Core.JSON_Logic;
+with Synapse.Core.Text_Lists;
 
 package body Synapse.Pipeline.Guards.Tests is
 
@@ -183,6 +184,61 @@ package body Synapse.Pipeline.Guards.Tests is
       end loop;
    end A_Rule_Is_Checked_Without_Being_Run;
 
+   --  The fields Guard reads, joined by commas.
+   function Read_By (Guard : String) return String is
+      Fields : constant Synapse.Core.Text_Lists.Vector :=
+        Data_Fields_Read (Rule (Guard));
+      Joined : Unbounded_String;
+   begin
+      for Field of Fields loop
+         if Length (Joined) > 0 then
+            Append (Joined, ",");
+         end if;
+         Append (Joined, Field);
+      end loop;
+      return To_String (Joined);
+   end Read_By;
+
+   procedure Data_Fields_Read_Names_First_Segments
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Seen : constant String :=
+        Read_By
+          ("{""and"": [{""var"": ""data.x""}, "
+           & "{""=="": [{""var"": [""data.y.z"", 0]}, 1]}, "
+           & "{""!"": {""var"": ""data.x""}}]}");
+   begin
+      Assert (Seen = "x,y", "x and y, each once, says " & Seen);
+   end Data_Fields_Read_Names_First_Segments;
+
+   procedure Data_Fields_Read_Ignores_Outcome_And_Summary
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Seen : constant String :=
+        Read_By
+          ("{""and"": [" & Approved
+           & ", {""=="": [{""var"": ""summary""}, ""s""]}, "
+           & "{""=="": [{""var"": ""database.x""}, 1]}, "
+           & "{""=="": [{""var"": ""data""}, 1]}]}");
+   begin
+      Assert (Seen = "", "no data field, says " & Seen);
+   end Data_Fields_Read_Ignores_Outcome_And_Summary;
+
+   procedure Data_Fields_Read_Skips_A_Non_Literal
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Seen : constant String :=
+        Read_By
+          ("{""and"": [{""var"": {""cat"": [""data."", ""x""]}}, "
+           & "{""var"": [{""var"": ""outcome""}]}, "
+           & "{""var"": ""data.w""}]}");
+   begin
+      Assert (Seen = "w", "only the literal path, says " & Seen);
+   end Data_Fields_Read_Skips_A_Non_Literal;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -212,6 +268,15 @@ package body Synapse.Pipeline.Guards.Tests is
       Register_Routine
         (T, A_Rule_Is_Checked_Without_Being_Run'Access,
          "A rule is checked without being run");
+      Register_Routine
+        (T, Data_Fields_Read_Names_First_Segments'Access,
+         "Data_Fields_Read names data.x and data.y.z as x and y");
+      Register_Routine
+        (T, Data_Fields_Read_Ignores_Outcome_And_Summary'Access,
+         "Data_Fields_Read ignores outcome and summary");
+      Register_Routine
+        (T, Data_Fields_Read_Skips_A_Non_Literal'Access,
+         "Data_Fields_Read skips a var that is not a literal");
    end Register_Tests;
 
 end Synapse.Pipeline.Guards.Tests;

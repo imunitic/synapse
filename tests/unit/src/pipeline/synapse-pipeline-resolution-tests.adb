@@ -91,6 +91,20 @@ package body Synapse.Pipeline.Resolution.Tests is
          & """description"": ""The task.""}}}] "
          & "{ A [Harness => Claude, Prompt => ""x""]; }");
       F.Add_File
+        ("/defs/Shaper.synapse",
+         "System Shaper [Harness => Claude, Prompt => ""Shape."", Data => "
+         & "{""fields"": {""shape"": {""type"": ""string"", "
+         & """description"": ""The shape.""}}}];");
+      F.Add_File
+        ("/defs/Declaring.synapse",
+         "Pipeline Declaring "
+         & "{ A [Harness => Claude, Prompt => ""x"", Data => "
+         & "{""fields"": {""item"": {""type"": ""string"", "
+         & """description"": ""The item.""}}}];"
+         & " B [System => Shaper];"
+         & " C [System => Shaper, Data => {""fields"": {""size"": "
+         & "{""type"": ""integer"", ""description"": ""The size.""}}}]; }");
+      F.Add_File
         ("/defs/Bare.synapse", "Pipeline Bare { A [Prompt => ""x""]; }");
       F.Add_File
         ("/defs/Ghosts.synapse",
@@ -452,6 +466,47 @@ package body Synapse.Pipeline.Resolution.Tests is
          "no Input is a null Input");
    end A_Pipeline_Without_Input_Resolves_With_A_Null_Input;
 
+   procedure A_Steps_Data_Is_Resolved_As_Declared
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : constant Resolved.Pipeline := Resolve_OK ("Declaring");
+   begin
+      Assert
+        (JSON.Kind_Of (P.Steps (1).Data) = JSON.JSON_Object
+         and then JSON.Has_Member
+                    (JSON.Member_Value (P.Steps (1).Data, "fields"), "item"),
+         "a step's own Data is resolved as written");
+      Assert
+        (JSON.Length (JSON.Member_Value (P.Steps (3).Data, "fields")) = 1
+         and then JSON.Has_Member
+                    (JSON.Member_Value (P.Steps (3).Data, "fields"), "size"),
+         "a step's own Data replaces its system's whole");
+   end A_Steps_Data_Is_Resolved_As_Declared;
+
+   procedure A_Step_Takes_Its_Systems_Data_When_It_Declares_None
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : constant Resolved.Pipeline := Resolve_OK ("Declaring");
+   begin
+      Assert
+        (JSON.Has_Member
+           (JSON.Member_Value (P.Steps (2).Data, "fields"), "shape"),
+         "the step has its system's Data");
+   end A_Step_Takes_Its_Systems_Data_When_It_Declares_None;
+
+   procedure Without_It_Data_Resolves_To_Null (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : constant Resolved.Pipeline := Resolve_OK ("Plain");
+   begin
+      for S of P.Steps loop
+         Assert
+           (JSON.Kind_Of (S.Data) = JSON.JSON_Null, "no Data is a null Data");
+      end loop;
+   end Without_It_Data_Resolves_To_Null;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -472,6 +527,15 @@ package body Synapse.Pipeline.Resolution.Tests is
       Register_Routine
         (T, Outcomes_Come_From_The_Step_Else_Its_System'Access,
          "Outcomes come from the step, else its system");
+      Register_Routine
+        (T, A_Steps_Data_Is_Resolved_As_Declared'Access,
+         "A step's Data is resolved as declared");
+      Register_Routine
+        (T, A_Step_Takes_Its_Systems_Data_When_It_Declares_None'Access,
+         "A step takes its system's Data when it declares none");
+      Register_Routine
+        (T, Without_It_Data_Resolves_To_Null'Access,
+         "Without it, Data resolves to null");
       Register_Routine
         (T, A_Step_With_Everything_Inline_Needs_No_System'Access,
          "A step with everything inline needs no system");

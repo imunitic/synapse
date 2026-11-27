@@ -17,6 +17,10 @@ with Synapse.Pipeline.States;
 --      the step's `Retries` more times, after an execution error or a result
 --      that failed its checks; a quota that is used up is not asked again,
 --      since asking at once fails the same way;
+--    * a result's checks are its outcome, which must be one the step
+--      declares, and its `data`, which must match what the step declares
+--      (see Synapse.Pipeline.Step_Data); a result that fails them is a
+--      result_contract_failure, and the next attempt is told its problems;
 --    * the result's guards are tried in the order of the edges leaving the
 --      step, and the first that holds sends the run along its edge; when none
 --      does, the run goes on to the next step declared, and past the last one
@@ -33,13 +37,16 @@ package Synapse.Pipeline.Engine is
    use type States.Run_Status;
 
    --  What follows a step that gave Output: the routing alone, with no
-   --  session. The edges leaving the step are tried in the order written and
-   --  the first whose guard holds sends the run along its edge, counted in
-   --  `Fired`; when none does, the run goes on to the next step declared, and
-   --  past the last one it is completed. A guard that fails, or a run at a
-   --  step the pipeline does not have, returns the run as it was, marked
-   --  failed. Execute_Step ends with this, so a caller that runs the session
-   --  itself routes exactly as a run does.
+   --  session. Output is held to the step's outcomes and data; one that
+   --  breaks them fails the run with result_contract_failure. Output, as
+   --  given, is what the guards read and what the run holds as its previous
+   --  output, the next step's input. The edges leaving the step are tried in
+   --  the order written and the first whose guard holds sends the run along
+   --  its edge, counted in `Fired`; when none does, the run goes on to the
+   --  next step declared, and past the last one it is completed. A guard
+   --  that fails, or a run at a step the pipeline does not have, returns the
+   --  run as it was, marked failed. Execute_Step ends with this, so a caller
+   --  that runs the session itself routes exactly as a run does.
    function Advance
      (Pipeline : Resolved.Pipeline;
       Run      : States.State;

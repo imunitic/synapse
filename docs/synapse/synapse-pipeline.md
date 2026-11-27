@@ -95,8 +95,9 @@ input, or none.
    declared field with its value and its description; otherwise it is the raw JSON. See
    [Harnesses](#harnesses).
 3. **Check the answer.** It must be one JSON object `{"outcome", "summary", "data"}`, and when the
-   step declares `Outcomes` its outcome must be one of them. An answer that is not is a
-   `result_contract_failure`.
+   step declares `Outcomes` its outcome must be one of them. When the step declares `Data`, or the
+   outcome it reports declares `data`, its `data` must hold those fields and no others, each by its
+   rules. An answer that is not is a `result_contract_failure`.
 4. **Choose the next step.** The edges leaving the step are tried in the order they were written; the
    first whose guard holds is taken. When none is, the next declared step runs, and after the last the
    run is complete, as it is when an edge leads to `End`. The agent never decides this: it reports what
@@ -104,7 +105,10 @@ input, or none.
 5. **Repeat** until the run completes or a step fails.
 
 A step that fails ends the run, except that `Retries` gives an `execution_error` or a
-`result_contract_failure` more tries. A `quota_exhausted` is never retried. A run is held to
+`result_contract_failure` more tries. The prompt of a try after a `result_contract_failure` starts its
+contract with "Your last answer was refused:" and one line per problem, such as
+`- data.remaining: required field is missing`, so the session knows what to fix. A
+`quota_exhausted` is never retried. A run is held to
 `SYNAPSE_PIPELINE_MAX_STEPS` steps in all, which catches a loop that never ends. The failures are
 listed in [the language reference](synapse-pipeline-language.md#failures).
 
@@ -211,7 +215,9 @@ The state is the document `state` answers with over the socket (`synapse-pipelin
 edges, guards, `Max_Iterations` and the step ceiling exactly as `run` does, and exits 0 whenever it
 prints a state, so a failed run is a state with `status` `failed`. A result that is not valid, including an
 outcome the step does not declare, or a state of another pipeline or of a run that is over, prints
-nothing and exits 1. An input that breaks the pipeline's `Input` is refused as `run` refuses it: nothing
+nothing and exits 1. So does a result whose `data` breaks the step's declared data, with
+`error: --result is not a valid result: ` and every problem, joined by `; `, on standard error.
+An input that breaks the pipeline's `Input` is refused as `run` refuses it: nothing
 on standard output, every problem on standard error, and exit code 2.
 
 The `synapse-pipeline-execute` skill, installed by `synapse-pipeline-setup configure <harness>` with
@@ -245,7 +251,9 @@ Review
 `show` describes a pipeline that is not running, with the document a run answers `pipeline` with:
 `show Develop_Feature --format json` prints it as JSON, and without `--format` the same information is
 laid out for a person. The pipeline is found and validated as `check` does, and one that cannot run
-prints nothing on standard output. Each step reports the `outcomes` it declares, and a pipeline that
+prints nothing on standard output. Each step reports the `outcomes` it declares, a step that declares
+`Data` has a `data:` block with one line per field, an outcome with `data` has its field lines under
+it, and a pipeline that
 declares `Input` ends with an `input:` block, one line per field with its type, whether it is required
 and its description. `show <system>` and
 `show <agent>` describe that definition and the definitions that use it, and `show <pipeline> --step
@@ -444,10 +452,13 @@ fixed names, and a change to them is a new format.
 | `format` | `synapse-pipeline-description/v1` |
 | `name` | the pipeline's name |
 | `input` | the pipeline's `Input`, or null when it has none: `fields` in the order declared, each with `name`, `type`, `required`, `description`, and `min_length`, `const`, `pattern`, `enum` and `items` when written (`items` is a type name or `{"fields": [...]}` in the same shape); `checks` as written; and `single_text_field`, the field a plain string fills, or null |
-| `steps` | in the order declared: `name`, `harness`, `model`, `permissions` (the level in effect), `timeout_seconds` (the limit in effect), `retries`, `role`, `assignment`, `origins` |
+| `steps` | in the order declared: `name`, `harness`, `model`, `permissions` (the level in effect), `timeout_seconds` (the limit in effect), `retries`, `data`, `outcomes`, `role`, `assignment`, `origins` |
 | `edges` | in the order declared: `index`, `from`, `to`, `guard` (a JsonLogic rule; null when unconditional), `max_iterations` (null when unbounded) |
 | `limits` | `default_timeout_seconds`, `step_ceiling`, `runner` |
 
+`data` is the step's `Data`, or null when it has none: `fields` in the order declared, in the shape
+of `input`'s fields, and `checks` as written. `outcomes` is null when the step declares none, or a list
+of `{"word", "meaning", "data"}`, where `data` is that outcome's fields in the same shape, or null.
 `role` and `assignment` are `{"kind": "prompt", "text": ...}` or null; a named prompt is described by
 its text. `origins` lists the system, the agent and the prompts a step was built from, each with
 `kind` (`system`, `agent` or `prompt`), `name` and `file`. An edge's `index` counts from 0 and is its position in `state.fired`.

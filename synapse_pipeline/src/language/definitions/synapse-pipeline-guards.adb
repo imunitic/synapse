@@ -97,6 +97,75 @@ package body Synapse.Pipeline.Guards is
       return Synapse.Core.Optional_Text.None;
    end Problem;
 
+   function Data_Fields_Read (Guard : JSON.Value)
+      return Synapse.Core.Text_Lists.Vector
+   is
+      Prefix : constant String := "data.";
+      Found  : Synapse.Core.Text_Lists.Vector;
+
+      --  Adds the field Path reads, when it is a data path.
+      procedure Note (Path : String) is
+      begin
+         if Path'Length <= Prefix'Length
+           or else Path (Path'First .. Path'First + Prefix'Length - 1)
+                   /= Prefix
+         then
+            return;
+         end if;
+         declare
+            Rest  : constant String :=
+              Path (Path'First + Prefix'Length .. Path'Last);
+            Field : Unbounded_String := To_Unbounded_String (Rest);
+         begin
+            for I in Rest'Range loop
+               if Rest (I) = '.' then
+                  Field := To_Unbounded_String (Rest (Rest'First .. I - 1));
+                  exit;
+               end if;
+            end loop;
+            if Length (Field) > 0 and then not Found.Contains (Field) then
+               Found.Append (Field);
+            end if;
+         end;
+      end Note;
+
+      procedure Walk (Item : JSON.Value) is
+      begin
+         case JSON.Kind_Of (Item) is
+            when JSON.JSON_Array =>
+               for I in 1 .. JSON.Length (Item) loop
+                  Walk (JSON.Element (Item, I));
+               end loop;
+
+            when JSON.JSON_Object =>
+               if JSON.Length (Item) = 1
+                 and then JSON.Member_Key (Item, 1) = "var"
+               then
+                  declare
+                     Path : constant JSON.Value := JSON.Member_At (Item, 1);
+                     Read : constant JSON.Value :=
+                       (if JSON.Kind_Of (Path) = JSON.JSON_Array
+                          and then JSON.Length (Path) > 0
+                        then JSON.Element (Path, 1) else Path);
+                  begin
+                     if JSON.Kind_Of (Read) = JSON.JSON_String then
+                        Note (JSON.As_String (Read));
+                     end if;
+                  end;
+               end if;
+               for I in 1 .. JSON.Length (Item) loop
+                  Walk (JSON.Member_At (Item, I));
+               end loop;
+
+            when others =>
+               null;
+         end case;
+      end Walk;
+   begin
+      Walk (Guard);
+      return Found;
+   end Data_Fields_Read;
+
    function Holds
      (Guard : JSON.Value; Result : JSON.Value) return Guard_Results.Result
    is
