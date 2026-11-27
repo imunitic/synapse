@@ -69,6 +69,22 @@ for backend in backend_a backend_b; do
   "${compose[@]}" exec -T "$backend" rm /home/node/.synapse-ci-isolation
 done
 echo 'Containers run non-root; backend home writes remain isolated.'
+# Exercise the installed development tools as the actual backend user.
+"${compose[@]}" exec -T backend_a sh -ec '
+  git --version >/dev/null
+  codex --version >/dev/null
+  synapse --help >/dev/null
+  synapse-pipeline --help >/dev/null
+  work=$(mktemp -d)
+  trap '\''rm -rf "$work"'\'' EXIT
+  git -C "$work" init -q
+  printf "before\\n" > "$work/fixture.txt"
+  git -C "$work" add fixture.txt
+  printf "after\\n" > "$work/fixture.txt"
+  git -C "$work" diff --exit-code -- fixture.txt >/dev/null && exit 1
+  git -C "$work" diff -- fixture.txt | grep -q "^+after$"
+'
+echo 'Backend development tools execute and Git produces a task diff.'
 for backend in backend_a backend_b; do
   address=172.29.101.2
   if [[ "$backend" == backend_b ]]; then address=172.29.102.2; fi
