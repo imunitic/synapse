@@ -165,7 +165,7 @@ done
 # Missing or ambiguous forwarded identities must fail closed; a single fixture
 # identity must permit the real composed login path.
 login_status() {
-  curl -sS -o /dev/null -w '%{http_code}' \
+  proxy_curl -sS -o /dev/null -w '%{http_code}' \
     -H 'Host: staging.example.test' \
     -H 'Origin: https://staging.example.test' \
     -H 'Content-Type: application/json' \
@@ -202,7 +202,7 @@ cookie=$(proxy_curl -fsS -D - -o /dev/null \
   ')
 [[ -n "$cookie" ]]
 session_status() {
-  curl -sS -o /dev/null -w '%{http_code}' \
+  proxy_curl -sS -o /dev/null -w '%{http_code}' \
     -H 'Host: staging.example.test' \
     -H 'Origin: https://staging.example.test' \
     -H "Cookie: $cookie" "$@"
