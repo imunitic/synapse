@@ -1,0 +1,26 @@
+name: Synapse SSH-only connection test
+
+on:
+  push:
+    branches:
+      - feature/pwa-remote-host-foundation
+    paths:
+      - .github/workflows/synapse-ssh-test.yml
+
+permissions: {}
+
+jobs:
+  ssh-test:
+    runs-on: ubuntu-latest
+    environment: live
+    timeout-minutes: 3
+    steps:
+      - name: Verify VPS host and deployment user
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          fingerprint: ${{ secrets.VPS_FINGERPRINT }}
+          script: whoami
