@@ -2,6 +2,7 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Core.Object_Schema;
 with Synapse.Core.Text_Lists;
+with Synapse.Pipeline.Data_Shapes;
 with Synapse.Pipeline.Syntax;
 
 package body Synapse.Pipeline.Outcomes is
@@ -121,13 +122,19 @@ package body Synapse.Pipeline.Outcomes is
                end if;
                if JSON.Has_Member (Meaning, "data") then
                   declare
+                     Data     : constant JSON.Value :=
+                       JSON.Member_Value (Meaning, "data");
+                     Root     : constant String :=
+                       "Outcomes." & Word & ".data";
                      Problems : constant Synapse.Core.Text_Lists.Vector :=
-                       Synapse.Core.Object_Schema.Validate_Declaration
-                         (JSON.Make_Object
-                            ([1 => (Key  => To_Unbounded_String ("fields"),
-                                    Item => JSON.Member_Value
-                                              (Meaning, "data"))]),
-                          Root => "Outcomes." & Word & ".data");
+                       (if Data_Shapes.Is_Named (Data)
+                        then Data_Shapes.Name_List_Problems (Data, Root)
+                        else Synapse.Core.Object_Schema.Validate_Declaration
+                               (JSON.Make_Object
+                                  ([1 => (Key  =>
+                                            To_Unbounded_String ("fields"),
+                                          Item => Data)]),
+                                Root => Root));
                      Joined : Unbounded_String;
                   begin
                      if not Problems.Is_Empty then

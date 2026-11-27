@@ -5,9 +5,11 @@ with AUnit.Assertions;
 
 with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Definitions;
 with Synapse.Pipeline.Fake_Files;
 with Synapse.Pipeline.Search_Paths;
+with Synapse.Pipeline.Step_Data;
 
 package body Synapse.Pipeline.Resolution.Tests is
 
@@ -104,6 +106,28 @@ package body Synapse.Pipeline.Resolution.Tests is
          & " B [System => Shaper];"
          & " C [System => Shaper, Data => {""fields"": {""size"": "
          & "{""type"": ""integer"", ""description"": ""The size.""}}}]; }");
+      F.Add_File
+        ("/defs/Namer.synapse",
+         "System Namer [Harness => Claude, Prompt => ""Name."", "
+         & "Data => [""remaining""]];");
+      F.Add_File
+        ("/defs/Shared.synapse",
+         "Pipeline Shared [Data => {""fields"": {"
+         & """task_note"": {""type"": ""string"", ""required"": true, "
+         & """description"": ""The task note.""}, "
+         & """remaining"": {""type"": ""integer"", "
+         & """description"": ""Items left.""}, "
+         & """problems"": {""type"": ""array"", "
+         & """description"": ""What to fix.""}}}] "
+         & "{ A [Harness => Claude, Prompt => ""x"", "
+         & "Data => [""task_note"", ""remaining""], "
+         & "Outcomes => {""Done"": ""Finished."", "
+         & """Rejected"": {""meaning"": ""Not fine."", "
+         & """data"": [""problems"", ""task_note""]}}];"
+         & " B [System => Namer];"
+         & " C [Harness => Claude, Prompt => ""x"", Data => "
+         & "{""fields"": {""item"": {""type"": ""string"", "
+         & """description"": ""The item.""}}}]; }");
       F.Add_File
         ("/defs/Bare.synapse", "Pipeline Bare { A [Prompt => ""x""]; }");
       F.Add_File
@@ -507,6 +531,146 @@ package body Synapse.Pipeline.Resolution.Tests is
       end loop;
    end Without_It_Data_Resolves_To_Null;
 
+   --  The member Name of Value, null when Value is no object holding it.
+   function Field_Of (Value : JSON.Value; Name : String) return JSON.Value is
+     (if JSON.Kind_Of (Value) = JSON.JSON_Object
+        and then JSON.Has_Member (Value, Name)
+      then JSON.Member_Value (Value, Name) else JSON.Null_Value);
+
+   function Description_Of (Field : JSON.Value) return String is
+     (if JSON.Kind_Of (Field) = JSON.JSON_Object
+        and then JSON.Has_Member (Field, "description")
+      then JSON.As_String (JSON.Member_Value (Field, "description"))
+      else "<none>");
+
+   procedure A_Pipelines_Data_Is_Resolved_As_Declared
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : constant Resolved.Pipeline := Resolve_OK ("Shared");
+   begin
+      Assert
+        (JSON.Kind_Of (P.Data) = JSON.JSON_Object
+         and then JSON.Length (Field_Of (P.Data, "fields")) = 3
+         and then Description_Of
+                    (Field_Of (Field_Of (P.Data, "fields"), "task_note")) =
+                  "The task note.",
+         "the pipeline's Data is carried as written");
+      Assert
+        (JSON.Kind_Of (Resolve_OK ("Plain").Data) = JSON.JSON_Null,
+         "no pipeline Data is a null Data");
+   end A_Pipelines_Data_Is_Resolved_As_Declared;
+
+   procedure A_Steps_Named_Data_Becomes_The_Declared_Fields
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P      : constant Resolved.Pipeline := Resolve_OK ("Shared");
+      Fields : constant JSON.Value := Field_Of (P.Steps (1).Data, "fields");
+   begin
+      Assert
+        (JSON.Kind_Of (Fields) = JSON.JSON_Object
+         and then JSON.Length (Fields) = 2
+         and then JSON.Member_Key (Fields, 1) = "task_note"
+         and then JSON.Member_Key (Fields, 2) = "remaining",
+         "the names become fields, in the list's order");
+      Assert
+        (Description_Of (Field_Of (Fields, "task_note")) = "The task note."
+         and then Description_Of (Field_Of (Fields, "remaining")) =
+                  "Items left.",
+         "each field is the pipeline's declaration");
+   end A_Steps_Named_Data_Becomes_The_Declared_Fields;
+
+   procedure A_Systems_Named_Data_Becomes_The_Declared_Fields
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P      : constant Resolved.Pipeline := Resolve_OK ("Shared");
+      Fields : constant JSON.Value := Field_Of (P.Steps (2).Data, "fields");
+   begin
+      Assert
+        (JSON.Kind_Of (Fields) = JSON.JSON_Object
+         and then JSON.Length (Fields) = 1
+         and then Description_Of (Field_Of (Fields, "remaining")) =
+                  "Items left.",
+         "the system's names become the pipeline's fields");
+   end A_Systems_Named_Data_Becomes_The_Declared_Fields;
+
+   procedure An_Outcomes_Named_Data_Becomes_The_Declared_Fields
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P    : constant Resolved.Pipeline := Resolve_OK ("Shared");
+      Data : constant JSON.Value :=
+        Field_Of (Field_Of (P.Steps (1).Outcomes, "Rejected"), "data");
+   begin
+      Assert
+        (JSON.Kind_Of (Data) = JSON.JSON_Object
+         and then JSON.Length (Data) = 2
+         and then JSON.Member_Key (Data, 1) = "problems"
+         and then Description_Of (Field_Of (Data, "problems")) =
+                  "What to fix.",
+         "the outcome's names become the declared fields");
+      Assert
+        (JSON.Kind_Of (Field_Of (P.Steps (1).Outcomes, "Done")) =
+           JSON.JSON_String,
+         "a string outcome is unchanged");
+   end An_Outcomes_Named_Data_Becomes_The_Declared_Fields;
+
+   procedure Named_Fields_Lists_The_Names_A_Step_Took
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P     : constant Resolved.Pipeline := Resolve_OK ("Shared");
+      Names : constant Synapse.Core.Text_Lists.Vector :=
+        P.Steps (1).Named_Fields;
+   begin
+      Assert
+        (Natural (Names.Length) = 3
+         and then To_String (Names (1)) = "task_note"
+         and then To_String (Names (2)) = "remaining"
+         and then To_String (Names (3)) = "problems",
+         "each name once, Data first, then the outcomes");
+      Assert
+        (Natural (P.Steps (2).Named_Fields.Length) = 1
+         and then To_String (P.Steps (2).Named_Fields (1)) = "remaining",
+         "a name from the system counts");
+   end Named_Fields_Lists_The_Names_A_Step_Took;
+
+   procedure A_Step_With_Inline_Data_Has_No_Named_Fields
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Resolve_OK ("Shared").Steps (3).Named_Fields.Is_Empty,
+         "inline Data names nothing");
+      Assert
+        (Resolve_OK ("Declaring").Steps (1).Named_Fields.Is_Empty,
+         "nor does it without a pipeline Data");
+   end A_Step_With_Inline_Data_Has_No_Named_Fields;
+
+   procedure A_Step_That_Names_Its_Data_Is_Checked_Like_Inline
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P      : constant Resolved.Pipeline := Resolve_OK ("Shared");
+      Parsed : constant JSON.Parse_Result :=
+        JSON.Parse
+          ("{""outcome"": ""Done"", ""summary"": ""s"", "
+           & """data"": {""remaining"": 1}}");
+      Found  : Boolean := False;
+   begin
+      Assert (Parsed.Ok, "the sample is JSON");
+      for Problem of Step_Data.Problems (P.Steps (1), Parsed.Item) loop
+         if To_String (Problem) = "data.task_note: required field is missing"
+         then
+            Found := True;
+         end if;
+      end loop;
+      Assert (Found, "a named required field is required");
+   end A_Step_That_Names_Its_Data_Is_Checked_Like_Inline;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -536,6 +700,28 @@ package body Synapse.Pipeline.Resolution.Tests is
       Register_Routine
         (T, Without_It_Data_Resolves_To_Null'Access,
          "Without it, Data resolves to null");
+      Register_Routine
+        (T, A_Pipelines_Data_Is_Resolved_As_Declared'Access,
+         "A pipeline's Data is resolved as declared");
+      Register_Routine
+        (T, A_Steps_Named_Data_Becomes_The_Declared_Fields'Access,
+         "A step's named Data becomes the declared fields");
+      Register_Routine
+        (T, A_Systems_Named_Data_Becomes_The_Declared_Fields'Access,
+         "A system's named Data becomes the declared fields");
+      Register_Routine
+        (T, An_Outcomes_Named_Data_Becomes_The_Declared_Fields'Access,
+         "An outcome's named data becomes the declared fields");
+      Register_Routine
+        (T, Named_Fields_Lists_The_Names_A_Step_Took'Access,
+         "Named_Fields lists the names a step took from the pipeline");
+      Register_Routine
+        (T, A_Step_With_Inline_Data_Has_No_Named_Fields'Access,
+         "A step with inline Data has no named fields");
+      Register_Routine
+        (T, A_Step_That_Names_Its_Data_Is_Checked_Like_Inline'Access,
+         "A step that names its data is checked like one that writes it "
+         & "inline");
       Register_Routine
         (T, A_Step_With_Everything_Inline_Needs_No_System'Access,
          "A step with everything inline needs no system");

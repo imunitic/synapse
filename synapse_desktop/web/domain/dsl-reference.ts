@@ -70,14 +70,14 @@ export const DSL_ATTRIBUTES: readonly DslAttribute[] = [
     on: ['step', 'system'],
     value: 'JSON object',
     meaning:
-      'The outcomes the step may end with, each with what it means. A meaning may be `{"description": "...", "data": {...}}`, with the fields the result holds with that outcome. Optional.',
+      'The outcomes the step may end with, each with what it means. A meaning may be `{"description": "...", "data": {...}}`, with the fields the result holds with that outcome; that `data` may also be a list of names the pipeline declares. Optional.',
   },
   {
     name: 'Data',
-    on: ['step', 'system'],
-    value: 'JSON object',
+    on: ['pipeline', 'step', 'system'],
+    value: 'JSON object; on a step or system also a list of names',
     meaning:
-      "The fields the step's result holds in `data`, each with what it means. The next step gets them as its input. Optional.",
+      "On a pipeline, the shapes of the fields its steps hand on, declared once. On a step, the fields its result holds in `data`, each with what it means, or the names of fields the pipeline declares; an outcome's `data` may name them too. The next step gets them as its input. Optional.",
   },
   {
     name: 'Input',
@@ -138,11 +138,13 @@ export const DSL_RULES: Record<DslKind, readonly string[]> = {
     'An edge back to an earlier step, or to itself, needs `Max_Iterations`.',
     'A step gives its whole setup, or names a `System` and overrides what it likes. Its own Prompt replaces the system’s, whether each is a text or a name.',
     'The harness comes from the step, else its system, else the `SYNAPSE_PIPELINE_HARNESS` variable. A step with none is an error.',
+    'A field several steps hand on is declared once in the pipeline’s `Data` and named in each step: `Data => ["task_note"]`. A name means one thing in the whole pipeline.',
   ],
   system: [
     ...COMMON,
     'A system is the setup of a step, named so that steps can share it. A system cannot name another system.',
     'Its Prompt is the text itself or the name of a Prompt definition.',
+    'A system’s `Data` may name fields the pipeline declares; each pipeline that uses the system must declare them.',
   ],
   agent: [
     ...COMMON,

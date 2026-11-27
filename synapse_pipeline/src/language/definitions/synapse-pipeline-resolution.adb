@@ -1,6 +1,9 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
+with Synapse.Core.Text_Lists;
+with Synapse.Pipeline.Data_Shapes;
 with Synapse.Pipeline.Durations;
 with Synapse.Pipeline.Limits;
 with Synapse.Pipeline.Outcomes;
@@ -10,6 +13,7 @@ package body Synapse.Pipeline.Resolution is
 
    use Ada.Strings.Unbounded;
    use type Resolved.Origin_Kind;
+   use type Synapse.Core.JSON.Kind;
    use type Syntax.Definition_Kind;
    use type Syntax.Value_Kind;
    use type Syntax.Attribute_Vectors.Cursor;
@@ -178,6 +182,19 @@ package body Synapse.Pipeline.Resolution is
          Agent_Attributes : Syntax.Attribute_Vectors.Vector;
          Missing          : Unbounded_String;
 
+         --  Append to Named_Fields each of Names the pipeline declares and
+         --  the step has not taken yet.
+         procedure Took (Names : Synapse.Core.Text_Lists.Vector) is
+         begin
+            for N of Names loop
+               if Data_Shapes.Declares (Result.Data, To_String (N))
+                 and then not Made.Named_Fields.Contains (N)
+               then
+                  Made.Named_Fields.Append (N);
+               end if;
+            end loop;
+         end Took;
+
          function No_Prompt return Resolve_Results.Result is
            (Failure
               (File, S.Name,
@@ -282,11 +299,30 @@ package body Synapse.Pipeline.Resolution is
          if Given ("Retries") then
             Made.Retries := Limits.Repeat_Count (Picked ("Retries").Number);
          end if;
-         if Given ("Outcomes") then
-            Made.Outcomes := Picked ("Outcomes").Json;
-         end if;
          if Given ("Data") then
-            Made.Data := Picked ("Data").Json;
+            Took (Data_Shapes.Names_Of (Picked ("Data").Json));
+            Made.Data :=
+              Data_Shapes.Resolve_Data (Result.Data, Picked ("Data").Json);
+         end if;
+         if Given ("Outcomes") then
+            declare
+               Declared : constant Synapse.Core.JSON.Value :=
+                 Picked ("Outcomes").Json;
+            begin
+               if Synapse.Core.JSON.Kind_Of (Declared) =
+                    Synapse.Core.JSON.JSON_Object
+               then
+                  for I in 1 .. Synapse.Core.JSON.Length (Declared) loop
+                     Took
+                       (Data_Shapes.Names_Of
+                          (Outcomes.Data_Of
+                             (Declared,
+                              Synapse.Core.JSON.Member_Key (Declared, I))));
+                  end loop;
+               end if;
+               Made.Outcomes :=
+                 Data_Shapes.Resolve_Outcomes (Result.Data, Declared);
+            end;
          end if;
          return Resolve_Results.Success (Result);
       end Merge_Step;
@@ -339,13 +375,18 @@ package body Synapse.Pipeline.Resolution is
               Syntax.Attribute_Vectors.Element
                 (Find (Loaded.Item.Attributes, "Input")).Item.Json;
          end if;
+         if Has (Loaded.Item.Attributes, "Data") then
+            Result.Data :=
+              Syntax.Attribute_Vectors.Element
+                (Find (Loaded.Item.Attributes, "Data")).Item.Json;
+         end if;
          for S of Loaded.Item.Steps loop
             declare
                Made   : Resolved.Step :=
                  (Name => <>, Harness => Harnesses.Claude, Role => <>,
                   Assignment => <>, Model => <>, Permissions => <>,
                   Timeout_Seconds => 0, Retries => 0, Outcomes => <>,
-                  Data => <>, Origins => <>);
+                  Data => <>, Named_Fields => <>, Origins => <>);
                Merged : constant Resolve_Results.Result :=
                  Merge_Step (S, File, Made);
             begin

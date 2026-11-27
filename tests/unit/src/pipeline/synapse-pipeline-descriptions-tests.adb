@@ -343,7 +343,7 @@ package body Synapse.Pipeline.Descriptions.Tests is
             "[{""word"":""Done"",""meaning"":""It is done."",""data"":null},"
             & "{""word"":""Blocked"",""meaning"":""Cannot."",""data"":["
             & "{""name"":""blocker"",""type"":""string"",""required"":false,"
-            & """description"":""Why.""}]}]",
+            & """description"":""Why."",""from"":""step""}]}]",
             "each meaning is a line: " & JSON.To_String (Outcomes));
       end;
    end An_Object_Outcome_Is_Described_By_Its_Description;
@@ -385,9 +385,9 @@ package body Synapse.Pipeline.Descriptions.Tests is
         (JSON.To_String (Data) =
          "{""fields"":["
          & "{""name"":""task_note"",""type"":""string"",""required"":true,"
-         & """description"":""The task note.""},"
+         & """description"":""The task note."",""from"":""step""},"
          & "{""name"":""item"",""type"":""string"",""required"":false,"
-         & """description"":""The item.""}],"
+         & """description"":""The item."",""from"":""step""}],"
          & """checks"":[{""rule"":{""!!"":[{""var"":""item""}]},"
          & """message"":""needs an item""}]}",
          "the fields in declared order, and the checks, without "
@@ -415,7 +415,7 @@ package body Synapse.Pipeline.Descriptions.Tests is
          "[{""name"":""problems"",""type"":""list"",""required"":true,"
          & """description"":""What to fix."",""items"":{""fields"":["
          & "{""name"":""issue"",""type"":""string"",""required"":true,"
-         & """description"":""The issue.""}]}}]",
+         & """description"":""The issue.""}]},""from"":""step""}]",
          "the outcome's fields, in the shape of input's: "
          & JSON.To_String (Outcomes));
    end An_Outcomes_Data_Is_Described_With_The_Outcome;
@@ -437,6 +437,116 @@ package body Synapse.Pipeline.Descriptions.Tests is
                "data")) = JSON.JSON_Null,
          "an outcome without data has a null data");
    end Without_Them_Data_Is_Null;
+
+   Task_Note_Shape : constant String :=
+     "{""fields"": {""task_note"": {""type"": ""string"","
+     & " ""required"": true, ""description"": ""The task note.""}}}";
+
+   procedure A_Pipelines_Data_Is_Described (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Settings : Configs.Config;
+      Pipeline : Resolved.Pipeline := Sample;
+   begin
+      Pipeline.Data := Parsed (Task_Note_Shape);
+      declare
+         Data : constant JSON.Value :=
+           JSON.Member_Value (Describe (Pipeline, Settings), "data");
+      begin
+         Assert
+           (JSON.To_String (Data) =
+            "{""fields"":["
+            & "{""name"":""task_note"",""type"":""string"",""required"":true,"
+            & """description"":""The task note.""}]}",
+            "the shapes as fields, in the shape of input's: "
+            & JSON.To_String (Data));
+      end;
+   end A_Pipelines_Data_Is_Described;
+
+   procedure Without_It_The_Pipelines_Data_Is_Null
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Settings : Configs.Config;
+      Document : constant JSON.Value := Describe (Sample, Settings);
+   begin
+      Assert
+        (JSON.Has_Member (Document, "data")
+         and then JSON.Kind_Of (JSON.Member_Value (Document, "data")) =
+                  JSON.JSON_Null,
+         "a pipeline without Data has a null data");
+   end Without_It_The_Pipelines_Data_Is_Null;
+
+   --  The first step of a Sample whose first step has the resolved Data
+   --  Task_Note_Shape and an outcome Done with the same data, and whose
+   --  Named_Fields holds Named when it is not empty.
+   function First_Step_Named (Named : String) return JSON.Value is
+      Settings : Configs.Config;
+      Pipeline : Resolved.Pipeline := Sample;
+      First    : Resolved.Step := Pipeline.Steps (1);
+   begin
+      Pipeline.Data := Parsed (Task_Note_Shape);
+      First.Data := Parsed (Task_Note_Shape);
+      First.Outcomes :=
+        Parsed
+          ("{""Done"": {""description"": ""It is done."", ""data"": "
+           & JSON.To_String
+               (JSON.Member_Value (Parsed (Task_Note_Shape), "fields"))
+           & "}}");
+      if Named'Length > 0 then
+         First.Named_Fields.Append (U (Named));
+      end if;
+      Pipeline.Steps.Replace_Element (1, First);
+      return JSON.Element
+        (JSON.Member_Value (Describe (Pipeline, Settings), "steps"), 1);
+   end First_Step_Named;
+
+   --  The `from` of the first field of a step's data and of its first
+   --  outcome's data.
+   function Data_From (Step : JSON.Value) return String is
+     (JSON.As_String
+        (JSON.Member_Value
+           (JSON.Element
+              (JSON.Member_Value (JSON.Member_Value (Step, "data"), "fields"),
+               1),
+            "from")));
+
+   function Outcome_From (Step : JSON.Value) return String is
+     (JSON.As_String
+        (JSON.Member_Value
+           (JSON.Element
+              (JSON.Member_Value
+                 (JSON.Element (JSON.Member_Value (Step, "outcomes"), 1),
+                  "data"),
+               1),
+            "from")));
+
+   procedure A_Named_Field_Is_Described_As_From_The_Pipeline
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Step : constant JSON.Value := First_Step_Named ("task_note");
+   begin
+      Assert
+        (Data_From (Step) = "pipeline",
+         "the step's field: " & JSON.To_String (Step));
+      Assert
+        (Outcome_From (Step) = "pipeline",
+         "the outcome's field: " & JSON.To_String (Step));
+   end A_Named_Field_Is_Described_As_From_The_Pipeline;
+
+   procedure An_Inline_Field_Is_Described_As_From_The_Step
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Step : constant JSON.Value := First_Step_Named ("");
+   begin
+      Assert
+        (Data_From (Step) = "step",
+         "the step's field: " & JSON.To_String (Step));
+      Assert
+        (Outcome_From (Step) = "step",
+         "the outcome's field: " & JSON.To_String (Step));
+   end An_Inline_Field_Is_Described_As_From_The_Step;
 
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
@@ -482,6 +592,18 @@ package body Synapse.Pipeline.Descriptions.Tests is
          "An outcome's data is described with the outcome");
       Register_Routine
         (T, Without_Them_Data_Is_Null'Access, "Without them, data is null");
+      Register_Routine
+        (T, A_Pipelines_Data_Is_Described'Access,
+         "A pipeline's Data is described");
+      Register_Routine
+        (T, Without_It_The_Pipelines_Data_Is_Null'Access,
+         "Without it, the pipeline's data is null");
+      Register_Routine
+        (T, A_Named_Field_Is_Described_As_From_The_Pipeline'Access,
+         "A named field is described as from the pipeline");
+      Register_Routine
+        (T, An_Inline_Field_Is_Described_As_From_The_Step'Access,
+         "An inline field is described as from the step");
    end Register_Tests;
 
 end Synapse.Pipeline.Descriptions.Tests;

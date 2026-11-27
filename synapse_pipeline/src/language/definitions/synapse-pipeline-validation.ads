@@ -37,7 +37,9 @@ package Synapse.Pipeline.Validation is
    --  What is worth saying about the pipeline called Name that does not stop
    --  it running, each in its file: a step with edges that test its outcome
    --  and no `Outcomes`, where a declared set would turn a misspelt outcome
-   --  into an error. Empty when the pipeline is not there.
+   --  into an error, and a data field the pipeline's `Data` declares that
+   --  no step's `Data` and no outcome's `data` names, its own or its
+   --  system's. Empty when the pipeline is not there.
    function Advise
      (Defs : Namespaces.Namespace; Name : String)
       return Definitions.Problem_Vectors.Vector;

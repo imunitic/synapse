@@ -500,6 +500,126 @@ package body Acceptance.Agent_Pipeline_Tests is
       end;
    end Check_Refuses_A_Guard_That_Reads_An_Undeclared_Data_Field;
 
+   --  A pipeline header that declares the field Name in its `Data`, as
+   --  Data_With describes it.
+   function Declaring (Pipeline, Name, Description : String) return String is
+     ("Pipeline " & Pipeline & " [Data => " & Data_With (Name, Description)
+      & "] {" & LF);
+
+   procedure A_Steps_Named_Data_Reaches_The_Next_Step
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define
+        (F, "Naming",
+         Declaring ("Naming", "task_note", "The task note.")
+         & "   Find [Harness => Claude, Prompt => ""Find the note."", "
+         & "Data => [""task_note""]];" & LF
+         & "   Work [Harness => Claude, Prompt => ""Work on it.""];" & LF
+         & "}" & LF);
+      Install_Claude
+        (F, Numbering_Sessions (F, "{""task_note"":""tasks/t.md""}", "{}"));
+      declare
+         R      : constant Result := Run_Pipeline (F, "run", "Naming");
+         First  : constant String := Read_File (Root (F) & "/prompt-1.txt");
+         Second : constant String := Read_File (Root (F) & "/prompt-2.txt");
+      begin
+         Assert_Exit (R, 0, "run");
+         Assert_Contains
+           (First,
+            "Put these fields in data:" & LF
+            & "- task_note (string, required): The task note.",
+            "the first step is told the declared field");
+         Assert_Contains
+           (Second, """task_note"":""tasks/t.md""",
+            "the second step sees the first step's task_note");
+      end;
+   end A_Steps_Named_Data_Reaches_The_Next_Step;
+
+   procedure Check_Refuses_A_Step_That_Names_An_Undeclared_Data_Field
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define
+        (F, "Undeclared",
+         Declaring ("Undeclared", "task_note", "The task note.")
+         & "   Work [Harness => Claude, Prompt => ""Do it."", "
+         & "Data => [""task_note"", ""item""]];" & LF
+         & "}" & LF);
+      declare
+         R : constant Result := Run_Pipeline (F, "check", "Undeclared");
+      begin
+         Assert_Exit (R, 1, "check");
+         Assert_Contains
+           (Err_Of (R), Root (F) & "/defs/Undeclared.synapse:2:",
+            "at the step");
+         Assert_Contains
+           (Err_Of (R),
+            "step 'Work' names the data field 'item', which the pipeline "
+            & "does not declare",
+            "naming the field");
+      end;
+   end Check_Refuses_A_Step_That_Names_An_Undeclared_Data_Field;
+
+   procedure Check_Refuses_An_Inline_Field_Under_A_Declared_Name
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define
+        (F, "Shadowed",
+         Declaring ("Shadowed", "task_note", "The task note.")
+         & "   Work [Harness => Claude, Prompt => ""Do it."", "
+         & "Data => " & Data_With ("task_note", "Another note.") & "];" & LF
+         & "}" & LF);
+      declare
+         R : constant Result := Run_Pipeline (F, "check", "Shadowed");
+      begin
+         Assert_Exit (R, 1, "check");
+         Assert_Contains
+           (Err_Of (R),
+            "step 'Work' declares the data field 'task_note' inline, which "
+            & "the pipeline declares; name it instead",
+            "naming the field");
+      end;
+   end Check_Refuses_An_Inline_Field_Under_A_Declared_Name;
+
+   procedure Check_Warns_About_A_Declared_Data_Field_No_Step_Names
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define
+        (F, "Unused",
+         Declaring ("Unused", "task_note", "The task note.")
+         & "   Work [Harness => Claude, Prompt => ""Do it.""];" & LF
+         & "}" & LF);
+      declare
+         R : constant Result := Run_Pipeline (F, "check", "Unused");
+      begin
+         Assert_Exit (R, 0, "check");
+         Assert_Contains
+           (Err_Of (R),
+            "warning: " & Root (F) & "/defs/Unused.synapse:1:",
+            "a warning at the pipeline");
+         Assert_Contains
+           (Err_Of (R),
+            "the pipeline declares the data field 'task_note', which no "
+            & "step names",
+            "naming the field");
+      end;
+   end Check_Warns_About_A_Declared_Data_Field_No_Step_Names;
+
    procedure A_Session_Past_Its_Limit_Is_Stopped (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
@@ -1093,6 +1213,18 @@ package body Acceptance.Agent_Pipeline_Tests is
       Register_Routine
         (T, Check_Refuses_A_Guard_That_Reads_An_Undeclared_Data_Field'Access,
          "check refuses a guard that reads an undeclared data field");
+      Register_Routine
+        (T, A_Steps_Named_Data_Reaches_The_Next_Step'Access,
+         "a step's named data reaches the next step");
+      Register_Routine
+        (T, Check_Refuses_A_Step_That_Names_An_Undeclared_Data_Field'Access,
+         "check refuses a step that names an undeclared data field");
+      Register_Routine
+        (T, Check_Refuses_An_Inline_Field_Under_A_Declared_Name'Access,
+         "check refuses an inline field under a declared name");
+      Register_Routine
+        (T, Check_Warns_About_A_Declared_Data_Field_No_Step_Names'Access,
+         "check warns about a declared data field no step names");
    end Register_Tests;
 
 end Acceptance.Agent_Pipeline_Tests;

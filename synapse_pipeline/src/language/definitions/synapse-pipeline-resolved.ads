@@ -3,6 +3,7 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Durations;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Limits;
@@ -57,12 +58,22 @@ package Synapse.Pipeline.Resolved is
 
       --  The outcomes the step may end with, an object from each word to its
       --  meaning; null when the step declares none and may end with any word.
+      --  An outcome's `data` that names fields the pipeline declares holds
+      --  their declarations instead of the names.
       Outcomes    : Synapse.Core.JSON.Value := Synapse.Core.JSON.Null_Value;
 
-      --  The step's Data declaration as written, from the step itself or
-      --  else its system: the fields it puts in data whatever its outcome.
-      --  Null when neither declares one.
+      --  The step's Data declaration, from the step itself or else its
+      --  system: the fields it puts in data whatever its outcome. A list of
+      --  names is replaced by the pipeline's declarations of those names, as
+      --  `{"fields": ...}`; inline Data is as written. Null when neither
+      --  declares one.
       Data        : Synapse.Core.JSON.Value := Synapse.Core.JSON.Null_Value;
+
+      --  The names the step's Data and its outcomes' data took from the
+      --  pipeline's Data, each once, in the order first met: Data first,
+      --  then the outcomes in declared order. Empty when the step names
+      --  none.
+      Named_Fields : Synapse.Core.Text_Lists.Vector;
 
       --  The system, the agent and the prompts the step's values came from.
       Origins     : Origin_Vectors.Vector;
@@ -99,6 +110,11 @@ package Synapse.Pipeline.Resolved is
       --  The pipeline's Input declaration as written, which an input is
       --  checked against; null when the pipeline declares none.
       Input : Synapse.Core.JSON.Value := Synapse.Core.JSON.Null_Value;
+
+      --  The pipeline's Data declaration as written, the shapes its steps
+      --  name; null when the pipeline declares none. The steps already hold
+      --  these shapes in place of the names.
+      Data  : Synapse.Core.JSON.Value := Synapse.Core.JSON.Null_Value;
    end record;
 
 end Synapse.Pipeline.Resolved;

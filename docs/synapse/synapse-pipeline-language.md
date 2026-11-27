@@ -127,7 +127,7 @@ Pipeline Name [Description => "..."] {
 | `Timeout` | step, system | duration | The most one session may take. |
 | `Retries` | step, system | integer | Extra tries after an execution error or a result that breaks the contract. |
 | `Outcomes` | step, system | JSON object | The outcomes the step may end with, each with what it means and, optionally, the data it hands on. Optional; see [Declaring outcomes](#declaring-outcomes). |
-| `Data` | step, system | JSON object | The fields the step puts in `data` whatever its outcome, each with what it means. Optional; see [Declaring data](#declaring-data). |
+| `Data` | pipeline, step, system | JSON object; on a step or system also a list of names | On a pipeline, the shapes of the fields its steps hand on, declared once. On a step, the fields it puts in `data` whatever its outcome, each with what it means, or the names of fields the pipeline declares. Optional; see [Declaring data](#declaring-data). |
 | `When` | edge | outcome name or JSON | The guard. |
 | `Max_Iterations` | edge | integer, at least 1 | How many times the edge may fire. |
 
@@ -297,7 +297,8 @@ Implement [Agent => Developer, Harness => Claude, Prompt => Implement_Task_Item,
 ```
 
 The object has only the keys `description`, the one-line meaning as above, and `data`, a mapping from
-field names to field rules, as in `fields` of [Declaring data](#declaring-data). Both forms can be
+field names to field rules, as in `fields` of [Declaring data](#declaring-data), or a list of names
+the pipeline declares, as in [Naming the pipeline's data](#naming-the-pipelines-data). Both forms can be
 mixed in one `Outcomes`. The prompt shows the `description` as the meaning.
 
 ### Declaring data
@@ -315,8 +316,9 @@ Implement [Harness => Claude, Prompt => Implement_Task_Item, Data => {"fields": 
 
 - A step's data is the next step's input. The next step is given the previous step's result, `data`
   included, and nothing else: no field is kept for the rest of the run. A value that several later
-  steps need, such as the name of a task note, is declared in the `Data` of every step that hands it
-  on.
+  steps need, such as the name of a task note, is in the `Data` of every step that hands it on. The
+  pipeline declares it once and each step names it; see
+  [Naming the pipeline's data](#naming-the-pipelines-data).
 - A step's data is its `Data` fields and the `data` fields of the outcome it ends with, merged.
   `Data` holds whatever the outcome; an outcome's `data` holds only with that outcome. A field another
   outcome declares is not part of it.
@@ -340,18 +342,66 @@ Implement [Harness => Claude, Prompt => Implement_Task_Item, Data => {"fields": 
 
 `show` reports a step's `Data` as `data`, and each outcome's fields with the outcome.
 
-This is a whole pipeline written with `Data`. `task_note` and `design_note` are in the `Data` of every
-step that hands them on, and the outcomes that hand on more say so in their own `data`:
+### Naming the pipeline's data
+
+A field that several steps hand on is declared once, in the pipeline's `Data`, and each step names it.
+A pipeline's `Data` is a field mapping, `{"fields": {...}}` with the same field rules and a
+`description` for every field. It declares shapes only: it has no `checks` and holds no values.
+
+```
+Pipeline Build_Task [Data => {"fields": {
+  "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."}
+}}] {
+   Implement [Harness => Claude, Prompt => Implement_Task_Item, Data => ["task_note"]];
+   ...
+}
+```
+
+- A step's `Data` (or its system's) is either a list of names the pipeline declares,
+  `["task_note", "remaining"]`, or the inline form above, never both. An outcome's `data` is either
+  a list of names or an inline field mapping. A list is not empty and names no field twice.
+- Names are replaced by the pipeline's declarations when the pipeline loads. After that a step that
+  names its data is checked, prompted and run exactly like one that writes the same fields inline.
+- A name means one thing in the whole pipeline. A step cannot change a named field's rules, and a
+  field written inline under a name the pipeline declares is an error: name it instead.
+- Checks across fields belong to the step whose data they constrain, so a step that needs them writes
+  its `Data` inline.
+- A system that names fields can be used only by pipelines that declare them, since each pipeline has
+  its own declarations.
+
+`check` reports, at the step, a name the pipeline does not declare and an inline field under a name it
+declares. It warns, and still succeeds, about a field the pipeline declares that no step's `Data` and
+no outcome's `data` names. `show` prints the pipeline's shapes as `data:` after the input, and marks a
+step's field that came from the pipeline with `(pipeline)`.
+
+This is a whole pipeline written with `Data`. `task_note`, `design_note` and `problems` are declared
+once on the pipeline. Every step that hands `task_note` and `design_note` on names them, and Review's
+`Changes_Requested` and Finalize's `Checks_Failed` name `problems`. Compile's `tasks` and Implement's
+`remaining` are declared on the pipeline as well, since a step's `Data` is either a list of names or
+inline. The fields only one
+outcome hands on, Implement's `blocker` and Not_Ready's `reason` and `candidates`, stay inline:
 
 ```
 -- Turn a Ready design note into a task note, then implement, review and finalize it.
-Pipeline Build_Task [Description => "Compile a Ready design note, then implement, review and finalize it."] {
+Pipeline Build_Task [Description => "Compile a Ready design note, then implement, review and finalize it.",
+   Data => {"fields": {
+     "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
+     "design_note": {"type": "string", "required": true, "description": "The design note's vault note name."},
+     "tasks": {"type": "integer", "required": true, "description": "The number of checklist items."},
+     "remaining": {"type": "integer", "required": true, "description": "The number of unchecked items left."},
+     "problems": {"type": "list", "required": true, "min_length": 1,
+                  "description": "Each problem found.",
+                  "items": {"fields": {
+                    "file": {"type": "string", "required": true, "description": "The file the problem is in."},
+                    "location": {"type": "string", "description": "Where in the file, such as a line or a test name."},
+                    "issue": {"type": "string", "required": true, "description": "What is wrong."}
+                  }}}
+   }}] {
    Check_Ready [Harness => Claude, Permissions => Read_Only,
       Prompt => "Find the design note the input names, and say whether it is ready to build.",
       Outcomes => {
         "Ready": {"description": "Exactly one design note matches the input and its status is Ready.",
-                  "data": {"design_note": {"type": "string", "required": true,
-                                           "description": "The design note's vault note name."}}},
+                  "data": ["design_note"]},
         "Not_Ready": {"description": "No design note matches, more than one does, or its status is not Ready.",
                       "data": {"reason": {"type": "string", "required": true,
                                           "description": "Which of these it is."},
@@ -360,19 +410,11 @@ Pipeline Build_Task [Description => "Compile a Ready design note, then implement
       }];
 
    Compile [Harness => Claude, Prompt => "Compile the task note for the design note named by design_note.",
-      Data => {"fields": {
-        "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
-        "design_note": {"type": "string", "required": true, "description": "The design note's vault note name."},
-        "tasks": {"type": "integer", "required": true, "description": "The number of checklist items."}
-      }}];
+      Data => ["task_note", "design_note", "tasks"]];
 
    Implement [Harness => Claude, Retries => 1,
       Prompt => "Implement the next unchecked item of the task note named by task_note. Fix every problem in problems first.",
-      Data => {"fields": {
-        "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
-        "design_note": {"type": "string", "required": true, "description": "The design note's vault note name."},
-        "remaining": {"type": "integer", "required": true, "description": "The number of unchecked items left."}
-      }},
+      Data => ["task_note", "design_note", "remaining"],
       Outcomes => {
         "More_Remaining": "The item is implemented, its tests pass and it is ticked, and at least one unchecked item remains.",
         "All_Implemented": "Every item is ticked and all the tests you ran pass.",
@@ -383,37 +425,19 @@ Pipeline Build_Task [Description => "Compile a Ready design note, then implement
 
    Review [Harness => Claude, Permissions => Read_Only,
       Prompt => "Review the change against the task note named by task_note and its design note.",
-      Data => {"fields": {
-        "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
-        "design_note": {"type": "string", "required": true, "description": "The design note's vault note name."}
-      }},
+      Data => ["task_note", "design_note"],
       Outcomes => {
         "Approved": "Every item is implemented, tested and ticked, and you found nothing to fix.",
         "Changes_Requested": {"description": "At least one item is missing, wrong, untested or outside the plan.",
-                              "data": {"problems": {"type": "list", "required": true, "min_length": 1,
-                                                    "description": "Each problem found.",
-                                                    "items": {"fields": {
-                                                      "file": {"type": "string", "required": true, "description": "The file the problem is in."},
-                                                      "location": {"type": "string", "description": "Where in the file, such as a line or a function."},
-                                                      "issue": {"type": "string", "required": true, "description": "What is wrong."}
-                                                    }}}}}
+                              "data": ["problems"]}
       }];
 
    Finalize [Harness => Claude, Prompt => "Run the final checks of the task note named by task_note.",
-      Data => {"fields": {
-        "task_note": {"type": "string", "required": true, "description": "The task note's vault note name."},
-        "design_note": {"type": "string", "required": true, "description": "The design note's vault note name."}
-      }},
+      Data => ["task_note", "design_note"],
       Outcomes => {
         "In_Review": "Every final check passed and the task note's status is REVIEW.",
         "Checks_Failed": {"description": "At least one final check failed.",
-                          "data": {"problems": {"type": "list", "required": true, "min_length": 1,
-                                                "description": "Each failure.",
-                                                "items": {"fields": {
-                                                  "file": {"type": "string", "required": true, "description": "The file the failure points at."},
-                                                  "location": {"type": "string", "description": "Where in the file, such as a line or a test name."},
-                                                  "issue": {"type": "string", "required": true, "description": "What failed."}
-                                                }}}}}
+                          "data": ["problems"]}
       }];
 
    Check_Ready -> End [When => Not_Ready];
@@ -430,7 +454,7 @@ Pipeline Build_Task [Description => "Compile a Ready design note, then implement
 The prompts name fields ("the task note named by task_note") and do not explain them or say what to
 put in `data`: the declarations do both. Implement is given whichever result came before it: from
 Compile on the first visit, from itself, from Review with `problems`, or from Finalize with
-`problems`. Each of those declares `task_note` and `design_note`, so the fields Implement needs are
+`problems`. Each of those names `task_note` and `design_note`, so the fields Implement needs are
 always there.
 
 ### Ending a run early
@@ -474,6 +498,7 @@ nothing in the pipeline can catch the failure.
 - that every guard is a rule the evaluator can run, and every back-edge is bounded;
 - that a step that declares `Outcomes` declares well (words and one-line meanings) and has no edge testing a word it does not declare;
 - that a step's `Data` and its outcomes' `data` use only the known rules, give every field a `description`, and declare no field twice, and that a guard reads no data field the step it leaves does not declare;
+- that a pipeline's `Data` is a field mapping with no `checks`, that a list of names is not empty and names no field twice, that every name a step's `Data` or an outcome's `data` gives is declared by the pipeline, and that no field is written inline under a name the pipeline declares;
 - that a pipeline's `Input` uses only the known rules, gives every field a `description`, has well-formed patterns, and has checks the evaluator can run.
 
 All the problems found are reported together.

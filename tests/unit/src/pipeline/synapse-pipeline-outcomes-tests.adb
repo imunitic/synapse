@@ -216,6 +216,75 @@ package body Synapse.Pipeline.Outcomes.Tests is
          "the field mapping with data");
    end Data_Of_Is_Null_For_A_String_Outcome;
 
+   procedure An_Outcomes_Data_May_Be_A_List_Of_Names
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (not Problem
+               (Parsed
+                  ("{""Done"": {""description"": ""Done."","
+                   & " ""data"": [""task_note"", ""remaining""]}}"))
+               .Found,
+         "a list of names");
+   end An_Outcomes_Data_May_Be_A_List_Of_Names;
+
+   procedure An_Outcomes_Empty_List_Of_Names_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Found : constant Synapse.Core.Optional_Text.Option :=
+        Problem
+          (Parsed ("{""Done"": {""description"": ""D."", ""data"": []}}"));
+   begin
+      Assert
+        (Found.Found
+         and then To_String (Found.Value) =
+                  "Outcomes.Done.data: the list of names is empty",
+         "names the outcome: "
+         & (if Found.Found then To_String (Found.Value) else ""));
+   end An_Outcomes_Empty_List_Of_Names_Is_Refused;
+
+   procedure An_Outcomes_List_With_A_Name_Twice_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Found : constant Synapse.Core.Optional_Text.Option :=
+        Problem
+          (Parsed
+             ("{""Done"": {""description"": ""D."","
+              & " ""data"": [""a"", ""a"", 3]}}"));
+   begin
+      Assert
+        (Found.Found
+         and then To_String (Found.Value) =
+                  "Outcomes.Done.data: 'a' is named twice; "
+                  & "Outcomes.Done.data: item 3 is not a name",
+         "every problem, joined: "
+         & (if Found.Found then To_String (Found.Value) else ""));
+   end An_Outcomes_List_With_A_Name_Twice_Is_Refused;
+
+   procedure Data_Of_Gives_A_List_Of_Names_As_Written
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      use type JSON.Kind;
+      Data : constant JSON.Value :=
+        Data_Of
+          (Parsed
+             ("{""Done"": {""description"": ""D."","
+              & " ""data"": [""task_note"", ""remaining""]}}"),
+           "Done");
+   begin
+      Assert
+        (JSON.Kind_Of (Data) = JSON.JSON_Array
+         and then JSON.Length (Data) = 2
+         and then JSON.As_String (JSON.Element (Data, 1)) = "task_note"
+         and then JSON.As_String (JSON.Element (Data, 2)) = "remaining",
+         "the list, in order");
+   end Data_Of_Gives_A_List_Of_Names_As_Written;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -256,6 +325,18 @@ package body Synapse.Pipeline.Outcomes.Tests is
       Register_Routine
         (T, Data_Of_Is_Null_For_A_String_Outcome'Access,
          "Data_Of is null for a string outcome");
+      Register_Routine
+        (T, An_Outcomes_Data_May_Be_A_List_Of_Names'Access,
+         "An outcome's data may be a list of names");
+      Register_Routine
+        (T, An_Outcomes_Empty_List_Of_Names_Is_Refused'Access,
+         "An outcome's empty list of names is refused");
+      Register_Routine
+        (T, An_Outcomes_List_With_A_Name_Twice_Is_Refused'Access,
+         "An outcome's list with a name twice is refused");
+      Register_Routine
+        (T, Data_Of_Gives_A_List_Of_Names_As_Written'Access,
+         "Data_Of gives a list of names as written");
    end Register_Tests;
 
 end Synapse.Pipeline.Outcomes.Tests;

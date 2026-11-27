@@ -249,7 +249,8 @@ package body Synapse.Pipeline.Commands.Show is
    end Instruction_Line;
 
    --  One line per field of a described field list, each after Indent:
-   --  name, type, required or optional, and description.
+   --  name, type, required or optional, and description, and
+   --  `  (pipeline)` for a field that came from the pipeline's Data.
    function Field_Lines (Fields : JSON.Value; Indent : String) return String
    is
       Result : Unbounded_String;
@@ -264,7 +265,10 @@ package body Synapse.Pipeline.Commands.Show is
                & "  "
                & (if JSON.As_Boolean (JSON.Member_Value (F, "required"))
                   then "required" else "optional")
-               & "  " & Text_Of (F, "description") & LF);
+               & "  " & Text_Of (F, "description")
+               & (if Text_Of (F, "from") = "pipeline" then "  (pipeline)"
+                  else "")
+               & LF);
          end;
       end loop;
       return To_String (Result);
@@ -275,6 +279,13 @@ package body Synapse.Pipeline.Commands.Show is
    function Input_Lines (Declared : JSON.Value) return String is
      (if JSON.Kind_Of (Declared) /= JSON.JSON_Object then ""
       else "input:" & LF
+           & Field_Lines (JSON.Member_Value (Declared, "fields"), "  "));
+
+   --  The pipeline's data shapes, one line per field, or nothing without a
+   --  declaration.
+   function Shapes_Lines (Declared : JSON.Value) return String is
+     (if JSON.Kind_Of (Declared) /= JSON.JSON_Object then ""
+      else "data:" & LF
            & Field_Lines (JSON.Member_Value (Declared, "fields"), "  "));
 
    --  A step's declared data, one line per field under `data:`, or nothing
@@ -363,6 +374,7 @@ package body Synapse.Pipeline.Commands.Show is
          & "s  steps " & Shown (Limits, "step_ceiling") & "  runner "
          & Text_Of (Limits, "runner") & LF);
       Append (Result, Input_Lines (JSON.Member_Value (Document, "input")));
+      Append (Result, Shapes_Lines (JSON.Member_Value (Document, "data")));
       return To_String (Result);
    end Layout;
 
