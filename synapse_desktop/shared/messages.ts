@@ -291,7 +291,7 @@ export const messages = {
     ]),
   },
 
-  // An agent writes something: a definition, a note, a change to a note.
+  // An agent writes something: a definition, a note, a change to a note, the input of a run.
   'agent.run': {
     params: z.discriminatedUnion('kind', [
       z.object({
@@ -325,11 +325,21 @@ export const messages = {
         ...agentChoice,
         run: runIdSchema.optional(),
       }),
+      z.object({
+        kind: z.literal('run-input'),
+        pipeline: definitionNameSchema,
+        prompt: z.string().min(1).max(20_000),
+        ...agentChoice,
+        // The JSON in the editor now, which the description may add to.
+        current: draftText.optional(),
+        run: runIdSchema.optional(),
+      }),
     ]),
     result: z.union([
       z.object({ kind: z.literal('definition'), text }),
       z.object({ kind: z.literal('note'), path: z.string() }),
       z.object({ kind: z.literal('note-edit'), edit: noteEditSchema }),
+      z.object({ kind: z.literal('run-input'), text }),
     ]),
   },
   // Ends the run of an agent that has this id; an id that is not running is not an error.

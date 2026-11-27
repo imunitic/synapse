@@ -29,6 +29,7 @@ import type {
   PastSessions,
   ProjectList,
   RunAnswer,
+  RunInputRequest,
   RunRequest,
   TerminalHandle,
   TerminalInfo,
@@ -149,6 +150,12 @@ export class BusTransport implements Transport {
     const answer = await this.bus.request('agent.run', { kind: 'note-edit', ...request })
     if (answer.kind !== 'note-edit') throw new Error('the host answered another message')
     return answer.edit
+  }
+
+  async fillRunInput(request: RunInputRequest): Promise<{ text: string }> {
+    const answer = await this.bus.request('agent.run', { kind: 'run-input', ...request })
+    if (answer.kind !== 'run-input') throw new Error('the host answered another message')
+    return { text: answer.text }
   }
 
   async stopAgentRun(run: string): Promise<void> {

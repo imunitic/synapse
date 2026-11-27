@@ -58,22 +58,22 @@ From the host:
 
 A request has a `name` from the table below, and its `params` are the object that message takes. A request that has nothing to say answers `null`. Parameters that are not the ones the message takes are refused with `bad_request` before a handler sees them.
 
-| Name                                                                   | What it does                                                                      |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `fs.read`, `fs.list`                                                   | Read a file or list a folder inside the folders the host may touch.               |
-| `cli`                                                                  | Run one of the listed programs with one of its listed subcommands, with no shell. |
-| `config.get`, `config.set`                                             | The app's settings and the folders they name.                                     |
-| `registry.list`, `registry.add`, `registry.remove`                     | The projects and the conventions Synapse keeps in the configuration directory.    |
-| `models.get`                                                           | The models of a harness, kept between runs.                                       |
-| `history.get`                                                          | The sessions and workspaces of the harnesses.                                     |
-| `agent.run`                                                            | Have a harness write a definition or a note.                                      |
-| `note.restore`                                                         | Put a note back as it was before an edit.                                         |
-| `definition.preview`, `definition.write`                               | Check and save a definition.                                                      |
-| `run.start`, `run.stop`, `run.ask`                                     | Start a run of a pipeline, stop it, and ask it about itself.                      |
-| `vault.inspect`, `vault.seed`                                          | What a folder holds as a vault, and make it one.                                  |
-| `graph.repo`, `graph.health`, `graph.manage`                           | The code graphs: where they were built from, how they are, and cleaning them.     |
-| `terminal.start`, `terminal.attach`, `terminal.list`, `terminal.close` | The terminal sessions, below.                                                     |
-| `diagnose`, `integrations`                                             | What is set up on this machine, and what Synapse is installed into.               |
+| Name                                                                   | What it does                                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `fs.read`, `fs.list`                                                   | Read a file or list a folder inside the folders the host may touch.                  |
+| `cli`                                                                  | Run one of the listed programs with one of its listed subcommands, with no shell.    |
+| `config.get`, `config.set`                                             | The app's settings and the folders they name.                                        |
+| `registry.list`, `registry.add`, `registry.remove`                     | The projects and the conventions Synapse keeps in the configuration directory.       |
+| `models.get`                                                           | The models of a harness, kept between runs.                                          |
+| `history.get`                                                          | The sessions and workspaces of the harnesses.                                        |
+| `agent.run`                                                            | Have a harness write a definition, a note, a change to a note or the input of a run. |
+| `note.restore`                                                         | Put a note back as it was before an edit.                                            |
+| `definition.preview`, `definition.write`                               | Check and save a definition.                                                         |
+| `run.start`, `run.stop`, `run.ask`                                     | Start a run of a pipeline, stop it, and ask it about itself.                         |
+| `vault.inspect`, `vault.seed`                                          | What a folder holds as a vault, and make it one.                                     |
+| `graph.repo`, `graph.health`, `graph.manage`                           | The code graphs: where they were built from, how they are, and cleaning them.        |
+| `terminal.start`, `terminal.attach`, `terminal.list`, `terminal.close` | The terminal sessions, below.                                                        |
+| `diagnose`, `integrations`                                             | What is set up on this machine, and what Synapse is installed into.                  |
 
 ### Errors
 

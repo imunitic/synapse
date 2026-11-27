@@ -164,6 +164,35 @@ export const OPENCODE_PERMISSION: {
   webfetch: 'deny',
 }
 
+// What a session may do: write notes as the skills say, or only read and search the vault, as the
+// session that fills in the input of a run does.
+export type Access = 'write' | 'read'
+
+// What a Claude Code session that only reads may use: the three vault commands that read and
+// search, and nothing else, no skill, no file and no edit.
+export const READ_TOOLS = [
+  'Bash(synapse vault-search-text *)',
+  'Bash(synapse vault-list)',
+  'Bash(synapse vault-list *)',
+  'Bash(synapse vault-read *)',
+].join(',')
+
+// The same for OpenCode: those commands, and every other command and every edit denied.
+export const OPENCODE_READ_PERMISSION: {
+  bash: Record<string, string>
+  edit: Record<string, string>
+  webfetch: string
+} = {
+  bash: {
+    '*': 'deny',
+    'synapse vault-search-text *': 'allow',
+    'synapse vault-list*': 'allow',
+    'synapse vault-read *': 'allow',
+  },
+  edit: { '*': 'deny' },
+  webfetch: 'deny',
+}
+
 export interface NoteCommand {
   args: string[]
   // Added to the session's environment.
@@ -174,7 +203,9 @@ export interface NoteCommand {
 // The headless session of each harness, with what the session plan adds to load
 // Synapse. Claude Code and OpenCode are held to the commands above. Codex runs in
 // its sandbox, which writes only to its working folder and the folders in
-// `writable`, where the vault and the skills' files are, and has no network.
+// `writable`, where the vault and the skills' files are, and has no network. A read
+// session is held to the commands that read and search the vault, and Codex to its
+// read-only sandbox.
 export function noteCommand(
   harness: Harness,
   plan: SessionPlan,
@@ -182,7 +213,9 @@ export function noteCommand(
   writable: readonly string[],
   model?: string,
   stream = false,
+  access: Access = 'write',
 ): NoteCommand {
+  const reading = access === 'read'
   switch (harness) {
     case 'Claude':
       return {
@@ -196,9 +229,11 @@ export function noteCommand(
           '--allowedTools',
           // The folder of the Synapse package, when it is loaded for the session, is
           // there to be read: its skills and the schemas the vault holds notes to.
-          plan.env.SYNAPSE_CONTENT_ROOT === undefined
-            ? NOTE_TOOLS
-            : `${NOTE_TOOLS},Read(${plan.env.SYNAPSE_CONTENT_ROOT}/**)`,
+          reading
+            ? READ_TOOLS
+            : plan.env.SYNAPSE_CONTENT_ROOT === undefined
+              ? NOTE_TOOLS
+              : `${NOTE_TOOLS},Read(${plan.env.SYNAPSE_CONTENT_ROOT}/**)`,
           ...plan.args,
           ...(model === undefined ? [] : ['--model', model]),
         ],
@@ -212,10 +247,10 @@ export function noteCommand(
           '--ephemeral',
           '--skip-git-repo-check',
           '-s',
-          'workspace-write',
+          reading ? 'read-only' : 'workspace-write',
           '-c',
           'approval_policy="never"',
-          ...writable.flatMap((dir) => ['--add-dir', dir]),
+          ...(reading ? [] : writable.flatMap((dir) => ['--add-dir', dir])),
           ...plan.args,
           ...(model === undefined ? [] : ['-m', model]),
           '-',
@@ -233,7 +268,11 @@ export function noteCommand(
           ...(model === undefined ? [] : ['-m', model]),
           prompt,
         ],
-        env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: OPENCODE_PERMISSION }) },
+        env: {
+          OPENCODE_CONFIG_CONTENT: JSON.stringify({
+            permission: reading ? OPENCODE_READ_PERMISSION : OPENCODE_PERMISSION,
+          }),
+        },
         stdin: '',
       }
   }
@@ -249,6 +288,8 @@ export interface NoteSessionRun {
   // The folders the session writes in besides its own: the vault, and where the
   // skills keep their files.
   writable: readonly string[]
+  // Whether the session writes notes or only reads the vault; it writes when absent.
+  access?: Access
   // Ends the session when aborted; the result is then code 143.
   signal?: AbortSignal
   // Called with each line the session prints, as it prints it. For Claude the session
@@ -321,6 +362,7 @@ export function createNoteSession(plan: (harness: Harness) => Promise<SessionPla
       run.writable,
       run.model,
       run.onLine !== undefined && run.harness === 'Claude',
+      run.access,
     )
     const streaming = run.onLine !== undefined && run.harness === 'Claude'
     const lines = run.onLine === undefined ? undefined : lineSplitter(run.onLine)

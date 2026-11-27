@@ -16,6 +16,8 @@ import {
 } from '../domain/run-input.ts'
 import { transport } from '../transport/index.ts'
 import { CodeEditor } from './CodeEditor.tsx'
+import { DescribeRun } from './DescribeRun.tsx'
+import { PencilIcon } from './icons.tsx'
 import { PromptView } from './PromptView.tsx'
 import { PathInput } from './PathInput.tsx'
 
@@ -26,7 +28,9 @@ import { PathInput } from './PathInput.tsx'
 // a person can watch it and answer what its agents ask. Only a pipeline that cannot run that way, as
 // `check --interactive` says, is started without a terminal, and the dialog says why. A pipeline that
 // declares its input gets a sample to fill in, a reference of its fields, and its problems while they
-// are typed; it starts only once there are none.
+// are typed; it starts only once there are none. Its JSON editor also has a pencil: a sentence that
+// describes the run, from which an agent writes the JSON. That goes into the editor as one change
+// that undo takes back, and is checked like anything typed; the agent never starts the run.
 
 // How long the input has to stay the same before it is checked.
 const checkDelayMs = 400
@@ -75,6 +79,9 @@ export function RunDialog({
     setJson(startJson)
     setEditorStart(startJson)
   }
+  // The describe box is open, and the text an agent wrote, given to the editor as one change.
+  const [describing, setDescribing] = useState(false)
+  const [filled, setFilled] = useState<{ id: number; text: string } | null>(null)
   // The answer of the last check, for the input it was asked about.
   const [check, setCheck] = useState<{ stdin: string; problems: string[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -186,7 +193,11 @@ export function RunDialog({
               className="subtab"
               aria-selected={mode === 'text'}
               aria-pressed={mode === 'text'}
-              onClick={() => setMode('text')}
+              onClick={() => {
+                // The editor is mounted again on return, and would take the old fill again.
+                setFilled(null)
+                setMode('text')
+              }}
             >
               Text
             </button>
@@ -223,7 +234,33 @@ export function RunDialog({
           </>
         ) : (
           <>
-            <p className="muted">Input as JSON</p>
+            <div className="row">
+              <p className="muted">Input as JSON</p>
+              {declared && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Fill in with an agent"
+                  title="Fill in with an agent"
+                  aria-expanded={describing}
+                  onClick={() => setDescribing(!describing)}
+                >
+                  <PencilIcon />
+                </button>
+              )}
+            </div>
+            {declared && describing && (
+              <DescribeRun
+                pipeline={pipeline}
+                current={json}
+                onFilled={(value) => {
+                  setJson(value)
+                  setError(null)
+                  setFilled((last) => ({ id: (last?.id ?? 0) + 1, text: value }))
+                }}
+                onClose={() => setDescribing(false)}
+              />
+            )}
             <CodeEditor
               initial={editorStart}
               onChange={(value) => {
@@ -233,6 +270,7 @@ export function RunDialog({
               marks={noMarks}
               label="Input as JSON"
               language="json"
+              replacement={filled}
             />
             {declared && (
               <dl className="facts small" aria-label="Fields of the input">

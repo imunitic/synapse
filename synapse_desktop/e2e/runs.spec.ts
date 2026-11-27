@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   utimesSync,
@@ -759,4 +760,141 @@ test('a pipeline without Input keeps both tabs and starts with {}', async ({ pag
   await expect(dialog.getByLabel('Input as JSON')).toHaveText('{}')
   await expect(dialog.getByLabel('Fields of the input')).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: 'Start run' })).toBeEnabled()
+})
+
+// What the background runs of the stub harnesses were given, a line for each.
+const stubLog = () => join(world().root, 'stub-args.log')
+
+// Opens the describe box of the JSON tab of Implement_With_Input and fills in from a description.
+async function fillIn(page: Page, description: string) {
+  const dialog = await openJsonTab(page)
+  await dialog.getByRole('button', { name: 'Fill in with an agent' }).click()
+  const card = dialog.getByRole('region', { name: 'Describe this run' })
+  await card.getByLabel('Describe this run').fill(description)
+  await card.getByRole('button', { name: 'Fill in' }).click()
+  return dialog
+}
+
+// The executions the engine has recorded so far.
+function executions(): string[] {
+  const dir = join(world().work, 'pipelines')
+  return existsSync(dir) ? readdirSync(dir).filter((name) => name.startsWith('exec-')) : []
+}
+
+test('a pipeline with Input has a pencil on the JSON editor', async ({ page }) => {
+  const dialog = await openJsonTab(page)
+  const pencil = dialog.getByRole('button', { name: 'Fill in with an agent' })
+  await expect(pencil).toHaveAttribute('aria-expanded', 'false')
+  await pencil.click()
+  await expect(pencil).toHaveAttribute('aria-expanded', 'true')
+  const card = dialog.getByRole('region', { name: 'Describe this run' })
+  await expect(card.getByLabel('Describe this run')).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Fill in' })).toBeDisabled()
+  await pencil.click()
+  await expect(card).toHaveCount(0)
+})
+
+test('a pipeline without Input has no pencil', async ({ page }) => {
+  const dialog = await openRunDialog(page, 'Develop_Feature')
+  await dialog.getByRole('tab', { name: 'JSON' }).click()
+  await expect(dialog.getByLabel('Input as JSON')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Fill in with an agent' })).toHaveCount(0)
+})
+
+test('a description fills the editor and the problems clear', async ({ page }) => {
+  const dialog = await openJsonTab(page)
+  const problems = dialog.getByRole('status', { name: 'Problems with the input' })
+  await expect(problems).toContainText('input.task_id: does not match required pattern')
+  await dialog.getByRole('button', { name: 'Fill in with an agent' }).click()
+  const card = dialog.getByRole('region', { name: 'Describe this run' })
+  // Enter in the box fills in; it does not start the run.
+  await card.getByLabel('Describe this run').fill('the task about cloning pipelines')
+  await card.getByLabel('Describe this run').press('Enter')
+  await expect(dialog.getByLabel('Input as JSON')).toContainText('"task_id": "synapse-1"', {
+    timeout: 30_000,
+  })
+  await expect(card).toHaveCount(0)
+  await expect(problems).toHaveText('')
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeEnabled()
+})
+
+test('undo brings back what was in the editor', async ({ page }) => {
+  const dialog = await openJsonTab(page)
+  const editor = dialog.getByLabel('Input as JSON')
+  const before = await editor.innerText()
+  await dialog.getByRole('button', { name: 'Fill in with an agent' }).click()
+  const card = dialog.getByRole('region', { name: 'Describe this run' })
+  await card.getByLabel('Describe this run').fill('the task about cloning pipelines')
+  await card.getByRole('button', { name: 'Fill in' }).click()
+  await expect(editor).toContainText('"task_id": "synapse-1"', { timeout: 30_000 })
+  await dialog.locator('.cm-content').click()
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(editor).not.toContainText('synapse-1')
+  expect(await editor.innerText()).toBe(before)
+})
+
+test('an answer that is not JSON leaves the editor and says what the agent answered', async ({
+  page,
+}) => {
+  const dialog = await openJsonTab(page)
+  const editor = dialog.getByLabel('Input as JSON')
+  const before = await editor.innerText()
+  await dialog.getByRole('button', { name: 'Fill in with an agent' }).click()
+  const card = dialog.getByRole('region', { name: 'Describe this run' })
+  await card.getByLabel('Describe this run').fill('NOTJSONCASE the note nobody wrote')
+  await card.getByRole('button', { name: 'Fill in' }).click()
+  const alert = card.getByRole('alert')
+  await expect(alert).toContainText('The agent did not answer with JSON', { timeout: 30_000 })
+  await expect(alert).toContainText('I could not find that note.')
+  expect(await editor.innerText()).toBe(before)
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeDisabled()
+})
+
+test('filling in does not start a run', async ({ page }) => {
+  const before = executions()
+  const dialog = await fillIn(page, 'the task about cloning pipelines')
+  await expect(dialog.getByLabel('Input as JSON')).toContainText('"task_id": "synapse-1"', {
+    timeout: 30_000,
+  })
+  await expect(dialog).toBeVisible()
+  expect(executions()).toEqual(before)
+  // Only Start run starts it, with the input the agent wrote.
+  const start = dialog.getByRole('button', { name: 'Start run' })
+  await expect(start).toBeEnabled()
+  await startAndCheckInput(page, start, { task_id: 'synapse-1' })
+})
+
+test('the session is read-only', async ({ page }) => {
+  rmSync(stubLog(), { force: true })
+  const dialog = await fillIn(page, 'the task about cloning pipelines')
+  await expect(dialog.getByLabel('Input as JSON')).toContainText('"task_id": "synapse-1"', {
+    timeout: 30_000,
+  })
+  const line = readFileSync(stubLog(), 'utf8')
+    .split('\n')
+    .find((entry) => entry.startsWith('claude ') && entry.includes('--allowedTools'))
+  expect(line).toBeDefined()
+  expect(line).toContain('synapse vault-read')
+  expect(line).not.toContain('Edit')
+})
+
+test('closing the card while it fills in stops the run and leaves the editor', async ({ page }) => {
+  rmSync(stubLog(), { force: true })
+  const dialog = await openJsonTab(page)
+  const editor = dialog.getByLabel('Input as JSON')
+  const before = await editor.innerText()
+  const pencil = dialog.getByRole('button', { name: 'Fill in with an agent' })
+  await pencil.click()
+  const card = dialog.getByRole('region', { name: 'Describe this run' })
+  await card.getByLabel('Describe this run').fill('SLOWCASE the task about cloning pipelines')
+  await card.getByRole('button', { name: 'Fill in' }).click()
+  await expect(card.getByRole('status')).toContainText('filling in the input')
+  // Close it once the session has started.
+  await expect.poll(() => existsSync(stubLog())).toBe(true)
+  await pencil.click()
+  await expect(card).toHaveCount(0)
+  // The stub would answer after 8 seconds; a stopped run never does.
+  await page.waitForTimeout(10_000)
+  expect(await editor.innerText()).toBe(before)
+  expect(readFileSync(stubLog(), 'utf8')).not.toContain('answered')
 })

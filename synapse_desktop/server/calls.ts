@@ -46,6 +46,7 @@ import {
   unpinSnapshot,
 } from './changes.ts'
 import { previewDraft } from './preview.ts'
+import { fillRunInput } from './run-input.ts'
 import { editNote, restoreNote, setNoteStatus } from './note-edit.ts'
 import {
   addConvention,
@@ -361,6 +362,40 @@ const handlers: Handlers = {
             request.prompt,
           )
           return { kind: 'note-edit', edit }
+        } finally {
+          handle?.finish()
+        }
+      }
+      case 'run-input': {
+        const config = await loadConfig(context.configFile, context.environment)
+        const harness = request.harness ?? config.defaultHarness ?? 'Claude'
+        const model = request.model ?? config.defaultModels[harness]
+        // A read session needs no vault of its own: it reaches the vault only through the
+        // synapse CLI, which finds it itself, and writes nowhere.
+        const env = Object.fromEntries(
+          Object.entries(cliEnvironment(context.environment.env, config)).filter(
+            (entry): entry is [string, string] => entry[1] !== undefined,
+          ),
+        )
+        const handle = startRun(request, context)
+        try {
+          const text = await fillRunInput(request, {
+            run: context.runCli,
+            config,
+            harness,
+            session: (prompt) =>
+              context.noteSession({
+                harness,
+                prompt,
+                env,
+                writable: [],
+                access: 'read',
+                ...(model === undefined ? {} : { model }),
+                ...(handle === undefined ? {} : { signal: handle.signal }),
+              }),
+            ...(handle === undefined ? {} : { stopped: handle.stopped }),
+          })
+          return { kind: 'run-input', text }
         } finally {
           handle?.finish()
         }

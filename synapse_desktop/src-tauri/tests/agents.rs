@@ -13,9 +13,10 @@ use support::environment;
 use synapse_desktop_host::agents::{
     agent_command, created_path, edit_note, edit_prompt, failure_of, find_pipeline_skill,
     folder_sentence, generate_text, note_command, note_path_problem, note_prompt, note_tools,
-    opencode_permission, paths_of, prompt_for, reason_of, reference_from, restore_note,
-    session_prompt, stream_result, system_for, text_of, touched_elsewhere, vault_dir_of,
-    AgentChoice, AgentRun, AgentRunner, GenerateRequest, NoteSession, NoteSessionRun, Seen,
+    opencode_permission, opencode_read_permission, paths_of, prompt_for, read_tools, reason_of,
+    reference_from, restore_note, session_prompt, stream_result, system_for, text_of,
+    touched_elsewhere, vault_dir_of, Access, AgentChoice, AgentRun, AgentRunner, GenerateRequest,
+    NoteSession, NoteSessionRun, Seen,
 };
 use synapse_desktop_host::cli::{CliRun, CliRunner};
 use synapse_desktop_host::dispatch::{serve, Handlers, ServeOptions};
@@ -31,6 +32,7 @@ use synapse_desktop_host::note_runs::NoteRuns;
 use synapse_desktop_host::protocol::{
     Capabilities, ClientMessage, ErrorCode, HostKind, HostMessage,
 };
+use synapse_desktop_host::run_input::{json_answer, run_input_prompt};
 use synapse_desktop_host::status::{LoginPath, VersionOf};
 use tempfile::{tempdir, TempDir};
 
@@ -454,6 +456,7 @@ fn claude_reads_the_prompt_from_standard_input_refuses_what_is_not_allowed_and_l
         &["/vault".into()],
         None,
         false,
+        Access::Write,
     );
     assert_eq!(command.stdin, "the prompt");
     for flag in [
@@ -475,7 +478,15 @@ fn claude_reads_the_prompt_from_standard_input_refuses_what_is_not_allowed_and_l
 #[test]
 fn it_may_also_read_the_synapse_package_folder_when_it_is_loaded_for_the_session() {
     let loaded = plan("claude", &[], &[("SYNAPSE_CONTENT_ROOT", "/pkg/synapse")]);
-    let command = note_command(Harness::Claude, &loaded, "p", &[], None, false);
+    let command = note_command(
+        Harness::Claude,
+        &loaded,
+        "p",
+        &[],
+        None,
+        false,
+        Access::Write,
+    );
     assert_eq!(
         arg_after(&command.args, "--allowedTools"),
         format!("{},Read(/pkg/synapse/**)", note_tools())
@@ -543,6 +554,7 @@ fn codex_gets_the_prompt_on_standard_input_its_sandbox_and_the_folders_it_may_wr
         &["/vault".into(), "/cfg".into()],
         None,
         false,
+        Access::Write,
     );
     assert_eq!(command.stdin, "the prompt");
     assert_eq!(
@@ -577,6 +589,7 @@ fn opencode_gets_the_prompt_as_its_message_and_is_held_to_the_commands_that_are_
         &["/vault".into()],
         None,
         false,
+        Access::Write,
     );
     assert_eq!(command.stdin, "");
     assert_eq!(
@@ -602,6 +615,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         &["/v".into()],
         Some("sonnet"),
         false,
+        Access::Write,
     )
     .args;
     assert_eq!(&claude[claude.len() - 2..], ["--model", "sonnet"]);
@@ -612,6 +626,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         &["/v".into()],
         Some("gpt-x"),
         false,
+        Access::Write,
     )
     .args;
     assert_eq!(&codex[codex.len() - 3..], ["-m", "gpt-x", "-"]);
@@ -622,6 +637,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         &["/v".into()],
         Some("prov/model"),
         false,
+        Access::Write,
     )
     .args;
     assert_eq!(
@@ -629,9 +645,241 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         ["-m", "prov/model", "the prompt"]
     );
     for harness in [Harness::Claude, Harness::Codex, Harness::Opencode] {
-        let args = note_command(harness, &claude_plan(), "p", &["/v".into()], None, false).args;
+        let args = note_command(
+            harness,
+            &claude_plan(),
+            "p",
+            &["/v".into()],
+            None,
+            false,
+            Access::Write,
+        )
+        .args;
         assert!(!args.contains(&"--model".to_string()) && !args.contains(&"-m".to_string()));
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// A read session, and the input of a run
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn a_read_session_of_claude_may_only_read_and_search_the_vault() {
+    let loaded = plan("claude", &[], &[("SYNAPSE_CONTENT_ROOT", "/pkg/synapse")]);
+    let command = note_command(
+        Harness::Claude,
+        &loaded,
+        "p",
+        &[],
+        None,
+        false,
+        Access::Read,
+    );
+    assert_eq!(arg_after(&command.args, "--allowedTools"), read_tools());
+    assert_eq!(
+        read_tools().split(',').collect::<Vec<_>>(),
+        [
+            "Bash(synapse vault-search-text *)",
+            "Bash(synapse vault-list)",
+            "Bash(synapse vault-list *)",
+            "Bash(synapse vault-read *)",
+        ]
+    );
+    let joined = command.args.join(" ");
+    assert!(
+        !joined.contains("Skill") && !joined.contains("Read(") && !joined.contains("Edit("),
+        "{joined}"
+    );
+    assert!(command
+        .args
+        .windows(2)
+        .any(|w| w == ["--permission-mode", "dontAsk"]));
+}
+
+#[test]
+fn a_read_session_of_codex_is_read_only_with_no_added_folders() {
+    let command = note_command(
+        Harness::Codex,
+        &plan("codex", &[], &[]),
+        "p",
+        &["/vault".into()],
+        None,
+        false,
+        Access::Read,
+    );
+    assert!(command.args.windows(2).any(|w| w == ["-s", "read-only"]));
+    assert!(!command.args.contains(&"workspace-write".to_string()));
+    assert!(!command.args.contains(&"--add-dir".to_string()));
+}
+
+#[test]
+fn a_read_session_of_opencode_denies_edits_and_all_other_commands() {
+    let command = note_command(
+        Harness::Opencode,
+        &plan("opencode", &[], &[]),
+        "p",
+        &[],
+        None,
+        false,
+        Access::Read,
+    );
+    let given: Value = serde_json::from_str(&command.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    assert_eq!(given["permission"], opencode_read_permission());
+    assert_eq!(
+        given["permission"]["bash"],
+        json!({
+            "*": "deny",
+            "synapse vault-search-text *": "allow",
+            "synapse vault-list*": "allow",
+            "synapse vault-read *": "allow",
+        })
+    );
+    assert_eq!(given["permission"]["edit"], json!({ "*": "deny" }));
+    assert_eq!(given["permission"]["webfetch"], "deny");
+}
+
+#[test]
+fn a_write_session_is_the_note_session_it_always_was() {
+    let claude = note_command(
+        Harness::Claude,
+        &claude_plan(),
+        "p",
+        &["/v".into()],
+        Some("m"),
+        false,
+        Access::Write,
+    );
+    assert_eq!(arg_after(&claude.args, "--allowedTools"), note_tools());
+    let codex = note_command(
+        Harness::Codex,
+        &plan("codex", &[], &[]),
+        "p",
+        &["/v".into()],
+        Some("m"),
+        false,
+        Access::Write,
+    );
+    assert!(codex
+        .args
+        .windows(2)
+        .any(|w| w == ["-s", "workspace-write"]));
+    assert!(codex.args.windows(2).any(|w| w == ["--add-dir", "/v"]));
+    let opencode = note_command(
+        Harness::Opencode,
+        &plan("opencode", &[], &[]),
+        "p",
+        &["/v".into()],
+        Some("m"),
+        false,
+        Access::Write,
+    );
+    let given: Value = serde_json::from_str(&opencode.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    assert_eq!(given["permission"], opencode_permission());
+}
+
+fn declaration() -> Value {
+    json!({
+        "fields": [{ "name": "task_id", "type": "string", "required": true, "description": "The task" }],
+        "single_text_field": "task_id",
+    })
+}
+
+#[test]
+fn the_prompt_holds_the_declaration_the_description_and_the_closing_instruction() {
+    let text = run_input_prompt(
+        "Implement",
+        &declaration(),
+        "  the note about cloning  ",
+        None,
+        Harness::Claude,
+        &[],
+    );
+    assert!(text.starts_with("Fill in the input of the pipeline Implement"));
+    assert!(text.contains(&serde_json::to_string_pretty(&declaration()).unwrap()));
+    // The declaration keeps its order, as the program wrote it.
+    assert!(text.contains("{\n  \"fields\": [\n    {\n      \"name\": \"task_id\","));
+    assert!(text.contains("Description:\nthe note about cloning"));
+    assert!(text.contains("`synapse vault-search-text <words>`"));
+    assert!(text.contains("`synapse vault-read <path>`. Write nothing."));
+    assert!(text.ends_with(
+        "Answer with one JSON object that satisfies the declaration, and nothing else: no prose, no code fence."
+    ));
+}
+
+#[test]
+fn the_current_json_is_given_only_when_it_says_something() {
+    let keep = "add to this; keep what the description does not change";
+    let said = "{\n  \"task_id\": \"synapse-1\"\n}";
+    assert!(
+        run_input_prompt("P", &declaration(), "d", Some(said), Harness::Claude, &[])
+            .contains(&format!("{keep}.\n{said}"))
+    );
+    for empty in [
+        None,
+        Some("{}"),
+        Some("{\n  \"task_id\": \"\"\n}"),
+        Some(r#"{"n": 0, "l": [], "b": false}"#),
+    ] {
+        assert!(
+            !run_input_prompt("P", &declaration(), "d", empty, Harness::Claude, &[]).contains(keep),
+            "{empty:?}"
+        );
+    }
+}
+
+#[test]
+fn codex_gets_no_command_rules_in_the_prompt_for_the_input_of_a_run() {
+    let rule = "Run one command in each Bash call";
+    let prompt = |harness| run_input_prompt("P", &declaration(), "d", None, harness, &[]);
+    assert!(prompt(Harness::Claude).contains(rule));
+    assert!(prompt(Harness::Opencode).contains(rule));
+    assert!(!prompt(Harness::Codex).contains(rule));
+}
+
+#[test]
+fn the_problems_of_an_earlier_answer_come_before_the_closing_instruction() {
+    let text = run_input_prompt(
+        "P",
+        &declaration(),
+        "d",
+        None,
+        Harness::Claude,
+        &["error: task_id is required".to_string()],
+    );
+    assert!(text.ends_with(
+        "These problems were found in your answer:\nerror: task_id is required\n\nAnswer with one JSON object that satisfies the declaration, and nothing else: no prose, no code fence."
+    ));
+}
+
+#[test]
+fn the_json_in_an_answer_is_a_plain_object_pretty_printed() {
+    assert_eq!(
+        json_answer(r#" {"a":1,"b":[2]} "#).as_deref(),
+        Some("{\n  \"a\": 1,\n  \"b\": [\n    2\n  ]\n}")
+    );
+}
+
+#[test]
+fn the_json_in_an_answer_is_the_object_inside_a_code_fence() {
+    assert_eq!(
+        json_answer("```json\n{\"a\": 1}\n```").as_deref(),
+        Some("{\n  \"a\": 1\n}")
+    );
+}
+
+#[test]
+fn the_json_in_an_answer_is_the_object_after_prose() {
+    assert_eq!(
+        json_answer("Here is the input:\n{\"a\": \"x\"}").as_deref(),
+        Some("{\n  \"a\": \"x\"\n}")
+    );
+}
+
+#[test]
+fn the_json_in_an_answer_is_nothing_for_an_array_prose_or_broken_json() {
+    assert_eq!(json_answer(r#"[{"a": 1}]"#), None);
+    assert_eq!(json_answer("I could not find that note."), None);
+    assert_eq!(json_answer(r#"{"a": 1,}"#), None);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -799,6 +1047,16 @@ struct Vault {
     /// The fields set, as `path key value`.
     sets: Vec<String>,
     projects_down: bool,
+    /// What `synapse-pipeline show <pipeline> --format json` answers; a pipeline nobody knows when
+    /// unset.
+    shown: Option<CliResult>,
+    /// What each `synapse-pipeline check <pipeline> --input -` answers, in turn; a clean check when
+    /// none is left.
+    checks: VecDeque<CliResult>,
+    /// The JSON each check was given on standard input.
+    checked: Vec<String>,
+    /// What each note session answers, in turn, before the rig's `session_answer`.
+    session_answers: VecDeque<CliResult>,
 }
 
 /// What the fake agent does to the vault when it is run.
@@ -914,6 +1172,11 @@ impl Rig {
                     }
                 }
                 "now" => ok("2026-11-16T20:00:00+01:00\n"),
+                "show" => v.shown.clone().unwrap_or_else(|| CliResult { code: 1, stdout: String::new(), stderr: format!("synapse-pipeline: there is no pipeline named {}\n", run.args[1]) }),
+                "check" => {
+                    v.checked.push(run.stdin.clone().unwrap_or_default());
+                    v.checks.pop_front().unwrap_or_else(|| ok(""))
+                }
                 "vault-write" => {
                     v.writes.push(run.args[1].clone());
                     let text = run.stdin.clone().unwrap_or_default();
@@ -966,7 +1229,8 @@ impl Rig {
             if let Some(effect) = effect.lock().unwrap().as_ref() {
                 effect(&mut session_vault.lock().unwrap());
             }
-            let answer = answer.lock().unwrap().clone();
+            let queued = session_vault.lock().unwrap().session_answers.pop_front();
+            let answer = queued.unwrap_or_else(|| answer.lock().unwrap().clone());
             let held = session_hold.load(Ordering::SeqCst);
             async move {
                 match stop {
@@ -1744,6 +2008,7 @@ fn claude_streams_events_in_place_of_text_and_keeps_every_other_flag() {
         &["/v".into()],
         None,
         false,
+        Access::Write,
     );
     let streamed = note_command(
         Harness::Claude,
@@ -1752,6 +2017,7 @@ fn claude_streams_events_in_place_of_text_and_keeps_every_other_flag() {
         &["/v".into()],
         None,
         true,
+        Access::Write,
     );
     assert_eq!(arg_after(&plain.args, "--output-format"), "text");
     assert_eq!(arg_after(&streamed.args, "--output-format"), "stream-json");
@@ -1780,8 +2046,8 @@ fn claude_streams_events_in_place_of_text_and_keeps_every_other_flag() {
 fn codex_and_opencode_ignore_the_stream_flag() {
     for (harness, program) in [(Harness::Codex, "codex"), (Harness::Opencode, "opencode")] {
         let p = plan(program, &[], &[]);
-        let a = note_command(harness, &p, "p", &["/v".into()], None, false);
-        let b = note_command(harness, &p, "p", &["/v".into()], None, true);
+        let a = note_command(harness, &p, "p", &["/v".into()], None, false, Access::Write);
+        let b = note_command(harness, &p, "p", &["/v".into()], None, true, Access::Write);
         assert_eq!(a, b);
     }
 }
@@ -2099,4 +2365,210 @@ async fn a_run_id_that_is_running_cannot_be_started_again_and_stopping_an_unknow
         .await
         .unwrap_err();
     assert_eq!(error.0, ErrorCode::Conflict);
+}
+
+// Filling in the input of a run ---------------------------------------------------------------
+
+/// A vault whose pipeline `Implement` declares this input, with these session answers in turn.
+fn declaring(input: Value, answers: &[CliResult]) -> Vault {
+    Vault {
+        shown: Some(ok(
+            &json!({ "name": "Implement", "input": input }).to_string()
+        )),
+        session_answers: answers.iter().cloned().collect(),
+        ..Vault::default()
+    }
+}
+
+fn task_input() -> Value {
+    json!({ "type": "object", "properties": { "task_note": { "type": "string" } } })
+}
+
+fn fill(extra: Value) -> Value {
+    let mut base =
+        json!({ "kind": "run-input", "pipeline": "Implement", "prompt": "the clone task" });
+    for (k, v) in extra.as_object().unwrap() {
+        base[k] = v.clone();
+    }
+    base
+}
+
+#[tokio::test]
+async fn a_pipeline_without_input_is_refused_and_starts_no_session() {
+    let mut rig = Rig::new(declaring(Value::Null, &[])).await;
+    let error = rig.ask("agent.run", fill(json!({}))).await.unwrap_err();
+    assert_eq!(
+        error,
+        (
+            ErrorCode::Conflict,
+            "Implement declares no input".to_string()
+        )
+    );
+    assert!(rig.sessions.lock().unwrap().is_empty());
+
+    // A pipeline the program does not know is not found, again with no session.
+    let mut rig = Rig::new(Vault::default()).await;
+    let error = rig.ask("agent.run", fill(json!({}))).await.unwrap_err();
+    assert_eq!(error.0, ErrorCode::NotFound);
+    assert!(rig.sessions.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_valid_answer_is_returned_pretty_printed_after_one_session() {
+    let mut rig = Rig::new(declaring(
+        task_input(),
+        &[ok("```json\n{\"task_note\": \"tasks/a.md\"}\n```")],
+    ))
+    .await;
+    let answer = rig.ask("agent.run", fill(json!({}))).await.unwrap();
+    let pretty = "{\n  \"task_note\": \"tasks/a.md\"\n}";
+    assert_eq!(answer, json!({ "kind": "run-input", "text": pretty }));
+    assert_eq!(rig.sessions.lock().unwrap().len(), 1);
+    let v = rig.vault.lock().unwrap();
+    assert_eq!(v.checked, vec![pretty.to_string()]);
+    let prompt = &rig.sessions.lock().unwrap()[0].prompt;
+    assert!(prompt.starts_with("Fill in the input of the pipeline Implement"));
+    assert!(prompt.contains("the clone task"));
+    assert!(prompt.contains("\"task_note\""));
+}
+
+#[tokio::test]
+async fn an_answer_with_problems_gets_one_more_session_with_the_problems_in_its_prompt() {
+    let mut vault = declaring(
+        task_input(),
+        &[
+            ok("{\"task_note\": 1}"),
+            ok("{\"task_note\": \"tasks/a.md\"}"),
+            ok("{\"task_note\": \"never asked\"}"),
+        ],
+    );
+    vault.checks = VecDeque::from([
+        CliResult {
+            code: 2,
+            stdout: String::new(),
+            stderr: "error: input.task_note: not a string\n  note: as declared\nerror: input: one more\n"
+                .into(),
+        },
+        CliResult {
+            code: 2,
+            stdout: String::new(),
+            stderr: "error: still wrong\n".into(),
+        },
+    ]);
+    let mut rig = Rig::new(vault).await;
+    let answer = rig.ask("agent.run", fill(json!({}))).await.unwrap();
+    // The second answer is returned as it is: the dialog checks it again.
+    assert_eq!(
+        answer["text"],
+        json!("{\n  \"task_note\": \"tasks/a.md\"\n}")
+    );
+    {
+        let sessions = rig.sessions.lock().unwrap();
+        assert_eq!(sessions.len(), 2);
+        let second = &sessions[1].prompt;
+        assert!(second.contains(
+            "These problems were found in your answer:\nerror: input.task_note: not a string\nerror: input: one more\n"
+        ));
+        assert!(!second.contains("note: as declared"));
+        assert!(second.contains(
+            "The input holds this JSON now: add to this; keep what the description does not change.\n{\n  \"task_note\": 1\n}"
+        ));
+    }
+    assert_eq!(rig.vault.lock().unwrap().checked.len(), 1);
+
+    // A second answer that is not JSON gives back the first.
+    let mut vault = declaring(task_input(), &[ok("{\"task_note\": 1}"), ok("Sorry.")]);
+    vault.checks = VecDeque::from([CliResult {
+        code: 2,
+        stdout: String::new(),
+        stderr: "error: bad\n".into(),
+    }]);
+    let mut rig = Rig::new(vault).await;
+    let answer = rig.ask("agent.run", fill(json!({}))).await.unwrap();
+    assert_eq!(answer["text"], json!("{\n  \"task_note\": 1\n}"));
+}
+
+#[tokio::test]
+async fn an_answer_that_is_not_json_is_refused_with_what_the_agent_said() {
+    let mut rig = Rig::new(declaring(
+        task_input(),
+        &[ok("I could not find that note.")],
+    ))
+    .await;
+    let error = rig.ask("agent.run", fill(json!({}))).await.unwrap_err();
+    assert_eq!(
+        error,
+        (
+            ErrorCode::Unavailable,
+            "The agent did not answer with JSON: I could not find that note.".to_string()
+        )
+    );
+    assert!(rig.vault.lock().unwrap().checked.is_empty());
+}
+
+#[tokio::test]
+async fn the_session_is_a_read_session_with_no_writable_folders() {
+    let mut rig = Rig::new(Vault {
+        vault: Some("/vault".into()),
+        ..declaring(task_input(), &[ok("{}")])
+    })
+    .await;
+    rig.ask(
+        "agent.run",
+        fill(json!({ "current": "{\"task_note\": \"x\"}" })),
+    )
+    .await
+    .unwrap();
+    let sessions = rig.sessions.lock().unwrap();
+    assert_eq!(sessions[0].access, Access::Read);
+    assert!(sessions[0].writable.is_empty());
+    assert!(!sessions[0].stream && sessions[0].on_line.is_none());
+    assert_eq!(sessions[0].env.get("MARK").map(String::as_str), Some("x"));
+    assert!(sessions[0].prompt.contains("{\"task_note\": \"x\"}"));
+}
+
+#[tokio::test]
+async fn a_stopped_fill_says_it_was_stopped() {
+    let mut rig = Rig::new(declaring(task_input(), &[])).await;
+    let error = rig
+        .ask_stopping(fill(json!({ "run": "r-fill" })), sessions_started)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        (ErrorCode::Unavailable, "The run was stopped.".to_string())
+    );
+}
+
+#[tokio::test]
+async fn the_default_harness_and_model_fill_in_when_none_is_given() {
+    let mut rig = Rig::new(declaring(task_input(), &[ok("{}"), ok("{}")])).await;
+    rig.ask(
+        "config.set",
+        json!({ "patch": { "defaultHarness": "Codex", "defaultModels": { "Codex": "gpt-x" } } }),
+    )
+    .await
+    .unwrap();
+    rig.ask("agent.run", fill(json!({}))).await.unwrap();
+    rig.ask(
+        "agent.run",
+        fill(json!({ "harness": "Claude", "model": "opus" })),
+    )
+    .await
+    .unwrap();
+    let sessions = rig.sessions.lock().unwrap();
+    let chosen: Vec<(Harness, Option<String>)> = sessions
+        .iter()
+        .map(|s| (s.harness, s.model.clone()))
+        .collect();
+    assert_eq!(
+        chosen,
+        vec![
+            (Harness::Codex, Some("gpt-x".to_string())),
+            (Harness::Claude, Some("opus".to_string()))
+        ]
+    );
+    assert!(!sessions[0]
+        .prompt
+        .contains("Run one command in each Bash call"));
 }

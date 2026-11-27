@@ -137,9 +137,10 @@ describe('the run id of an agent run', () => {
     },
     note: { kind: 'note', what: 'note', prompt: 'p' },
     'note-edit': { kind: 'note-edit', path: 'a.md', prompt: 'p' },
+    'run-input': { kind: 'run-input', pipeline: 'Implement', prompt: 'p' },
   }
 
-  it('is accepted by each of the three kinds', () => {
+  it('is accepted by each of the four kinds', () => {
     for (const [kind, params] of Object.entries(base)) {
       const parsed = messages['agent.run'].params.safeParse({ ...params, run: 'abc-1_X' })
       expect(parsed.success, kind).toBe(true)
@@ -162,6 +163,26 @@ describe('the run id of an agent run', () => {
     expect(messages['agent.stop'].params.safeParse({ run: 'abc' }).success).toBe(true)
     expect(messages['agent.stop'].params.safeParse({}).success).toBe(false)
     expect(messages['agent.stop'].params.safeParse({ run: 'a/b' }).success).toBe(false)
+  })
+})
+
+describe('a run-input request', () => {
+  const params = { kind: 'run-input', pipeline: 'Implement', prompt: 'p' }
+  const parse = (extra: object) => messages['agent.run'].params.safeParse({ ...params, ...extra })
+
+  it('a pipeline name that is not a definition name is refused', () => {
+    expect(parse({}).success).toBe(true)
+    expect(parse({ pipeline: 'a/b' }).success).toBe(false)
+    expect(parse({ pipeline: '' }).success).toBe(false)
+  })
+
+  it('an empty prompt is refused', () => {
+    expect(parse({ prompt: '' }).success).toBe(false)
+  })
+
+  it('current over 200000 characters is refused', () => {
+    expect(parse({ current: 'a'.repeat(200_000) }).success).toBe(true)
+    expect(parse({ current: 'a'.repeat(200_001) }).success).toBe(false)
   })
 })
 

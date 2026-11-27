@@ -75,7 +75,7 @@ export function WorkingLine({
         {TERMINAL_LABELS[harness]} is {doing} · {formatElapsed(Math.max(0, now - startedAt))}
       </span>
       {action !== null && <span className="muted small working-action">{action}</span>}
-      <button className="secondary" disabled={stopping} onClick={onStop}>
+      <button type="button" className="secondary" disabled={stopping} onClick={onStop}>
         {stopping ? 'Stopping…' : 'Stop'}
       </button>
     </div>

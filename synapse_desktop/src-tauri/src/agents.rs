@@ -665,6 +665,46 @@ pub fn opencode_permission() -> serde_json::Value {
     json!({ "bash": bash, "edit": edit, "webfetch": "deny" })
 }
 
+/// What a session may do: write notes as the skills say, or only read and search the vault, as the
+/// session that fills in the input of a run does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    Write,
+    Read,
+}
+
+/// The three vault commands that read and search.
+const READ_COMMANDS: [&str; 4] = [
+    "synapse vault-search-text *",
+    "synapse vault-list",
+    "synapse vault-list *",
+    "synapse vault-read *",
+];
+
+/// What a Claude Code session that only reads may use: the three vault commands that read and search,
+/// and nothing else, no skill, no file and no edit.
+pub fn read_tools() -> String {
+    READ_COMMANDS
+        .iter()
+        .map(|c| format!("Bash({c})"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The same for OpenCode: those commands, and every other command and every edit denied.
+pub fn opencode_read_permission() -> serde_json::Value {
+    json!({
+        "bash": {
+            "*": "deny",
+            "synapse vault-search-text *": "allow",
+            "synapse vault-list*": "allow",
+            "synapse vault-read *": "allow",
+        },
+        "edit": { "*": "deny" },
+        "webfetch": "deny",
+    })
+}
+
 /// What the session is told after the prompt: where its folder is, written out, since the edit tool
 /// takes a full path and has no other way to know it.
 pub fn folder_sentence(folder: &Path) -> String {
@@ -684,6 +724,8 @@ pub fn session_prompt(prompt: &str, folder: &Path) -> String {
 /// Claude Code and OpenCode are held to the commands above. Codex runs in its sandbox, which writes
 /// only to its working folder and the folders in `writable`, where the vault and the skills' files are,
 /// and has no network. With `stream` Claude Code prints each event as a line; the other two ignore it.
+/// A read session is held to the commands that read and search the vault, and Codex to its read-only
+/// sandbox.
 pub fn note_command(
     harness: Harness,
     plan: &SessionPlan,
@@ -691,7 +733,9 @@ pub fn note_command(
     writable: &[String],
     model: Option<&str>,
     stream: bool,
+    access: Access,
 ) -> Command {
+    let reading = access == Access::Read;
     let strings = |items: &[&str]| -> Vec<String> { items.iter().map(|s| s.to_string()).collect() };
     let model_args = |flag: &str| -> Vec<String> {
         model
@@ -703,7 +747,9 @@ pub fn note_command(
         Harness::Claude => {
             // The folder of the Synapse package, when it is loaded for the session, is there to be
             // read: its skills and the schemas the vault holds notes to.
+            // A read session reads no file at all.
             let tools = match plan.env.get("SYNAPSE_CONTENT_ROOT") {
+                _ if reading => read_tools(),
                 None => note_tools(),
                 Some(root) => format!("{},Read({root}/**)", note_tools()),
             };
@@ -740,14 +786,22 @@ pub fn note_command(
                     "--ephemeral",
                     "--skip-git-repo-check",
                     "-s",
-                    "workspace-write",
+                    if reading {
+                        "read-only"
+                    } else {
+                        "workspace-write"
+                    },
                     "-c",
                     "approval_policy=\"never\"",
                 ]),
-                writable
-                    .iter()
-                    .flat_map(|d| ["--add-dir".to_string(), d.clone()])
-                    .collect(),
+                if reading {
+                    vec![]
+                } else {
+                    writable
+                        .iter()
+                        .flat_map(|d| ["--add-dir".to_string(), d.clone()])
+                        .collect()
+                },
                 plan.args.clone(),
                 model_args("-m"),
                 strings(&["-"]),
@@ -767,7 +821,14 @@ pub fn note_command(
             .concat(),
             env: BTreeMap::from([(
                 "OPENCODE_CONFIG_CONTENT".to_string(),
-                json!({ "permission": opencode_permission() }).to_string(),
+                json!({
+                    "permission": if reading {
+                        opencode_read_permission()
+                    } else {
+                        opencode_permission()
+                    }
+                })
+                .to_string(),
             )]),
             stdin: String::new(),
         },
@@ -790,6 +851,8 @@ pub struct NoteSessionRun {
     pub on_line: Option<OnLine>,
     /// Whether Claude Code prints its events as lines; `stdout` is then its final result.
     pub stream: bool,
+    /// Whether the session writes notes or only reads the vault.
+    pub access: Access,
 }
 
 type NoteRunning = Pin<Box<dyn Future<Output = Result<CliResult, String>> + Send>>;
@@ -838,6 +901,7 @@ impl NoteSession {
                     &run.writable,
                     run.model.as_deref(),
                     run.stream,
+                    run.access,
                 );
                 let mut env = run.env.clone();
                 env.extend(session.env.clone());

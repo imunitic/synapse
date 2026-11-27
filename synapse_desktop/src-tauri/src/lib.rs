@@ -23,6 +23,7 @@ pub mod note_runs;
 pub mod protocol;
 pub mod pty;
 pub mod registries;
+pub mod run_input;
 pub mod runs;
 pub mod screen;
 pub mod status;
