@@ -18,6 +18,7 @@ import { problemsOf, type VisitOutputRead } from '../domain/visit-outputs.ts'
 import { isLiveRun, type TerminalSession } from '../state/state.ts'
 import { transport } from '../transport/index.ts'
 import { ActivityBody, ActivityView } from '../components/ActivityView.tsx'
+import { FoldingCard } from '../components/FoldingCard.tsx'
 import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from '../components/GraphView.tsx'
 import { JsonTree } from '../components/JsonTree.tsx'
@@ -122,13 +123,11 @@ function TraceVisit({
   visit,
   status,
   sessions,
-  onShowChanges,
   onShowChange,
 }: {
   visit: Visit
   status: ExecutionRecord['summary']['status']
   sessions: RecordedSession[]
-  onShowChanges: () => void
   // A file the activity changed is shown in the sidebar, among the run's changes.
   onShowChange: (path: string) => void
 }) {
@@ -148,11 +147,6 @@ function TraceVisit({
           </button>
         ) : (
           sessions.length > 0 && <span className="muted small">no transcript</span>
-        )}
-        {sessions.length > 0 && (
-          <button className="link" onClick={onShowChanges}>
-            Changes
-          </button>
         )}
       </div>
       {open &&
@@ -254,8 +248,7 @@ function Outcomes({
   useEffect(() => setChosen(new Map()), [id])
   const newest = visits.findLast((v) => v.outcome !== null)?.n
   return (
-    <section className="card" aria-label="Outcomes">
-      <h2 className="card-title">Outcomes</h2>
+    <FoldingCard label="Outcomes" count={String(visits.length)} storageKey="outcomes" openByDefault>
       {visits.length === 0 && <p className="muted">No step has started.</p>}
       <div className="trace">
         {visits.map((visit) => {
@@ -275,7 +268,7 @@ function Outcomes({
           )
         })}
       </div>
-    </section>
+    </FoldingCard>
   )
 }
 
@@ -611,8 +604,13 @@ export function ExecutionPage({
         </dl>
       </section>
       <RecordedFiles id={id} />
-      <section className="card" aria-label="Trace">
-        <h2 className="card-title">Trace</h2>
+      <Outcomes id={id} visits={visits} sessions={sessions} status={summary.status} />
+      <FoldingCard
+        label="Trace"
+        count={visits.length === 1 ? '1 visit' : `${visits.length} visits`}
+        storageKey="trace"
+        openByDefault={false}
+      >
         {visits.length === 0 && <p className="muted">No step has started.</p>}
         <div className="trace mono">
           {visits.map((visit) => (
@@ -621,15 +619,17 @@ export function ExecutionPage({
               visit={visit}
               status={summary.status}
               sessions={sessions[visit.n - 1] ?? []}
-              onShowChanges={() => onShowChanges()}
               onShowChange={(path) => onShowChanges(path)}
             />
           ))}
         </div>
-      </section>
-      <Outcomes id={id} visits={visits} sessions={sessions} status={summary.status} />
-      <section className="card" aria-label="Events">
-        <h2 className="card-title">Events</h2>
+      </FoldingCard>
+      <FoldingCard
+        label="Events"
+        count={String(events.length)}
+        storageKey="events"
+        openByDefault={false}
+      >
         {events.length === 0 && <p className="muted">No events recorded.</p>}
         <div className="events mono">
           {events.map((event) => (
@@ -645,7 +645,7 @@ export function ExecutionPage({
             </div>
           ))}
         </div>
-      </section>
+      </FoldingCard>
     </div>
   )
 }

@@ -26,9 +26,11 @@ The page shows, from the top:
 - The diagram of the pipeline, with the run on it: each box says whether the step is running, done (with the outcome it ended with), failed, interrupted or not reached, and how many times it ran. The edges the run took are marked.
 - Summary: when the run started and ended, the step it is on and how many steps it ran.
 - Definitions it ran: the pipeline and the files it used, as they were when the run began. Click one to read it. The files may have changed since.
-- Trace: each visit to a step, in order, with its outcome and the step that came next. "Activity" opens what the agent did in that visit: its messages and the commands it ran. "Changes" opens everything the run changed in the Changes sidebar.
 - Outcomes: one row per visit, with its outcome and the step that came next. Open a row to read what the step reported: its summary, the problems a review listed, and its data as a tree that you can fold and copy. The newest visit's row is open. A run recorded by an older version of synapse-pipeline shows "not recorded".
+- Trace: each visit to a step, in order, with its outcome and the step that came next. "Activity" opens what the agent did in that visit: its messages and the commands it ran.
 - Events: everything the run recorded, in order.
+
+Outcomes, Trace and Events fold and open with a click on their title. Their titles show how many rows they have. Outcomes starts open, and Trace and Events start folded. The app remembers which ones you opened, on every run.
 
 The page reads the run again while it goes on, so it stays current.
 
@@ -58,7 +60,7 @@ Tabs of deleted runs close.
 
 ## Review what a run changed
 
-Click "Changes" in the Trace, or open the Changes sidebar with the icon at the top right. The number on the icon is how many files changed.
+Open the Changes sidebar with the icon at the top right. The number on the icon is how many files changed. A file named in a visit's Activity opens the sidebar at that file.
 
 ![The Changes sidebar, showing the files a run changed and the diff of one of them](img/changes-sidebar.png)
 
