@@ -528,16 +528,16 @@ test('the outcomes come first, and the trace and events are folded until opened,
   await page.goto('/')
   await open()
 
-  // Below the summary come the definitions, then the outcomes, the trace and the events.
+  // Below the summary come the definitions, then the outcomes, the trace and the events. The
+  // definitions are read on their own and can show after the rest, so the order is asked again
+  // until it settles.
   const cards = page.locator('.content section.card')
-  await expect(page.getByLabel('Events', { exact: true })).toBeVisible()
-  const labels = await cards.evaluateAll((all) => all.map((c) => c.getAttribute('aria-label')))
-  expect(labels.slice(labels.indexOf('Summary') + 1)).toEqual([
-    'Definitions it ran',
-    'Outcomes',
-    'Trace',
-    'Events',
-  ])
+  await expect
+    .poll(async () => {
+      const labels = await cards.evaluateAll((all) => all.map((c) => c.getAttribute('aria-label')))
+      return labels.slice(labels.indexOf('Summary') + 1)
+    })
+    .toEqual(['Definitions it ran', 'Outcomes', 'Trace', 'Events'])
 
   // The outcomes are open, the trace and the events folded, with how many rows each has.
   const fold = (name: string) => page.getByLabel(name, { exact: true }).locator('.card-fold')
