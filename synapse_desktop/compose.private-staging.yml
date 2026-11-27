@@ -12,7 +12,7 @@ services:
     volumes:
       - ${SYNAPSE_GATEWAY_CONFIG:?required}:/run/secrets/gateway.json:ro
     ports:
-      - '127.0.0.1:5180:5180'
+      - '${SYNAPSE_GATEWAY_PUBLISH_ADDRESS:-127.0.0.1}:5180:5180'
     networks:
       ingress:
         ipv4_address: 172.29.103.2
