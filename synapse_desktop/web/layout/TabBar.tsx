@@ -3,6 +3,7 @@ import { CloseIcon } from '../components/icons.tsx'
 import { listExecutions } from '../domain/executions.ts'
 import { closeWarning, firstMovableIndex } from '../domain/tabs.ts'
 import { tabTitle, type Action, type ShellState, type Tab } from '../state/state.ts'
+import { useRunNames } from '../state/useRunNames.ts'
 import { transport } from '../transport/index.ts'
 import { useTabDrag } from './use-tab-drag.ts'
 
@@ -30,6 +31,9 @@ export function TabBar({
   waiting: ReadonlyMap<string, string>
 }) {
   const ids = state.tabs.map((t) => t.id)
+  const runNames = useRunNames(
+    state.tabs.flatMap((t) => (t.page.kind === 'execution' ? [t.page.id] : [])),
+  )
   const [asking, setAsking] = useState<Asking | null>(null)
   const bar = useRef<HTMLDivElement>(null)
   const { dragging, press, markOf } = useTabDrag({
@@ -55,7 +59,7 @@ export function TabBar({
     if (warning === null) {
       dispatch({ type: 'closeTab', id: tab.id })
     } else {
-      setAsking({ id: tab.id, title: tabTitle(tab.page, state.terminals), warning })
+      setAsking({ id: tab.id, title: tabTitle(tab.page, state.terminals, runNames), warning })
     }
   }
 
@@ -76,7 +80,7 @@ export function TabBar({
         {state.tabs.map((tab, index) => {
           const selected = tab.id === state.activeId
           const pinned = tab.id === HOME
-          const title = tabTitle(tab.page, state.terminals)
+          const title = tabTitle(tab.page, state.terminals, runNames)
           // A tab shows a person is wanted in what it holds: the terminals, or the run.
           const wanted =
             tab.page.kind === 'terminals'

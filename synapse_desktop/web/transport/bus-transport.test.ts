@@ -304,6 +304,34 @@ describe('the Transport over a bus', () => {
       expect(seen).toContain('snapshot screen')
     })
 
+    it('starts an interactive run with its pipeline, input and name', async () => {
+      const { asked, connect } = terminalHost()
+      const { bus } = connect()
+      const { listener: l } = listener()
+      new BusTransport(bus).openTerminal(
+        {
+          session: 'r1',
+          title: 'Develop',
+          kind: 'Pipeline',
+          pipeline: 'Develop',
+          input: 'go',
+          runName: 'Fix the login',
+          cols: 80,
+          rows: 24,
+        },
+        l,
+      )
+      await tick()
+      expect(asked[0]).toEqual({
+        name: 'terminal.start',
+        params: expect.objectContaining({
+          pipeline: 'Develop',
+          input: 'go',
+          runName: 'Fix the login',
+        }),
+      })
+    })
+
     it('attaches when asked to, and starts nothing', async () => {
       const { asked, connect } = terminalHost()
       const { bus } = connect()

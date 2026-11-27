@@ -481,6 +481,15 @@ describe('terminals', () => {
     expect(tabTitle({ kind: 'graph' }, [])).toBe('Code graph')
   })
 
+  it('name a run by the name it was given, and by its id when it has none', () => {
+    const named = { kind: 'execution', id: 'exec-1' } as const
+    const unnamed = { kind: 'execution', id: 'exec-2' } as const
+    const names = new Map([['exec-1', 'Fix the login']])
+    expect(tabTitle(named, [], names)).toBe('Fix the login')
+    expect(tabTitle(unnamed, [], names)).toBe('exec-2')
+    expect(tabTitle(named, [])).toBe('exec-1')
+  })
+
   it('never give two sessions the same title, even after one closes', () => {
     const state = open(
       reduce(open(open(initialState, 'a'), 'b'), { type: 'closeTerminal', id: 'b' }),

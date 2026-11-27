@@ -321,8 +321,13 @@ export function pageTitle(page: Page): string {
 }
 
 // What a tab is called: a page's title, except that a run that is starting is called after its
-// pipeline.
-export function tabTitle(page: Page, terminals: readonly TerminalSession[]): string {
+// pipeline, and a run that has a name is called by it.
+export function tabTitle(
+  page: Page,
+  terminals: readonly TerminalSession[],
+  runNames: ReadonlyMap<string, string> = new Map(),
+): string {
+  if (page.kind === 'execution') return runNames.get(page.id) ?? pageTitle(page)
   if (page.kind !== 'run-starting') return pageTitle(page)
   const session = terminals.find((t) => t.id === page.session)
   return session === undefined ? pageTitle(page) : (session.pipeline ?? terminalName(session))
