@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { resolve } from 'node:path'
 import { attachPrivateGateway } from './gateway-private-entry.ts'
+import { createAuthenticatedProxyServer } from './gateway-proxy-auth.ts'
 import { createGatewaySessions } from './gateway-sessions.ts'
 import { loadViteProtectedAssets } from './gateway-vite-assets.ts'
 import type { GatewayHost } from './gateway.ts'
@@ -17,6 +18,7 @@ interface PrivateGatewayConfig {
   readonly publicOrigin: string
   readonly buildDirectory: string
   readonly trustedProxyAddresses?: readonly string[]
+  readonly proxyToken?: string
   readonly accounts: PasswordAccount[]
   readonly hosts: GatewayHost[]
 }
@@ -86,10 +88,16 @@ async function main(): Promise<void> {
     process.exitCode = 1
     return
   }
+  if (bindAddress !== '127.0.0.1' && bindAddress !== '::1' && !config.proxyToken) {
+    throw new Error('dedicated ingress requires proxy authentication')
+  }
   const assets = await loadViteProtectedAssets(resolve(config.buildDirectory))
   const sessions = createGatewaySessions()
-  const server = createServer()
-  attachPrivateGateway(server, {
+  const dispatcher = createServer()
+  const server = config.proxyToken
+    ? createAuthenticatedProxyServer(dispatcher, config.proxyToken)
+    : dispatcher
+  attachPrivateGateway(dispatcher, {
     publicHost: config.publicHost,
     publicOrigin: config.publicOrigin,
     sessions,
