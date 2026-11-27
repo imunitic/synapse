@@ -101,7 +101,7 @@ package body Synapse.Pipeline.Interactive_Runners.Tests is
       Result.Name := To_Unbounded_String ("Develop");
       Result.Harness := Harness;
       Result.Assignment :=
-        (Present => True, Kind => Resolved.Prompt_Text,
+        (Present => True,
          Text => To_Unbounded_String ("Implement the feature."));
       return Result;
    end Step_Of;
@@ -207,6 +207,47 @@ package body Synapse.Pipeline.Interactive_Runners.Tests is
             "claude was started in the working directory with the session id");
       end;
    end A_Valid_Result_Ends_The_Session_And_Stops_The_Harness;
+
+   procedure A_Prompt_Definition_Is_Sent_As_Its_Text
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      W        : World;
+      Terminal : aliased Fake_Terminal.Fake_Terminal;
+      Runner   : Interactive_Runner
+        (W.Process'Access, Terminal'Access, W.Files'Access,
+         W.Registry'Access);
+      Step     : Resolved.Step := Step_Of;
+   begin
+      --  What resolution leaves of `Prompt => Review_Code`: the text of the
+      --  Prompt definition.
+      Step.Assignment :=
+        (Present => True,
+         Text => To_Unbounded_String ("Review it carefully."));
+      Terminal.Files := W.Files'Unchecked_Access;
+      Runner.Home := To_Unbounded_String ("/home/u");
+      Runner.Session_Id := To_Unbounded_String ("u-1");
+      Runner.Poll := 0.0;
+      Terminal.Ticks.Append (Tick (Transcript, Result_Said ("m1", "Done")));
+      declare
+         Got  : constant Sessions.Session_Result :=
+           Runner.Run_Session (Request_Of (Step));
+         Args : Unbounded_String;
+      begin
+         Assert (Got.Succeeded, "the session succeeded");
+         if not Terminal.Requests.Is_Empty then
+            for A of Terminal.Requests.First_Element.Arguments loop
+               Append (Args, To_String (A) & " ");
+            end loop;
+         end if;
+         Assert
+           (Has (To_String (Args), "Review it carefully."),
+            "the prompt's text is the first message: " & To_String (Args));
+         Assert
+           (not Has (To_String (Args), "--add-dir"),
+            "and no directory is added");
+      end;
+   end A_Prompt_Definition_Is_Sent_As_Its_Text;
 
    procedure A_Turn_Without_A_Result_Is_Waiting_For_The_Person
      (T : in out Test_Cases_Class)
@@ -425,6 +466,10 @@ package body Synapse.Pipeline.Interactive_Runners.Tests is
       Register_Routine
         (T, A_Valid_Result_Ends_The_Session_And_Stops_The_Harness'Access,
          "A valid result ends the session and stops the harness");
+      Register_Routine
+        (T, A_Prompt_Definition_Is_Sent_As_Its_Text'Access,
+         "A step whose prompt came from a Prompt definition is sent that "
+         & "text");
       Register_Routine
         (T, A_Turn_Without_A_Result_Is_Waiting_For_The_Person'Access,
          "A turn without a result is waiting for the person");

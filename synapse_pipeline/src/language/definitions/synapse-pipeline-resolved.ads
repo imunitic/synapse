@@ -13,14 +13,12 @@ with Synapse.Pipeline.Limits;
 
 package Synapse.Pipeline.Resolved is
 
-   type Instruction_Kind is (Prompt_Text, Skill_Name);
-
-   --  What an agent or a step tells the agent session: the text of a
-   --  prompt, or the name of a skill. Nothing when none was given.
+   --  What an agent or a step tells the agent session: the text of its
+   --  prompt, written in place or taken from a Prompt definition. Nothing
+   --  when none was given.
    type Instruction (Present : Boolean := False) is record
       case Present is
          when True =>
-            Kind : Instruction_Kind;
             Text : Ada.Strings.Unbounded.Unbounded_String;
 
          when False =>
@@ -29,7 +27,7 @@ package Synapse.Pipeline.Resolved is
    end record;
 
    --  A definition a step was built from, and the file it came from.
-   type Origin_Kind is (System_Origin, Agent_Origin);
+   type Origin_Kind is (System_Origin, Agent_Origin, Prompt_Origin);
 
    type Origin is record
       Kind : Origin_Kind;
@@ -61,7 +59,7 @@ package Synapse.Pipeline.Resolved is
       --  meaning; null when the step declares none and may end with any word.
       Outcomes    : Synapse.Core.JSON.Value := Synapse.Core.JSON.Null_Value;
 
-      --  The system and the agent the step's values came from.
+      --  The system, the agent and the prompts the step's values came from.
       Origins     : Origin_Vectors.Vector;
    end record;
 

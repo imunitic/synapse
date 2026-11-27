@@ -6,7 +6,6 @@ with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Limits;
 with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Permission_Levels;
-with Synapse.Pipeline.Skills;
 
 package body Synapse.Pipeline.Attributes is
 
@@ -28,7 +27,9 @@ package body Synapse.Pipeline.Attributes is
    String_Only : constant Value_Set :=
      [Syntax.String_Value => True, others => False];
 
-   function Rule_Of (Name : String) return Rule is
+   --  The rule for Name in Where: only Prompt takes different values in
+   --  different places.
+   function Rule_Of (Name : String; Where : Context) return Rule is
       Both : constant Context_Set :=
         [Step_Context | System_Context => True, others => False];
    begin
@@ -36,10 +37,22 @@ package body Synapse.Pipeline.Attributes is
          return (True, Both, Name_Only);
       elsif Name = "System" then
          return (True, [Step_Context => True, others => False], Name_Only);
-      elsif Name = "Prompt" or else Name = "Skill" then
+      elsif Name = "Prompt" and then Where = Prompt_Context then
+         return
+           (True, [Prompt_Context => True, others => False], String_Only);
+      elsif Name = "Prompt" then
          return
            (True,
-            [Step_Context | System_Context | Agent_Context => True,
+            [Step_Context | System_Context | Agent_Context
+             | Prompt_Context => True,
+             others => False],
+            [Syntax.Name_Value | Syntax.String_Value => True,
+             others => False]);
+      elsif Name = "Description" then
+         return
+           (True,
+            [Pipeline_Context | System_Context | Agent_Context
+             | Prompt_Context => True,
              others => False],
             String_Only);
       elsif Name = "Harness" or else Name = "Permissions" then
@@ -71,14 +84,16 @@ package body Synapse.Pipeline.Attributes is
    end Rule_Of;
 
    function Is_Known (Name : String) return Boolean is
-     (Rule_Of (Name).Known);
+     (Rule_Of (Name, Step_Context).Known);
 
    function Noun (Where : Context) return String is
      (case Where is
-        when Step_Context   => "a step",
-        when Edge_Context   => "an edge",
-        when System_Context => "a system",
-        when Agent_Context  => "an agent");
+        when Step_Context     => "a step",
+        when Edge_Context     => "an edge",
+        when System_Context   => "a system",
+        when Agent_Context    => "an agent",
+        when Pipeline_Context => "a pipeline",
+        when Prompt_Context   => "a prompt");
 
    function Describe (Kind : Syntax.Value_Kind) return String is
      (case Kind is
@@ -117,7 +132,7 @@ package body Synapse.Pipeline.Attributes is
      (Where : Context; Item : Syntax.Attribute) return Error_Options.Option
    is
       Name : constant String := To_String (Item.Name.Name);
-      Spec : constant Rule := Rule_Of (Name);
+      Spec : constant Rule := Rule_Of (Name, Where);
    begin
       if not Spec.Known then
          return At_Name (Item, "unknown attribute '" & Name & "'");
@@ -132,15 +147,10 @@ package body Synapse.Pipeline.Attributes is
             "'" & Name & "' takes " & Accepts (Spec.Values) & ", not "
             & Describe (Item.Item.Kind));
       end if;
-      if Name = "Prompt" and then Length (Item.Item.Text) = 0 then
-         return At_Value (Item, "'Prompt' is empty");
-      elsif Name = "Skill"
-        and then not Skills.Is_Valid_Name (To_String (Item.Item.Text))
+      if Name = "Prompt" and then Item.Item.Kind = Syntax.String_Value
+        and then Length (Item.Item.Text) = 0
       then
-         return At_Value
-           (Item,
-            "'" & To_String (Item.Item.Text) & "' is not a skill name: "
-            & "lowercase letters, digits and single hyphens, up to 64");
+         return At_Value (Item, "'Prompt' is empty");
       elsif Name = "Harness"
         and then not Harnesses.Find (To_String (Item.Item.Name)).Found
       then

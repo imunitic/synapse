@@ -47,15 +47,13 @@ struct Real {
     dir: tempfile::TempDir,
     real: PathBuf,
     other: PathBuf,
-    skills: PathBuf,
 }
 
 fn real() -> Real {
     let dir = tempdir().unwrap();
     let real = dir.path().join("real");
     let other = dir.path().join("other");
-    let skills = real.join("skills");
-    fs::create_dir_all(skills.join("review-code")).unwrap();
+    fs::create_dir_all(&real).unwrap();
     fs::create_dir_all(&other).unwrap();
     fs::write(
         real.join("Reviewer.synapse"),
@@ -69,13 +67,7 @@ fn real() -> Real {
         "Agent Elsewhere [Prompt => \"e\"];",
     )
     .unwrap();
-    fs::write(skills.join("review-code/SKILL.md"), "skill text").unwrap();
-    Real {
-        dir,
-        real,
-        other,
-        skills,
-    }
+    Real { dir, real, other }
 }
 
 #[test]
@@ -84,7 +76,6 @@ fn the_copy_has_the_definitions_and_the_draft_among_them() {
     let (sandbox, others) = build_sandbox(&SandboxInput {
         default_dir: &w.real,
         other_dirs: std::slice::from_ref(&w.other),
-        skills_dir: Some(&w.skills),
         draft: ("New", "Pipeline New {}"),
         extra: None,
     })
@@ -93,7 +84,7 @@ fn the_copy_has_the_definitions_and_the_draft_among_them() {
     let copy = Path::new(&env["XDG_CONFIG_HOME"]).join("synapse-pipeline");
     assert_eq!(
         names(&copy),
-        ["Dev.synapse", "New.synapse", "Reviewer.synapse", "skills"]
+        ["Dev.synapse", "New.synapse", "Reviewer.synapse"]
     );
     assert_eq!(
         fs::read_to_string(copy.join("New.synapse")).unwrap(),
@@ -111,7 +102,6 @@ fn the_draft_replaces_the_file_of_its_name_and_nothing_real_is_changed() {
     let (sandbox, others) = build_sandbox(&SandboxInput {
         default_dir: &w.real,
         other_dirs: &[],
-        skills_dir: None,
         draft: ("Dev", "Pipeline Dev { new }"),
         extra: None,
     })
@@ -128,19 +118,22 @@ fn the_draft_replaces_the_file_of_its_name_and_nothing_real_is_changed() {
 }
 
 #[test]
-fn the_skills_are_linked_and_readable_through_the_copy() {
+fn the_copy_holds_only_the_definition_files_with_no_skills_folder_beside_them() {
     let w = real();
+    fs::create_dir_all(w.real.join("skills/review-code")).unwrap();
+    fs::write(w.real.join("skills/review-code/SKILL.md"), "skill text").unwrap();
     let (sandbox, others) = build_sandbox(&SandboxInput {
         default_dir: &w.real,
         other_dirs: &[],
-        skills_dir: Some(&w.skills),
         draft: ("New", "x"),
         extra: None,
     })
     .unwrap();
-    let linked = Path::new(&sandbox.env(&others)["XDG_CONFIG_HOME"])
-        .join("synapse-pipeline/skills/review-code/SKILL.md");
-    assert_eq!(fs::read_to_string(linked).unwrap(), "skill text");
+    let copy = Path::new(&sandbox.env(&others)["XDG_CONFIG_HOME"]).join("synapse-pipeline");
+    assert_eq!(
+        names(&copy),
+        ["Dev.synapse", "New.synapse", "Reviewer.synapse"]
+    );
 }
 
 #[test]
@@ -149,7 +142,6 @@ fn an_extra_file_goes_beside_the_draft_and_a_folder_that_is_not_there_has_none()
     let (sandbox, others) = build_sandbox(&SandboxInput {
         default_dir: &w.dir.path().join("missing"),
         other_dirs: &[w.dir.path().join("also-missing")],
-        skills_dir: None,
         draft: ("Agent_One", "Agent Agent_One [Prompt => \"x\"];"),
         extra: Some(("Probe", "Pipeline Probe {}")),
     })
@@ -164,7 +156,6 @@ fn the_copy_is_removed_when_it_is_dropped() {
     let (sandbox, _) = build_sandbox(&SandboxInput {
         default_dir: &w.real,
         other_dirs: &[],
-        skills_dir: None,
         draft: ("New", "x"),
         extra: None,
     })
@@ -392,39 +383,44 @@ async fn a_definition_is_made_in_the_default_folder_and_never_replaces_a_file() 
 }
 
 #[tokio::test]
-async fn a_skill_is_made_as_a_folder_with_a_skill_file_where_there_was_no_skills_folder() {
+async fn a_prompt_is_made_as_a_definition_file_and_the_kind_skill_is_refused() {
     let (dir, defaults) = world();
     let mut host = host(dir.path()).await;
-    let text = "---\nname: do-it\ndescription: Does it.\n---\n";
+    let text = "Prompt Do_It [Description => \"Does it.\", Prompt => \"Do it.\"];\n";
     let made = host
         .ask(
             "definition.write",
-            json!({ "mode": "create", "kind": "skill", "name": "do-it", "text": text }),
+            json!({ "mode": "create", "kind": "definition", "name": "Do_It", "text": text }),
         )
         .await
         .unwrap();
     assert_eq!(
         made,
-        json!({ "path": defaults.join("skills").join("do-it").join("SKILL.md").to_string_lossy() })
+        json!({ "path": defaults.join("Do_It.synapse").to_string_lossy() })
     );
     assert_eq!(
-        fs::read_to_string(defaults.join("skills/do-it/SKILL.md")).unwrap(),
+        fs::read_to_string(defaults.join("Do_It.synapse")).unwrap(),
         text
     );
+    let skill = host
+        .ask(
+            "definition.write",
+            json!({ "mode": "create", "kind": "skill", "name": "do-it", "text": "x" }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(skill.0, ErrorCode::BadRequest);
+    assert!(!defaults.join("skills").exists());
 }
 
 #[tokio::test]
-async fn names_that_are_not_the_form_of_a_definition_or_a_skill_are_refused_so_that_none_can_name_a_path(
-) {
+async fn names_that_are_not_the_form_of_a_definition_are_refused_so_that_none_can_name_a_path() {
     let (dir, defaults) = world();
     let mut host = host(dir.path()).await;
     let bad = [
         ("definition", "../escape"),
         ("definition", "has space"),
-        ("skill", "Upper"),
-        ("skill", "../x"),
-        ("skill", "a--b"),
-        ("skill", "-a"),
+        ("definition", "-a"),
     ];
     for (kind, name) in bad {
         let error = host
@@ -490,7 +486,7 @@ async fn it_is_refused_when_the_file_has_changed_since_it_was_read() {
 }
 
 #[tokio::test]
-async fn the_skill_file_of_a_skill_is_saved_and_nothing_else_is_and_nothing_outside_the_folders() {
+async fn a_skill_file_is_not_saved_nor_anything_else_nor_anything_outside_the_folders() {
     let (dir, _) = world();
     let mut host = host(dir.path()).await;
     let skill = put(
@@ -499,15 +495,17 @@ async fn the_skill_file_of_a_skill_is_saved_and_nothing_else_is_and_nothing_outs
         "SKILL.md",
         "one",
     );
-    host.ask(
-        "definition.write",
-        json!({ "mode": "replace", "path": skill, "previous": "one", "text": "two" }),
-    )
-    .await
-    .unwrap();
-    assert_eq!(fs::read_to_string(&skill).unwrap(), "two");
+    let error = host
+        .ask(
+            "definition.write",
+            json!({ "mode": "replace", "path": skill, "previous": "one", "text": "two" }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.0, ErrorCode::BadRequest);
+    assert_eq!(fs::read_to_string(&skill).unwrap(), "one");
 
-    // Not a definition, not a skill: a file of the records of a run, or any other.
+    // Not a definition: a file of the records of a run, or any other.
     let other = put(dir.path(), "xdg/synapse-pipeline", "notes.txt", "x");
     let error = host
         .ask(
@@ -532,7 +530,7 @@ async fn the_skill_file_of_a_skill_is_saved_and_nothing_else_is_and_nothing_outs
 }
 
 #[tokio::test]
-async fn a_definition_file_is_removed_and_a_skill_is_removed_with_its_directory() {
+async fn a_definition_file_is_removed_and_a_skill_file_is_not() {
     let (dir, _) = world();
     let mut host = host(dir.path()).await;
     let old = put(dir.path(), "xdg/synapse-pipeline", "Old.synapse", "x");
@@ -543,23 +541,21 @@ async fn a_definition_file_is_removed_and_a_skill_is_removed_with_its_directory(
     assert!(!Path::new(&old).exists());
     assert!(Path::new(&kept).exists());
 
-    let skills = "xdg/synapse-pipeline/skills";
-    let skill = put(dir.path(), &format!("{skills}/a-skill"), "SKILL.md", "one");
-    put(
+    let skill = put(
         dir.path(),
-        &format!("{skills}/a-skill/references"),
-        "extra.md",
-        "more",
+        "xdg/synapse-pipeline/skills/a-skill",
+        "SKILL.md",
+        "one",
     );
-    let beside = put(dir.path(), &format!("{skills}/b-skill"), "SKILL.md", "two");
-    host.ask(
-        "definition.write",
-        json!({ "mode": "delete", "path": skill }),
-    )
-    .await
-    .unwrap();
-    assert!(!dir.path().join(skills).join("a-skill").exists());
-    assert_eq!(fs::read_to_string(&beside).unwrap(), "two");
+    let error = host
+        .ask(
+            "definition.write",
+            json!({ "mode": "delete", "path": skill }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.0, ErrorCode::BadRequest);
+    assert_eq!(fs::read_to_string(&skill).unwrap(), "one");
 }
 
 #[tokio::test]

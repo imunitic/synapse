@@ -60,11 +60,10 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
    end Step_Of;
 
    function Command_Of
-     (Harness : Harnesses.Harness_Kind; Step : Resolved.Step;
-      Skill : String := "") return Command
+     (Harness : Harnesses.Harness_Kind; Step : Resolved.Step) return Command
    is
       Made : constant Command_Results.Result :=
-        For_Harness (Harness).Build (Step, "PROMPT", Skill);
+        For_Harness (Harness).Build (Step, "PROMPT");
    begin
       Assert
         (Command_Results.Is_Success (Made),
@@ -140,21 +139,29 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
          "a full-access one is not asked: " & Full);
    end Claude_Permissions_Follow_The_Level;
 
-   procedure Claude_Is_Given_The_Skill_Directory
+   procedure A_Claude_Step_Is_Never_Started_With_Add_Dir
      (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
-      Args : constant String :=
-        Joined
-          (Command_Of
-             (Harnesses.Claude, Step_Of, "/skills/x")
-             .Arguments);
+
+      procedure Check (Level : String) is
+         Args : constant String :=
+           Joined
+             (Command_Of (Harnesses.Claude, Step_Of (Permissions => Level))
+                .Arguments);
+      begin
+         Assert
+           (not Has (Args, "--add-dir"),
+            "no directory is added for " & Level & ": " & Args);
+         Assert
+           (not Has (Args, "--allowedTools"),
+            "no tool is allowed beyond what the level gives: " & Args);
+      end Check;
    begin
-      Assert (Has (Args, "--add-dir /skills/x"), "the skill is reachable");
-      Assert
-        (not Has (Args, "--allowedTools"),
-         "no tool is allowed beyond what the level gives: " & Args);
-   end Claude_Is_Given_The_Skill_Directory;
+      Check ("Read_Only");
+      Check ("Workspace_Write");
+      Check ("Full_Access");
+   end A_Claude_Step_Is_Never_Started_With_Add_Dir;
 
    procedure Codex_Is_Run_In_A_Sandbox_That_Matches_The_Level
      (T : in out Test_Cases_Class)
@@ -487,8 +494,8 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
         (T, Claude_Permissions_Follow_The_Level'Access,
          "Claude's permissions follow the level");
       Register_Routine
-        (T, Claude_Is_Given_The_Skill_Directory'Access,
-         "Claude is given the skill directory");
+        (T, A_Claude_Step_Is_Never_Started_With_Add_Dir'Access,
+         "A Claude step is never started with --add-dir");
       Register_Routine
         (T, Codex_Is_Run_In_A_Sandbox_That_Matches_The_Level'Access,
          "Codex is run in a sandbox that matches the level");

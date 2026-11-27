@@ -15,7 +15,7 @@ import {
 function withCli(answer: (args: string[]) => CliResult, seen: string[][] = []): Transport {
   const base = fakeTransport({
     files: {},
-    paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+    paths: { definitionDirs: [], recordsDir: null },
   })
   return {
     ...base,

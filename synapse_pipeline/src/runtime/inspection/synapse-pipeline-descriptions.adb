@@ -6,7 +6,6 @@ with Synapse.Pipeline.Permission_Levels;
 package body Synapse.Pipeline.Descriptions is
 
    use Ada.Strings.Unbounded;
-   use type Resolved.Instruction_Kind;
 
    package JSON renames Synapse.Core.JSON;
 
@@ -23,14 +22,10 @@ package body Synapse.Pipeline.Descriptions is
    begin
       if not Item.Present then
          return JSON.Null_Value;
-      elsif Item.Kind = Resolved.Prompt_Text then
-         return JSON.Make_Object
-           ([Member ("kind", JSON.Make_String ("prompt")),
-             Member ("text", Text (Item.Text))]);
       end if;
       return JSON.Make_Object
-        ([Member ("kind", JSON.Make_String ("skill")),
-          Member ("name", Text (Item.Text))]);
+        ([Member ("kind", JSON.Make_String ("prompt")),
+          Member ("text", Text (Item.Text))]);
    end Instruction_JSON;
 
    function Origins_JSON (Items : Resolved.Origin_Vectors.Vector)
@@ -49,7 +44,8 @@ package body Synapse.Pipeline.Descriptions is
                      JSON.Make_String
                        (case O.Kind is
                           when Resolved.System_Origin => "system",
-                          when Resolved.Agent_Origin  => "agent")),
+                          when Resolved.Agent_Origin  => "agent",
+                          when Resolved.Prompt_Origin => "prompt")),
                   Member ("name", Text (O.Name)),
                   Member ("file", Text (O.File))]);
          end;

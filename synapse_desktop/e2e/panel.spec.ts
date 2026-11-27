@@ -85,6 +85,18 @@ test.describe('the side panel follows the page', () => {
   })
 })
 
+test('a definition with a description shows it next to its name, and one without shows none', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await sidePanel(page).getByRole('button', { name: 'Prompts', exact: true }).click()
+  const described = sidePanel(page).locator('.list-entry', { hasText: 'Test_Feature' })
+  await expect(described).toContainText('Run the tests for a feature and report which ones fail.')
+  const plain = sidePanel(page).locator('.list-entry', { hasText: 'Review_Code' })
+  await expect(plain.locator('.list-name-one-line')).toHaveCount(0)
+})
+
 test.describe('a list with nothing in it', () => {
   test('of definitions says so and leaves making one to the + that is there', async ({ page }) => {
     await withNoDefinitions(page)

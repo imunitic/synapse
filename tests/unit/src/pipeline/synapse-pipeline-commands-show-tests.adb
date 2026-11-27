@@ -282,6 +282,106 @@ package body Synapse.Pipeline.Commands.Show.Tests is
          "said in text");
    end An_Unused_Definition_Is_Used_By_Nothing;
 
+   --  A prompt used by a step, a system and an agent, each by its name.
+   procedure Add_A_Used_Prompt (F : in out Fixture) is
+   begin
+      F.Files.Add_File
+        ("/defs/Careful.synapse",
+         "Prompt Careful [Prompt => ""Be careful.""];");
+      F.Files.Add_File
+        ("/defs/Careful_Agent.synapse",
+         "Agent Careful_Agent [Prompt => Careful];");
+      F.Files.Add_File
+        ("/defs/Careful_System.synapse",
+         "System Careful_System [Harness => Claude, Prompt => Careful];");
+      F.Files.Add_File
+        ("/defs/Careful_Work.synapse",
+         "Pipeline Careful_Work {"
+         & " Plan [Harness => Claude, Prompt => Careful];"
+         & " Build [Harness => Claude, Prompt => ""Build.""];"
+         & " Check [Harness => Claude, Agent => Careful_Agent, "
+         & "Prompt => Careful];"
+         & " Plan -> Build; Build -> Check; }");
+   end Add_A_Used_Prompt;
+
+   procedure Show_Of_A_Prompt_Lists_What_Uses_It
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Used_Prompt (F);
+      Assert
+        (Run (Env (F), Args ("Careful", "--format", "json")) = 0,
+         "a prompt: " & F.Base.Console.Err_Text);
+      declare
+         Prompt : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+      begin
+         Assert
+           (Prompt.Ok
+            and then JSON.As_String (JSON.Member_Value (Prompt.Item, "format"))
+                     = "synapse-pipeline-definition/v1"
+            and then JSON.As_String (JSON.Member_Value (Prompt.Item, "kind"))
+                     = "prompt"
+            and then JSON.As_String (JSON.Member_Value (Prompt.Item, "file"))
+                     = "/defs/Careful.synapse",
+            "its format, kind and file");
+         Assert
+           (Users (Prompt.Item) =
+            "agent:Careful_Agent system:Careful_System pipeline:Careful_Work ",
+            "the agent, system and pipeline that use it: "
+            & Users (Prompt.Item));
+         declare
+            Steps : constant JSON.Value :=
+              JSON.Member_Value
+                (JSON.Element (JSON.Member_Value (Prompt.Item, "used_by"), 3),
+                 "steps");
+         begin
+            Assert
+              (JSON.Length (Steps) = 2
+               and then JSON.As_String (JSON.Element (Steps, 1)) = "Plan"
+               and then JSON.As_String (JSON.Element (Steps, 2)) = "Check",
+               "and the steps that name it");
+         end;
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         Add_A_Used_Prompt (G);
+         Assert (Run (Env (G), Args ("Careful")) = 0, "in text");
+         Assert
+           (Has (G.Base.Console.Out_Text,
+                 "prompt Careful  /defs/Careful.synapse" & LF)
+            and then Has (G.Base.Console.Out_Text,
+                          "  used by system Careful_System" & LF),
+            "said in text: " & G.Base.Console.Out_Text);
+      end;
+   end Show_Of_A_Prompt_Lists_What_Uses_It;
+
+   procedure Show_Step_Of_A_Step_With_A_Named_Prompt_Prints_Its_Text
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Used_Prompt (F);
+      Assert
+        (Run (Env (F), Args ("Careful_Work", "--step", "Check")) = 0,
+         "the step: " & F.Base.Console.Err_Text);
+      Assert
+        (Has (F.Base.Console.Out_Text, "Be careful."),
+         "the prompt's text is in it, as role and as assignment: "
+         & F.Base.Console.Out_Text);
+      Assert
+        (not Has (F.Base.Console.Out_Text, "SKILL.md")
+         and then not Has (F.Base.Console.Out_Text, "/defs/Careful.synapse"),
+         "no path is given in place of the text");
+   end Show_Step_Of_A_Step_With_A_Named_Prompt_Prints_Its_Text;
+
    procedure A_Pipeline_Names_Its_Kind_And_File
      (T : in out Test_Cases_Class)
    is
@@ -315,19 +415,19 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Set_Up (F);
       F.Files.Add_File ("/in.json", "{""issue"":7}");
       F.Files.Add_File
-        ("/cfg/synapse-pipeline/skills/triage/SKILL.md", "Triage it.");
+        ("/defs/Triage.synapse", "Prompt Triage [Prompt => ""Triage it.""];");
       F.Files.Add_File
-        ("/defs/Skilled.synapse",
-         "Pipeline Skilled { A [Harness => Claude, Skill => ""triage""];"
+        ("/defs/Prompted.synapse",
+         "Pipeline Prompted { A [Harness => Claude, Prompt => Triage];"
          & " B [Harness => Claude, Prompt => ""Do B.""]; A -> B; }");
       Assert
-        (Run (Env (F), Args ("Skilled", "--step", "A", "--input", "/in.json"))
+        (Run (Env (F), Args ("Prompted", "--step", "A", "--input", "/in.json"))
          = 0,
          "the first step: " & F.Base.Console.Err_Text);
       declare
          Prompt : constant String := F.Base.Console.Out_Text;
       begin
-         Assert (Has (Prompt, "Triage it."), "the skill is in it");
+         Assert (Has (Prompt, "Triage it."), "the prompt's text is in it");
          Assert (Has (Prompt, "step A of an automated pipeline"), "the step");
          Assert
            (Has (Prompt, "started with this input:" & LF & "{""issue"":7}"),
@@ -573,6 +673,13 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Register_Routine
         (T, A_System_And_An_Agent_Are_Described_With_Who_Uses_Them'Access,
          "A system and an agent are described with who uses them");
+      Register_Routine
+        (T,
+         Show_Of_A_Prompt_Lists_What_Uses_It'Access,
+         "Show of a prompt lists the steps, systems and agents that use it");
+      Register_Routine
+        (T, Show_Step_Of_A_Step_With_A_Named_Prompt_Prints_Its_Text'Access,
+         "Show --step of a step with a named prompt prints the prompt's text");
       Register_Routine
         (T, An_Unused_Definition_Is_Used_By_Nothing'Access,
          "An unused definition is used by nothing");

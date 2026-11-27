@@ -1,47 +1,25 @@
 with Ada.Strings.Unbounded;
 
-with Synapse.Core.Optional_Text;
 with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Interactive_Harnesses;
 with Synapse.Pipeline.Resolved;
-with Synapse.Pipeline.Search_Paths;
-with Synapse.Pipeline.Skills;
 with Synapse.Pipeline.Commands.Loading;
 with Synapse.Pipeline.Commands.Usage;
 
 package body Synapse.Pipeline.Commands.Check is
 
    use Ada.Strings.Unbounded;
-   use type Resolved.Instruction_Kind;
 
    Usage : constant String :=
      Commands.Usage.Synopsis (Commands.Usage.Check_Help);
 
    --  What the pipeline would run with, one step after another.
    function Describe
-     (Item          : Resolved.Pipeline; Pipeline_File : String;
-      Files         : File_System.File_System'Class;
-      Skill_Roots   : Search_Paths.Root_Vectors.Vector) return String
+     (Item : Resolved.Pipeline; Pipeline_File : String) return String
    is
       LF     : constant Character := Character'Val (10);
       Result : Unbounded_String;
-
-      procedure Skill_Line (Item : Resolved.Instruction) is
-      begin
-         if Item.Present and then Item.Kind = Resolved.Skill_Name then
-            declare
-               Found : constant Synapse.Core.Optional_Text.Option :=
-                 Skills.Find (Files, Skill_Roots, To_String (Item.Text));
-            begin
-               Append
-                 (Result,
-                  "    skill " & To_String (Item.Text) & "  "
-                  & (if Found.Found then To_String (Found.Value)
-                     else "(not found)") & LF);
-            end;
-         end if;
-      end Skill_Line;
    begin
       Append
         (Result,
@@ -57,11 +35,10 @@ package body Synapse.Pipeline.Commands.Check is
                "    "
                & (case O.Kind is
                     when Resolved.System_Origin => "system ",
-                    when Resolved.Agent_Origin  => "agent ")
+                    when Resolved.Agent_Origin  => "agent ",
+                    when Resolved.Prompt_Origin => "prompt ")
                & To_String (O.Name) & "  " & To_String (O.File) & LF);
          end loop;
-         Skill_Line (S.Role);
-         Skill_Line (S.Assignment);
       end loop;
       return To_String (Result);
    end Describe;
@@ -70,7 +47,6 @@ package body Synapse.Pipeline.Commands.Check is
       Ok          : Boolean;
       Item        : Resolved.Pipeline;
       File        : Unbounded_String;
-      Skill_Roots : Search_Paths.Root_Vectors.Vector;
       Interactive : Boolean := False;
       Name        : Unbounded_String;
       Named       : Boolean := False;
@@ -92,7 +68,7 @@ package body Synapse.Pipeline.Commands.Check is
          return Usage_Error (Env, Usage);
       end if;
       Loading.Load
-        (Env, To_String (Name), Ok, Item, File, Skill_Roots, Advise => True);
+        (Env, To_String (Name), Ok, Item, File, Advise => True);
       if not Ok then
          return 1;
       end if;
@@ -110,7 +86,7 @@ package body Synapse.Pipeline.Commands.Check is
             end if;
          end;
       end if;
-      Say (Env, Describe (Item, To_String (File), Env.Files.all, Skill_Roots));
+      Say (Env, Describe (Item, To_String (File)));
       return 0;
    end Run;
 

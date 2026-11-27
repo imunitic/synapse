@@ -19,8 +19,8 @@ Requires `synapse-pipeline` on `PATH` (check with `synapse-pipeline --help`) and
 
 Keep the files below in a scratch directory outside the repository.
 
-1. **Check the pipeline**: `synapse-pipeline check <Pipeline>`. If it reports problems, report them and stop. Its output also names the directory of every skill the pipeline uses (a line `skill <name>  <directory>`).
-2. **Read the steps once**: `synapse-pipeline show <Pipeline> --format json`. Keep `steps`: for each, `name`, `role` and `assignment` (each `{"kind": "prompt", "text": ...}`, `{"kind": "skill", "name": ...}` or null), `outcomes` (null, or a list of `{"word", "meaning"}`), `retries`, `permissions`. The step, its system and its agent are already merged.
+1. **Check the pipeline**: `synapse-pipeline check <Pipeline>`. If it reports problems, report them and stop.
+2. **Read the steps once**: `synapse-pipeline show <Pipeline> --format json`. Keep `steps`: for each, `name`, `role` and `assignment` (each `{"kind": "prompt", "text": ...}` or null; a named `Prompt` definition is already given as its text), `outcomes` (null, or a list of `{"word", "meaning"}`), `retries`, `permissions`. The step, its system and its agent are already merged.
 3. **Start the run**: write the pipeline's input as JSON to a file (if the user gave none, leave it out) and run `synapse-pipeline next <Pipeline> --input <file> > state.json`. The output is the run's state, a JSON document with `status` (`running`, `completed` or `failed`), `current_step`, `previous_output` and more.
 4. **While `status` is `running`**, take `current_step` from the state and do this for it:
    1. Build the step's prompt (below) and start a **fresh subagent** with it, one per run of a step, never reused, and wait for its answer. In Codex a subagent starts only when you explicitly ask for one, so say "spawn a subagent" in so many words.
@@ -35,8 +35,8 @@ The state is what `next` printed last. Pass it back unchanged; it holds everythi
 
 Join these, in order, with a blank line between them, leaving out any that are empty:
 
-1. The **role**: its `text`, or for a skill the text below.
-2. The **assignment**: its `text`, or for a skill the text below.
+1. The **role**: its `text`.
+2. The **assignment**: its `text`.
 3. `You are running as the step <name> of an automated pipeline. Nobody is available to answer questions, so make reasonable decisions and carry on.`
 4. When the state's `initial_input` is not null: `The pipeline was started with this input:` and the input as JSON on the next line.
 5. When the state's `previous_output` is not null: `The step before yours reported this result:` and the result as JSON on the next line.
@@ -58,8 +58,6 @@ When you are done, reply with one JSON object and nothing else: no text before o
 
 The pipeline decides which step runs next from it, so report what is true, not what would be convenient. `summary` says what you did, for a person. `data` is an object holding anything the next step needs, and may be empty. The object has no other members.
 ```
-
-**A skill** (`{"kind": "skill", "name": ...}`) becomes `Follow this skill. Its files are in <directory>.`, a blank line, then the whole text of `<directory>/SKILL.md`. The directory is the one `check` reported for that skill name. If `check` says the skill was not found, stop and report it.
 
 For a `Read_Only` step add to the end of the prompt: `You must not change any file or run any command that changes anything.`
 

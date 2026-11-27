@@ -67,24 +67,23 @@ export type RunRequest =
 export interface AppPaths {
   // Directories of .synapse files.
   definitionDirs: string[]
-  skillsDir: string | null
   // The work directory's pipelines folder, where each run keeps its record.
   recordsDir: string | null
 }
 
 export type RunAnswer = { ok: true; result: unknown } | { ok: false; error: string }
 
-// Text that is being written and is not saved: a pipeline, a system or an agent.
+// Text that is being written and is not saved: a pipeline, a system, an agent or a prompt.
 export interface DraftDefinition {
-  kind: 'pipeline' | 'system' | 'agent'
+  kind: 'pipeline' | 'system' | 'agent' | 'prompt'
   // The name the text declares, which is the name of its file.
   name: string
   text: string
 }
 
-// A definition file, or the SKILL.md of a skill, to be made.
+// A definition file to be made.
 export interface NewDefinition {
-  kind: 'definition' | 'skill'
+  kind: 'definition'
   name: string
   text: string
 }
@@ -92,7 +91,7 @@ export interface NewDefinition {
 // A description to have an agent write a definition from. What exists is given
 // so that the text reuses it and does not take a name that is used.
 export interface GenerateRequest {
-  kind: 'pipeline' | 'system' | 'agent' | 'skill'
+  kind: 'pipeline' | 'system' | 'agent' | 'prompt'
   prompt: string
   // The harness that writes it; the default harness when absent.
   harness?: Harness
@@ -101,8 +100,7 @@ export interface GenerateRequest {
   // The text to change, when the prompt asks for a change to a definition that
   // exists and not for a new one.
   current?: string
-  definitions: { name: string; kind: 'pipeline' | 'system' | 'agent' }[]
-  skills: string[]
+  definitions: { name: string; kind: 'pipeline' | 'system' | 'agent' | 'prompt' }[]
   // The id the client made for this run, to watch and stop it by.
   run?: string
 }
@@ -411,14 +409,14 @@ export interface Transport {
   // Makes the file in the default definition directory. It never replaces one.
   writeDefinition(item: NewDefinition): Promise<{ path: string }>
 
-  // The text of a definition, or of a skill's SKILL.md, that an agent wrote from
+  // The text of a definition that an agent wrote from
   // the description. Nothing is saved.
-  // Replaces the text of a definition file, or a skill's SKILL.md, in the
+  // Replaces the text of a definition file in the
   // definition directories. It is refused when the file no longer holds what
   // `previous` says it did.
   saveDefinition(path: string, previous: string, text: string): Promise<void>
-  // Removes a definition file, or a skill's directory when the path is its SKILL.md. Whether
-  // something still uses it is for the caller to have looked at.
+  // Removes a definition file. Whether something still uses it is for the caller to have
+  // looked at.
   deleteDefinition(path: string): Promise<void>
 
   // What changed in a folder's working tree: a snapshot of it, whose tree is null when the folder is

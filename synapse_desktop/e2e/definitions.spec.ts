@@ -31,3 +31,18 @@ test('the filter stays when the kind of definition changes, and its label says w
   const agents = panel.getByRole('searchbox', { name: 'Filter the agents' })
   await expect(agents).toHaveValue('zzz')
 })
+
+test('prompts have a tab of their own', async ({ page }) => {
+  await page.goto('/')
+  const panel = sidePanel(page)
+  await panel.getByRole('button', { name: 'Prompts', exact: true }).click()
+  await expect(panel.getByRole('searchbox', { name: 'Filter the prompts' })).toBeVisible()
+  // Its description is read with its name.
+  await expect(
+    panel.getByRole('button', {
+      name: 'Test_Feature Run the tests for a feature and report which ones fail.',
+    }),
+  ).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Review_Code', exact: true })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Developer', exact: true })).toHaveCount(0)
+})

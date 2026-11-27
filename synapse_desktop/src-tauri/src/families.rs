@@ -11,7 +11,7 @@ use crate::config::{config_file, load_config, load_stored, merged, save_config};
 use crate::definitions::{preview_draft, write_definition};
 use crate::dispatch::{Handlers, HostError};
 use crate::environment::{
-    allowed_roots, definition_dirs, existing_dirs, pipeline_config_dir, resolve_inside, Environment,
+    allowed_roots, definition_dirs, existing_dirs, resolve_inside, Environment,
 };
 use crate::graphs::{
     check_graph_repo, clean_graphs, drop_graph, find_graph_repos, graph_health, plan_graph_clean,
@@ -100,7 +100,6 @@ impl Context {
     fn paths(&self) -> Result<AppPaths, HostError> {
         let config = self.config()?;
         let environment = &self.environment;
-        let skills = pipeline_config_dir(environment).join("skills");
         let records: Vec<PathBuf> = config
             .work_dir
             .iter()
@@ -108,7 +107,6 @@ impl Context {
             .collect();
         Ok(AppPaths {
             definition_dirs: existing_dirs(&definition_dirs(&config.definition_paths, environment)),
-            skills_dir: existing_dirs(&[skills]).into_iter().next(),
             records_dir: existing_dirs(&records).into_iter().next(),
         })
     }
@@ -584,7 +582,6 @@ async fn run_agent(
             model,
             current,
             definitions,
-            skills,
             ..
         } => {
             let harness = harness
@@ -598,7 +595,6 @@ async fn run_agent(
                 prompt,
                 current: current.as_deref(),
                 definitions,
-                skills,
             };
             let text = generate_text(
                 &generate,

@@ -53,7 +53,7 @@ describe('the Transport over a bus', () => {
     const { transport, asked } = host()
     // The example answers a note-edit, so the other two are refused as another message's answer.
     await expect(
-      transport.generateDefinition({ kind: 'pipeline', prompt: 'p', definitions: [], skills: [] }),
+      transport.generateDefinition({ kind: 'pipeline', prompt: 'p', definitions: [] }),
     ).rejects.toThrow('another message')
     await expect(transport.createNote({ kind: 'note', prompt: 'p' })).rejects.toThrow(
       'another message',
@@ -74,7 +74,6 @@ describe('the Transport over a bus', () => {
         kind: 'pipeline',
         prompt: 'p',
         definitions: [],
-        skills: [],
         run: 'r1',
       }),
     ).rejects.toThrow('another message')

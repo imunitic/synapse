@@ -381,12 +381,9 @@ function RecordedFiles({ id }: { id: string }) {
   const { state } = useLoad(load)
   const [open, setOpen] = useState<string | null>(null)
   if (state.status !== 'ready') return null
-  const { definitions, skills } = state.data
-  if (definitions.length === 0 && skills.length === 0) return null
-  const files = [
-    ...definitions.map((d) => ({ label: `${d.kind} ${d.name}`, path: d.path })),
-    ...skills.map((s) => ({ label: `skill ${s.name}`, path: s.path })),
-  ]
+  const { definitions } = state.data
+  if (definitions.length === 0) return null
+  const files = definitions.map((d) => ({ label: `${d.kind} ${d.name}`, path: d.path }))
   return (
     <section className="card" aria-label="Definitions it ran">
       <h2 className="card-title">Definitions it ran</h2>

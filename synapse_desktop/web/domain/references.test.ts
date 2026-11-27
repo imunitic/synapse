@@ -8,24 +8,16 @@ import { buildReferenceIndex, referencesOf, usedBy } from './references.ts'
 const develop = JSON.parse(DEVELOP_FEATURE_SHOW) as PipelineDescription
 
 describe('referencesOf', () => {
-  it('finds the systems, agents and skills of every step of a real pipeline', () => {
+  it('finds the systems, agents and prompts of every step of a real pipeline', () => {
     const found = referencesOf(develop).map((r) => `${r.kind} ${r.name} @ ${r.step}`)
     expect(found).toEqual([
       'agent Developer @ Develop',
       'agent Tester @ Test',
-      'skill test-feature @ Test',
+      'prompt Test_Feature @ Test',
       'system Strict_Reviewer @ Review',
       'agent Reviewer @ Review',
-      'skill review-code @ Review',
+      'prompt Review_Code @ Review',
     ])
-  })
-
-  it('names a skill once for a step that uses it as its role and its assignment', () => {
-    const twice = structuredClone(develop)
-    const review = twice.steps[2]!
-    review.role = { kind: 'skill', name: 'review-code' }
-    const found = referencesOf(twice).filter((r) => r.kind === 'skill' && r.step === 'Review')
-    expect(found).toHaveLength(1)
   })
 
   it('finds nothing in a pipeline built from nothing', () => {
@@ -51,7 +43,7 @@ describe('buildReferenceIndex', () => {
       problems: [],
     })
     return fakeTransport({
-      paths: { definitionDirs: ['/d'], skillsDir: null, recordsDir: null },
+      paths: { definitionDirs: ['/d'], recordsDir: null },
       files: {},
       cli: (_binary, args) =>
         args[0] === 'definitions'
@@ -76,8 +68,10 @@ describe('buildReferenceIndex', () => {
   it('finds nothing for a definition no pipeline uses, and keeps kinds apart', async () => {
     const index = await buildReferenceIndex(world({ Develop_Feature: ok }))
     expect(usedBy(index, 'agent', 'Nobody')).toEqual([])
-    // The skill review-code is not an agent of that name.
-    expect(usedBy(index, 'agent', 'review-code')).toEqual([])
-    expect(usedBy(index, 'skill', 'review-code')).toHaveLength(1)
+    // The prompt Review_Code is not an agent of that name.
+    expect(usedBy(index, 'agent', 'Review_Code')).toEqual([])
+    expect(usedBy(index, 'prompt', 'Review_Code')).toEqual([
+      { kind: 'prompt', name: 'Review_Code', pipeline: 'Develop_Feature', step: 'Review' },
+    ])
   })
 })

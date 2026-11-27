@@ -13,7 +13,7 @@ const PATCH = `diff --git a/a.txt b/a.txt
 
 function answering(result: CliResult, seen: string[][] = []) {
   return fakeTransport({
-    paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+    paths: { definitionDirs: [], recordsDir: null },
     files: {},
     cli: (binary, args) => {
       seen.push([binary, ...args])

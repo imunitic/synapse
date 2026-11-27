@@ -3,7 +3,7 @@ import type { CliResult } from '../../shared/transport.ts'
 import { describeDefinition, valueLabel } from './definition-info.ts'
 import { fakeTransport } from './fake-transport.ts'
 
-const paths = { definitionDirs: [], skillsDir: null, recordsDir: null }
+const paths = { definitionDirs: [], recordsDir: null }
 
 function answering(result: CliResult) {
   return fakeTransport({

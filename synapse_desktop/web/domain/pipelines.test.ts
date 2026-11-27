@@ -14,7 +14,7 @@ import {
 function withCli(result: CliResult): Transport {
   const base = fakeTransport({
     files: {},
-    paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+    paths: { definitionDirs: [], recordsDir: null },
   })
   return { ...base, cli: () => Promise.resolve(result) }
 }
@@ -32,11 +32,12 @@ describe('describePipeline', () => {
     expect(description.steps[2]).toMatchObject({
       harness: 'Codex',
       permissions: 'Read_Only',
-      assignment: { kind: 'skill', name: 'review-code' },
+      assignment: { kind: 'prompt', text: 'Review the change and say what is wrong with it.' },
     })
     expect(description.steps[2]?.origins.map((o) => [o.kind, o.name])).toEqual([
       ['system', 'Strict_Reviewer'],
       ['agent', 'Reviewer'],
+      ['prompt', 'Review_Code'],
     ])
     expect(description.edges[0]).toMatchObject({ from: 'Review', to: 'Develop', max_iterations: 5 })
   })
@@ -150,7 +151,7 @@ describe('describeStepPrompt', () => {
     const calls: { args: readonly string[]; stdin: string | undefined }[] = []
     const transport = fakeTransport({
       files: {},
-      paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+      paths: { definitionDirs: [], recordsDir: null },
       cli: (_binary, args, options) => {
         calls.push({ args, stdin: options?.stdin })
         return result

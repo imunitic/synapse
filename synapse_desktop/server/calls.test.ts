@@ -197,14 +197,13 @@ describe('the messages of the host', () => {
 
   it('lists only the directories that exist', async () => {
     const definitions = join(dir, 'xdg', 'synapse-pipeline')
-    await mkdir(join(definitions, 'skills'), { recursive: true })
+    await mkdir(definitions, { recursive: true })
     await ask('config.set', {
       patch: { workDir: join(dir, 'work'), definitionPaths: [join(dir, 'missing')] },
     })
 
     expect((await ask('config.get', {})).paths).toEqual({
       definitionDirs: [definitions],
-      skillsDir: join(definitions, 'skills'),
       recordsDir: null,
     })
 

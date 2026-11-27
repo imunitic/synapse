@@ -66,9 +66,9 @@ A request has a `name` from the table below, and its `params` are the object tha
 | `registry.list`, `registry.add`, `registry.remove`                     | The projects and the conventions Synapse keeps in the configuration directory.    |
 | `models.get`                                                           | The models of a harness, kept between runs.                                       |
 | `history.get`                                                          | The sessions and workspaces of the harnesses.                                     |
-| `agent.run`                                                            | Have a harness write a definition, a skill or a note.                             |
+| `agent.run`                                                            | Have a harness write a definition or a note.                                      |
 | `note.restore`                                                         | Put a note back as it was before an edit.                                         |
-| `definition.preview`, `definition.write`                               | Check and save a definition or a skill.                                           |
+| `definition.preview`, `definition.write`                               | Check and save a definition.                                                      |
 | `run.start`, `run.stop`, `run.ask`                                     | Start a run of a pipeline, stop it, and ask it about itself.                      |
 | `vault.inspect`, `vault.seed`                                          | What a folder holds as a vault, and make it one.                                  |
 | `graph.repo`, `graph.health`, `graph.manage`                           | The code graphs: where they were built from, how they are, and cleaning them.     |

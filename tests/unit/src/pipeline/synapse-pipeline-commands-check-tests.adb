@@ -14,7 +14,8 @@ package body Synapse.Pipeline.Commands.Check.Tests is
 
    LF : constant Character := Character'Val (10);
 
-   --  Definitions and a skill, all sound, and the variables that find them.
+   --  Definitions, a prompt among them, all sound, and the variables that
+   --  find them.
    procedure Set_Up (F : in out Fixture) is
    begin
       F.Base.Vars.Set ("SYNAPSE_PIPELINE_PATH", "/defs");
@@ -30,12 +31,13 @@ package body Synapse.Pipeline.Commands.Check.Tests is
         ("/defs/Develop_Feature.synapse",
          "Pipeline Develop_Feature {"
          & " Develop [Harness => Claude, Prompt => ""Implement.""];"
-         & " Test [Harness => Claude, Skill => ""test-feature""];"
+         & " Test [Harness => Claude, Prompt => Test_Feature];"
          & " Review [System => Strict_Reviewer, Prompt => ""Review.""];"
          & " Review -> Develop [When => Changes_Requested, "
          & "Max_Iterations => 5]; }");
       F.Files.Add_File
-        ("/cfg/synapse-pipeline/skills/test-feature/SKILL.md", "");
+        ("/defs/Test_Feature.synapse",
+         "Prompt Test_Feature [Prompt => ""Test the feature.""];");
    end Set_Up;
 
    function Has (Text, Part : String) return Boolean is
@@ -71,14 +73,50 @@ package body Synapse.Pipeline.Commands.Check.Tests is
          "pipeline Develop_Feature  /defs/Develop_Feature.synapse" & LF
          & "  step Develop  harness Claude" & LF
          & "  step Test  harness Claude" & LF
-         & "    skill test-feature  /cfg/synapse-pipeline/skills/test-feature"
-         & LF
+         & "    prompt Test_Feature  /defs/Test_Feature.synapse" & LF
          & "  step Review  harness Codex" & LF
          & "    system Strict_Reviewer  /defs/Strict_Reviewer.synapse" & LF
          & "    agent Reviewer  /defs/Reviewer.synapse" & LF,
          "what it would run with: " & F.Base.Console.Out_Text);
       Assert (F.Base.Console.Err_Text = "", "nothing to complain of");
    end A_Sound_Pipeline_Is_Shown_With_Where_Things_Came_From;
+
+   procedure Check_Lists_A_Prompt_The_Pipeline_Uses_With_Its_File
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Reviewer_Role.synapse",
+         "Prompt Reviewer_Role [Prompt => ""You review code.""];");
+      F.Files.Add_File
+        ("/defs/Named_Reviewer.synapse",
+         "Agent Named_Reviewer [Prompt => Reviewer_Role];");
+      F.Files.Add_File
+        ("/defs/Prompted.synapse",
+         "Pipeline Prompted { A [Harness => Claude, "
+         & "Agent => Named_Reviewer, Prompt => Test_Feature]; }");
+      Assert
+        (Run (Env (F), Args ("Prompted")) = 0
+         and then F.Base.Console.Err_Text = "",
+         "it can run: " & F.Base.Console.Err_Text);
+      Assert
+        (Has
+           (F.Base.Console.Out_Text,
+            "    prompt Test_Feature  /defs/Test_Feature.synapse" & LF)
+         and then Has
+                    (F.Base.Console.Out_Text,
+                     "    agent Named_Reviewer  /defs/Named_Reviewer.synapse"
+                     & LF)
+         and then Has
+                    (F.Base.Console.Out_Text,
+                     "    prompt Reviewer_Role  /defs/Reviewer_Role.synapse"
+                     & LF),
+         "the step's prompt and the agent's, each with its file: "
+         & F.Base.Console.Out_Text);
+   end Check_Lists_A_Prompt_The_Pipeline_Uses_With_Its_File;
 
    procedure Interactive_Check_Passes_When_Every_Harness_Can
      (T : in out Test_Cases_Class)
@@ -266,6 +304,9 @@ package body Synapse.Pipeline.Commands.Check.Tests is
       Register_Routine
         (T, A_Sound_Pipeline_Is_Shown_With_Where_Things_Came_From'Access,
          "A sound pipeline is shown with where things came from");
+      Register_Routine
+        (T, Check_Lists_A_Prompt_The_Pipeline_Uses_With_Its_File'Access,
+         "Check lists a prompt the pipeline uses with its file");
       Register_Routine
         (T,
          Interactive_Check_Passes_When_Every_Harness_Can'Access,

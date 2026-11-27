@@ -352,8 +352,6 @@ pub fn reference_from(skill: &str) -> Result<String, HostError> {
 
 const REPLY_RULES: &str = "Reply with the text of one file and nothing else: no code fences, no explanation before or after. You cannot run commands or write files here; the text you give is checked afterwards, so it has to be right as written.";
 
-const SKILL_FORMAT: &str = "A skill is a SKILL.md: frontmatter between --- lines holding name (1 to 64 lowercase letters, digits and single hyphens) and description (what the skill does and when to use it), then the instructions the agent follows.";
-
 const REVISE_RULES: &str = "You are given the current text of the file. Reply with the whole revised text, with the same name and the same kind of definition, and change only what the description asks for.";
 
 /// What a definition is asked for: its kind, a description, the current text when it is a change, and
@@ -363,7 +361,6 @@ pub struct GenerateRequest<'a> {
     pub prompt: &'a str,
     pub current: Option<&'a str>,
     pub definitions: &'a [DefinitionName],
-    pub skills: &'a [String],
 }
 
 fn kind_word(kind: DefinitionKind) -> &'static str {
@@ -371,7 +368,7 @@ fn kind_word(kind: DefinitionKind) -> &'static str {
         DefinitionKind::Pipeline => "pipeline",
         DefinitionKind::System => "system",
         DefinitionKind::Agent => "agent",
-        DefinitionKind::Skill => "skill",
+        DefinitionKind::Prompt => "prompt",
     }
 }
 
@@ -381,15 +378,11 @@ pub fn system_for(request: &GenerateRequest, skill: &str) -> Result<String, Host
     } else {
         String::new()
     };
-    if request.kind == DefinitionKind::Skill {
-        return Ok(format!(
-            "You write skills for coding agents. {SKILL_FORMAT}\n\n{REPLY_RULES}{revising}"
-        ));
-    }
     let wanted = match request.kind {
         DefinitionKind::Pipeline => "a Pipeline: a single file, with each step's role and instructions in its own Prompt. Refer to an existing Agent or System only when one in the list below fits. Give every step a Harness and say in its prompt the exact outcome words it may report. Every back-edge needs Max_Iterations.",
         DefinitionKind::System => "a System: one reusable setup that steps can share.",
-        _ => "an Agent: one role, a Prompt that says who the session is.",
+        DefinitionKind::Agent => "an Agent: one role, a Prompt that says who the session is.",
+        DefinitionKind::Prompt => "a Prompt definition: `Prompt Name [Description => \"...\", Prompt => \"\"\"...\"\"\"];`, one reusable text that steps, systems and agents name in their Prompt.",
     };
     Ok(format!(
         "You write definition files for synapse-pipeline. Write {wanted}\n\n{REPLY_RULES}{revising}\n\n{}",
@@ -415,7 +408,7 @@ pub fn prompt_for(request: &GenerateRequest) -> String {
             current.to_string(),
         ],
     };
-    if request.kind != DefinitionKind::Skill && !request.definitions.is_empty() {
+    if !request.definitions.is_empty() {
         lines.push(String::new());
         lines.push("Definitions that exist (a name is taken by any of them):".into());
         for d in request.definitions {
@@ -423,16 +416,10 @@ pub fn prompt_for(request: &GenerateRequest) -> String {
                 crate::messages::DefinitionDraftKind::Pipeline => "pipeline",
                 crate::messages::DefinitionDraftKind::System => "system",
                 crate::messages::DefinitionDraftKind::Agent => "agent",
+                crate::messages::DefinitionDraftKind::Prompt => "prompt",
             };
             lines.push(format!("- {word} {}", d.name));
         }
-    }
-    if request.kind == DefinitionKind::Skill && !request.skills.is_empty() {
-        lines.push(String::new());
-        lines.push(format!(
-            "Skills that exist (a name is taken by any of them): {}",
-            request.skills.join(", ")
-        ));
     }
     lines.join("\n")
 }
@@ -472,11 +459,7 @@ pub async fn generate_text(
         model,
         env,
     } = choice;
-    let skill = if request.kind == DefinitionKind::Skill {
-        String::new()
-    } else {
-        find_pipeline_skill(environment, bundled)?
-    };
+    let skill = find_pipeline_skill(environment, bundled)?;
     let result = agent
         .run(AgentRun {
             env,

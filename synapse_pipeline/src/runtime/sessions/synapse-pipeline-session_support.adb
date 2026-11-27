@@ -1,6 +1,6 @@
 with Ada.Strings.Fixed;
+with Ada.Strings.Unbounded;
 
-with Synapse.Pipeline.Instructions;
 with Synapse.Pipeline.Prompts;
 with Synapse.Pipeline.Resolved;
 
@@ -101,45 +101,24 @@ package body Synapse.Pipeline.Session_Support is
       end;
    end Unfenced;
 
-   procedure Prepare
-     (Files           : File_System.File_System'Class;
-      Skill_Roots     : Search_Paths.Root_Vectors.Vector;
-      Request         : Sessions.Session_Request;
-      Interactive     : Boolean;
-      Prompt          : out Unbounded_String;
-      Skill_Directory : out Unbounded_String;
-      Problem         : out Unbounded_String)
+   function Prompt_Of
+     (Request     : Sessions.Session_Request;
+      Interactive : Boolean) return String
    is
-      Step      : Resolved.Step renames Request.Step;
-      Role      : Unbounded_String;
-      Task_Text : Unbounded_String;
-      Role_Dir  : Unbounded_String;
-      Task_Dir  : Unbounded_String;
+      Step : Resolved.Step renames Request.Step;
+
+      function Text_Of (Item : Resolved.Instruction) return String is
+        (if Item.Present then To_String (Item.Text) else "");
    begin
-      Prompt := Null_Unbounded_String;
-      Skill_Directory := Null_Unbounded_String;
-      Instructions.Text_Of
-        (Files, Skill_Roots, Step.Role, Role, Role_Dir, Problem);
-      if Length (Problem) > 0 then
-         return;
-      end if;
-      Instructions.Text_Of
-        (Files, Skill_Roots, Step.Assignment, Task_Text, Task_Dir, Problem);
-      if Length (Problem) > 0 then
-         return;
-      end if;
-      Prompt := To_Unbounded_String
-        (Prompts.Build
-           (Role            => To_String (Role),
-            Assignment      => To_String (Task_Text),
-            Step            => To_String (Step.Name),
-            Initial_Input   => Request.Initial_Input,
-            Previous_Output => Request.Previous_Output,
-            Outcomes        => Step.Outcomes,
-            Interactive     => Interactive));
-      Skill_Directory :=
-        (if Length (Task_Dir) > 0 then Task_Dir else Role_Dir);
-   end Prepare;
+      return Prompts.Build
+        (Role            => Text_Of (Step.Role),
+         Assignment      => Text_Of (Step.Assignment),
+         Step            => To_String (Step.Name),
+         Initial_Input   => Request.Initial_Input,
+         Previous_Output => Request.Previous_Output,
+         Outcomes        => Step.Outcomes,
+         Interactive     => Interactive);
+   end Prompt_Of;
 
    procedure Add_Settings
      (Into     : in out Synapse.Core.Text_Lists.Vector;

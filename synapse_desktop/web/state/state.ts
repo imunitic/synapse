@@ -9,7 +9,7 @@ import { clampIndex } from '../domain/tabs.ts'
 
 export type RailSection = 'definitions' | 'executions' | 'vault' | 'settings'
 
-export type DefinitionKind = 'pipeline' | 'system' | 'agent' | 'skill'
+export type DefinitionKind = 'pipeline' | 'system' | 'agent' | 'prompt'
 
 // The record without the entry of `key`.
 function without<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -20,13 +20,13 @@ function without<T>(record: Record<string, T>, key: string): Record<string, T> {
 // and what its harness did.
 export type ChangesTab = 'changes' | 'git' | 'activity'
 
-export const DEFINITION_KINDS: readonly DefinitionKind[] = ['pipeline', 'system', 'agent', 'skill']
+export const DEFINITION_KINDS: readonly DefinitionKind[] = ['pipeline', 'system', 'agent', 'prompt']
 
 export const DEFINITION_LABELS: Record<DefinitionKind, { singular: string; plural: string }> = {
   pipeline: { singular: 'pipeline', plural: 'Pipelines' },
   system: { singular: 'system', plural: 'Systems' },
   agent: { singular: 'agent', plural: 'Agents' },
-  skill: { singular: 'skill', plural: 'Skills' },
+  prompt: { singular: 'prompt', plural: 'Prompts' },
 }
 
 // The categories of the settings, each with a page of its own.
@@ -124,7 +124,7 @@ export type Page =
   | { kind: 'create'; definition: DefinitionKind }
   // Describing a note for an agent to write into the vault.
   | { kind: 'new-note' }
-  // A definition's file: a .synapse file, or a skill's SKILL.md.
+  // A definition's .synapse file.
   | { kind: 'definition'; definition: DefinitionKind; name: string; path: string }
   | { kind: 'execution'; id: string }
   // An interactive run that has started and is not named yet; it gives way to its execution page.

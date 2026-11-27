@@ -11,7 +11,7 @@ export interface World {
   root: string
   // XDG_CONFIG_HOME
   xdg: string
-  // Where definitions are, and the skills in it.
+  // Where definitions are.
   definitions: string
   work: string
   script: string
@@ -56,7 +56,7 @@ const DEFINITIONS: Record<string, string> = {
   'Develop_Feature.synapse': `-- Build a change, then have it reviewed until it is approved.
 Pipeline Develop_Feature {
    Develop [Agent => Developer, Harness => Claude, Prompt => "Implement the supplied task."];
-   Test    [Agent => Tester, Harness => Claude, Skill => "test-feature"];
+   Test    [Agent => Tester, Harness => Claude, Prompt => Test_Feature];
    Review  [System => Strict_Reviewer, Harness => Codex];
    Review -> Develop [When => Changes_Requested, Max_Iterations => 5];
 }
@@ -64,7 +64,9 @@ Pipeline Develop_Feature {
   'Developer.synapse': `Agent Developer [Prompt => "You are a developer. Implement the change the assignment describes and keep it small."];\n`,
   'Tester.synapse': `Agent Tester [Prompt => "You are a tester. Run the tests and report what fails."];\n`,
   'Reviewer.synapse': `Agent Reviewer [Prompt => "You are a reviewer. Find what is wrong with the change; do not fix it."];\n`,
-  'Strict_Reviewer.synapse': `System Strict_Reviewer [Agent => Reviewer, Harness => Codex, Permissions => Read_Only, Skill => "review-code"];\n`,
+  'Strict_Reviewer.synapse': `System Strict_Reviewer [Agent => Reviewer, Harness => Codex, Permissions => Read_Only, Prompt => Review_Code];\n`,
+  'Test_Feature.synapse': `Prompt Test_Feature [Description => "Run the tests for a feature and report which ones fail.", Prompt => "Run the project's tests for the change and report which fail."];\n`,
+  'Review_Code.synapse': `Prompt Review_Code [Prompt => "Read the change and list what is wrong with it. Do not edit any file."];\n`,
   'Live_Run.synapse': `Pipeline Live_Run {
    Work [Harness => Claude, Prompt => "LIVECASE change a.txt, then take your time."];
 }
@@ -77,23 +79,6 @@ Pipeline Develop_Feature {
   'Held_Run.synapse': `Pipeline Held_Run {
    Hold [Harness => Claude, Prompt => "Take your time."];
 }
-`,
-}
-
-const SKILLS: Record<string, string> = {
-  'review-code': `---
-name: review-code
-description: Review a change for correctness, edge cases and clarity without changing it.
----
-
-Read the change and list what is wrong with it. Do not edit any file.
-`,
-  'test-feature': `---
-name: test-feature
-description: Run the tests for a feature and report which ones fail.
----
-
-Run the project's tests for the change and report which fail.
 `,
 }
 
@@ -438,9 +423,6 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   writeFileSync(join(world.bin, 'stub-edit'), EDIT_STUB, { mode: 0o755, flag: 'w' })
   writeFileSync(join(world.bin, 'stub-live'), LIVE_STUB, { mode: 0o755, flag: 'w' })
   for (const [name, text] of Object.entries(DEFINITIONS)) write(join(world.definitions, name), text)
-  for (const [name, text] of Object.entries(SKILLS)) {
-    write(join(world.definitions, 'skills', name, 'SKILL.md'), text)
-  }
   write(join(world.pipelinePackage, 'bin', 'synapse-pipeline'), '')
   write(
     join(world.pipelinePackage, 'skills', 'synapse-pipeline', 'SKILL.md'),

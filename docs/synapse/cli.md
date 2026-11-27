@@ -587,9 +587,9 @@ usage: synapse-pipeline <subcommand> [args]
   check <pipeline> [--interactive]
          validate a pipeline and show what it would run
   show <name> [--format json|text] [--step <step> [--input <file>|-] [--interactive]]
-         describe a pipeline (its steps, settings, edges and limits), a system or an agent
+         describe a pipeline (its steps, settings, edges and limits), a system, an agent or a prompt
   definitions [--format json|text]
-         every pipeline, system and agent there is, and what is wrong with a file
+         every pipeline, system, agent and prompt there is, and what is wrong with a file
   next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
          the state a run starts in, or the state after a step's result
   run <pipeline> [--input <file>|-] [--id <execution-id>] [--name <text>] [--interactive]
@@ -617,11 +617,11 @@ usage: synapse-pipeline <subcommand> [args]
 usage: synapse-pipeline check <pipeline> [--interactive]
 
 Loads every definition, validates the pipeline and everything it refers to,
-and prints its file and each step with its harness, and the files its system
-and agent came from and the directory its skill was found in. Nothing is run and
-no harness is needed. Every problem is reported on standard error with its file,
-line and column, and the exit code is 1. A definition that is broken but not
-used by this pipeline is only a warning.
+and prints its file and each step with its harness, and the files its system,
+agent and prompt came from. Nothing is run and no harness is needed. Every
+problem is reported on standard error with its file, line and column, and the
+exit code is 1. A definition that is broken but not used by this pipeline is
+only a warning.
 
   --interactive   also check that every step's harness can run a step interactively,
                   as 'run --interactive' needs
@@ -643,17 +643,17 @@ its steps with the settings each will run with, the edges between them and
 the limits that apply. The pipeline is found and validated as 'check' does, and
 nothing is printed on standard output when it cannot be run.
 
-A system or an agent is described by its attributes as written, its file and the
-definitions that use it, a pipeline with the steps that name it.
+A system, an agent or a prompt is described by its attributes as written, its
+file and the definitions that use it, a pipeline with the steps that name it.
 
   --format text   for a person (the default)
   --format json   for a pipeline the document a running pipeline answers its
                   'pipeline' command with, format synapse-pipeline-description/v1,
-                  plus its kind, file and an empty used_by; for a system or an
-                  agent format synapse-pipeline-definition/v1
+                  plus its kind, file and an empty used_by; for a system, an
+                  agent or a prompt format synapse-pipeline-definition/v1
   --step <step>   print the prompt the step is started with: its role, its
-                  assignment (a skill's SKILL.md in full), what the run was
-                  started with and how it is to report. After the first step
+                  assignment, what the run was started with and how it is to
+                  report. After the first step
                   what the step before reported is marked as a slot. With
                   --format json: format synapse-pipeline-prompt/v1, which also gives
                   the prompt as parts, each marked as written by the author or
@@ -676,14 +676,16 @@ Environment:
 usage: synapse-pipeline definitions [--format json|text]
 
 Lists every definition the search directories hold, in alphabetical order of name:
-its kind (pipeline, system or agent), name and file. A file that does not load
-is not a definition; it is a problem, with its file, line, column and message.
+its kind (pipeline, system, agent or prompt), name and file. A file that does not
+load is not a definition; it is a problem, with its file, line, column and
+message.
 Nothing is validated beyond loading, and the exit code is 0 whatever is found.
 
   --format text   for a person (the default)
   --format json   format synapse-pipeline-definitions/v1: `definitions`, each with
-                  kind, name and file, and `problems`, each with file, line, column
-                  and message
+                  kind, name, file and description (the text of its Description,
+                  or null when it has none), and `problems`, each with file, line,
+                  column and message
 
 Environment:
   SYNAPSE_PIPELINE_PATH     directories of .synapse files besides the default

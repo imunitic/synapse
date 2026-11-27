@@ -1,15 +1,17 @@
 // The definitions there are: what `synapse-pipeline definitions` lists, which finds
-// them the way every other command does, and the skill directories.
+// them the way every other command does.
 
 import { z } from 'zod'
 import type { Transport } from '../../shared/transport.ts'
 
-export type DefinitionKind = 'pipeline' | 'system' | 'agent'
+export type DefinitionKind = 'pipeline' | 'system' | 'agent' | 'prompt'
 
 export interface Definition {
   name: string
   kind: DefinitionKind
   path: string
+  // The definition's `Description`; null when it has none.
+  description: string | null
 }
 
 // A file that did not load, with where in it and what is wrong. A name claimed by two
@@ -26,16 +28,11 @@ export interface DefinitionListing {
   problems: LoadProblem[]
 }
 
-export interface Skill {
-  name: string
-  // The skill's SKILL.md.
-  path: string
-}
-
 const KINDS = new Map<string, DefinitionKind>([
   ['Pipeline', 'pipeline'],
   ['System', 'system'],
   ['Agent', 'agent'],
+  ['Prompt', 'prompt'],
 ])
 
 // The kind a file declares with its first word, after any comments (`--` to
@@ -51,7 +48,7 @@ function join(dir: string, name: string): string {
 
 // The definitions of one directory of a run's record, with the kind each declares. A file
 // that does not start with a kind is left out. The record is a copy, so it is read as
-// files; the live definitions are found by the CLI.
+// files, without their descriptions; the live definitions are found by the CLI.
 async function readDefinitionDir(transport: Transport, dir: string): Promise<Definition[]> {
   const entries = await transport.readDir(dir)
   const files = entries.filter((e) => !e.isDir && e.name.endsWith('.synapse'))
@@ -59,32 +56,23 @@ async function readDefinitionDir(transport: Transport, dir: string): Promise<Def
     files.map(async (file) => {
       const path = join(dir, file.name)
       const kind = kindOfSource(await transport.readText(path))
-      return kind === null ? null : { name: file.name.slice(0, -'.synapse'.length), kind, path }
+      return kind === null
+        ? null
+        : { name: file.name.slice(0, -'.synapse'.length), kind, path, description: null }
     }),
   )
   return found.filter((d) => d !== null)
 }
 
-// The directories of a skills directory that hold a SKILL.md.
-async function readSkillDir(transport: Transport, skillsDir: string): Promise<Skill[]> {
-  const entries = await transport.readDir(skillsDir)
-  const found = await Promise.all(
-    entries
-      .filter((e) => e.isDir)
-      .map(async (dir) => {
-        const inside = await transport.readDir(join(skillsDir, dir.name))
-        return inside.some((e) => !e.isDir && e.name === 'SKILL.md')
-          ? { name: dir.name, path: join(join(skillsDir, dir.name), 'SKILL.md') }
-          : null
-      }),
-  )
-  return found.filter((s) => s !== null).sort((a, b) => a.name.localeCompare(b.name))
-}
-
 const listingSchema = z.object({
   format: z.literal('synapse-pipeline-definitions/v1'),
   definitions: z.array(
-    z.object({ kind: z.enum(['pipeline', 'system', 'agent']), name: z.string(), file: z.string() }),
+    z.object({
+      kind: z.enum(['pipeline', 'system', 'agent', 'prompt']),
+      name: z.string(),
+      file: z.string(),
+      description: z.string().nullable().optional(),
+    }),
   ),
   problems: z.array(
     z.object({
@@ -114,7 +102,12 @@ export async function loadDefinitions(transport: Transport): Promise<DefinitionL
   return {
     // By name the way a person reads a list, not by the byte order the CLI lists in.
     definitions: parsed.data.definitions
-      .map((d) => ({ name: d.name, kind: d.kind, path: d.file }))
+      .map((d) => ({
+        name: d.name,
+        kind: d.kind,
+        path: d.file,
+        description: d.description ?? null,
+      }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     problems: parsed.data.problems,
   }
@@ -124,15 +117,8 @@ export async function listDefinitions(transport: Transport): Promise<Definition[
   return (await loadDefinitions(transport)).definitions
 }
 
-// The directories of the skills directory that hold a SKILL.md.
-export async function listSkills(transport: Transport): Promise<Skill[]> {
-  const { skillsDir } = await transport.getPaths()
-  return skillsDir === null ? [] : readSkillDir(transport, skillsDir)
-}
-
 export interface RecordedDefinitions {
   definitions: Definition[]
-  skills: Skill[]
 }
 
 // The definition files a run's record keeps, laid out in it as a configuration
@@ -142,9 +128,8 @@ export async function listRecordedDefinitions(
   executionId: string,
 ): Promise<RecordedDefinitions> {
   const { recordsDir } = await transport.getPaths()
-  if (recordsDir === null) return { definitions: [], skills: [] }
+  if (recordsDir === null) return { definitions: [] }
   const dir = `${recordsDir}/${executionId}/definitions/synapse-pipeline`
   const definitions = await readDefinitionDir(transport, dir).catch(() => [])
-  const skills = await readSkillDir(transport, `${dir}/skills`).catch(() => [])
-  return { definitions: definitions.sort((a, b) => a.name.localeCompare(b.name)), skills }
+  return { definitions: definitions.sort((a, b) => a.name.localeCompare(b.name)) }
 }

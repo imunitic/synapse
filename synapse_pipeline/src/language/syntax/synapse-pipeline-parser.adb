@@ -260,10 +260,14 @@ package body Synapse.Pipeline.Parser is
            and then To_String (Opening.Name) = "Agent"
          then
             Kind := Syntax.Agent_Definition;
+         elsif Opening.Kind = Lexer.Identifier
+           and then To_String (Opening.Name) = "Prompt"
+         then
+            Kind := Syntax.Prompt_Definition;
          else
             Fail
               (Opening,
-               "expected Pipeline, System or Agent, found "
+               "expected Pipeline, System, Agent or Prompt, found "
                & Describe (Opening));
             return;
          end if;
@@ -277,6 +281,12 @@ package body Synapse.Pipeline.Parser is
             when Syntax.Pipeline_Definition =>
                Result := (Kind => Syntax.Pipeline_Definition, Name => Name,
                           others => <>);
+               if Here.Kind = Lexer.Left_Bracket then
+                  Parse_Attributes (Result.Attributes);
+                  if Failed then
+                     return;
+                  end if;
+               end if;
                if not Expect (Lexer.Left_Brace, "'{'") then
                   return;
                end if;
@@ -294,14 +304,20 @@ package body Synapse.Pipeline.Parser is
                   Advance;
                end if;
 
-            when Syntax.System_Definition | Syntax.Agent_Definition =>
-               if Kind = Syntax.System_Definition then
-                  Result := (Kind => Syntax.System_Definition, Name => Name,
-                             others => <>);
-               else
-                  Result := (Kind => Syntax.Agent_Definition, Name => Name,
-                             others => <>);
-               end if;
+            when Syntax.System_Definition | Syntax.Agent_Definition
+               | Syntax.Prompt_Definition
+            =>
+               case Kind is
+                  when Syntax.System_Definition =>
+                     Result := (Kind => Syntax.System_Definition,
+                                Name => Name, others => <>);
+                  when Syntax.Agent_Definition =>
+                     Result := (Kind => Syntax.Agent_Definition,
+                                Name => Name, others => <>);
+                  when others =>
+                     Result := (Kind => Syntax.Prompt_Definition,
+                                Name => Name, others => <>);
+               end case;
                Parse_Attributes (Result.Attributes);
                if not Failed then
                   if not Expect (Lexer.Semicolon, "';'") then

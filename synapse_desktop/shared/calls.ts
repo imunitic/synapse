@@ -73,9 +73,3 @@ export const definitionNameSchema = z
   .string()
   .regex(/^[A-Za-z][A-Za-z0-9_]*$/)
   .max(128)
-
-// The form the Agent Skills specification gives a skill's name.
-export const skillNameSchema = z
-  .string()
-  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/)
-  .max(64)

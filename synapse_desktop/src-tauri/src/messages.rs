@@ -3,9 +3,7 @@
 //! hosts read, are what keeps the two the same. A request with nothing to say answers `null`, which
 //! is `()` here.
 
-use crate::config::{
-    is_definition_name, is_execution_id, is_model_name, is_namespace, is_skill_name,
-};
+use crate::config::{is_definition_name, is_execution_id, is_model_name, is_namespace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -283,7 +281,6 @@ where
 #[serde(rename_all = "camelCase")]
 pub struct AppPaths {
     pub definition_dirs: Vec<String>,
-    pub skills_dir: Option<String>,
     pub records_dir: Option<String>,
 }
 
@@ -466,6 +463,7 @@ pub enum DefinitionDraftKind {
     Pipeline,
     System,
     Agent,
+    Prompt,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -474,7 +472,7 @@ pub enum DefinitionKind {
     Pipeline,
     System,
     Agent,
-    Skill,
+    Prompt,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -504,7 +502,6 @@ pub enum AgentRunParams {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         current: Option<String>,
         definitions: Vec<DefinitionName>,
-        skills: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         run: Option<String>,
     },
@@ -614,7 +611,6 @@ pub struct PreviewParams {
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum NewDefinition {
     Definition { name: String, text: String },
-    Skill { name: String, text: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -630,7 +626,7 @@ pub enum DefinitionWriteParams {
         previous: String,
         text: String,
     },
-    /// A definition file is removed; a skill's SKILL.md removes the skill's whole directory.
+    /// A definition file is removed.
     Delete { path: String },
 }
 
@@ -1024,7 +1020,6 @@ impl Validate for AgentRunParams {
                 model,
                 current,
                 definitions,
-                skills,
                 run,
                 ..
             } => {
@@ -1034,8 +1029,8 @@ impl Validate for AgentRunParams {
                 if let Some(current) = current {
                     at_most("the text", current, DRAFT)?;
                 }
-                if definitions.len() > 1000 || skills.len() > 1000 {
-                    return Err("at most 1000 definitions and 1000 skills".into());
+                if definitions.len() > 1000 {
+                    return Err("at most 1000 definitions".into());
                 }
                 for definition in definitions {
                     named(
@@ -1043,9 +1038,6 @@ impl Validate for AgentRunParams {
                         is_definition_name(&definition.name),
                         &definition.name,
                     )?;
-                }
-                for skill in skills {
-                    named("skill name", is_skill_name(skill), skill)?;
                 }
                 Ok(())
             }
@@ -1108,16 +1100,12 @@ impl Validate for PreviewParams {
 impl Validate for DefinitionWriteParams {
     fn check(&self) -> Result<(), String> {
         match self {
-            DefinitionWriteParams::Create { item } => match item {
-                NewDefinition::Definition { name, text } => {
-                    named("definition name", is_definition_name(name), name)?;
-                    at_most("the text", text, DRAFT)
-                }
-                NewDefinition::Skill { name, text } => {
-                    named("skill name", is_skill_name(name), name)?;
-                    at_most("the text", text, DRAFT)
-                }
-            },
+            DefinitionWriteParams::Create {
+                item: NewDefinition::Definition { name, text },
+            } => {
+                named("definition name", is_definition_name(name), name)?;
+                at_most("the text", text, DRAFT)
+            }
             DefinitionWriteParams::Replace { previous, text, .. } => {
                 at_most("the text", previous, DRAFT)?;
                 at_most("the text", text, DRAFT)

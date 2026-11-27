@@ -134,7 +134,6 @@ describe('the run id of an agent run', () => {
       what: 'agent',
       prompt: 'p',
       definitions: [],
-      skills: [],
     },
     note: { kind: 'note', what: 'note', prompt: 'p' },
     'note-edit': { kind: 'note-edit', path: 'a.md', prompt: 'p' },

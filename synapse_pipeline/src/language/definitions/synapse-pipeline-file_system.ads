@@ -3,8 +3,8 @@ with Synapse.Core.Text_Lists;
 
 --  The part of the file system the program uses: which directories and files
 --  there are, what is in a file, and the files that installing skills writes.
---  Passed in, never reached for, so finding definitions and skills, and
---  installing them, are tested without touching a disk.
+--  Passed in, never reached for, so finding definitions, and installing
+--  skills, are tested without touching a disk.
 --  Implementations are System_Files and, for tests, Fake_Files.
 
 package Synapse.Pipeline.File_System is

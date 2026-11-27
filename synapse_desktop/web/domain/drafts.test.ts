@@ -3,12 +3,9 @@ import type { CliResult } from '../../shared/transport.ts'
 import {
   declaredOf,
   isDefinitionName,
-  isSkillName,
   marksFor,
   readPreview,
   renameDeclared,
-  renameSkill,
-  skillProblems,
   templateFor,
 } from './drafts.ts'
 import { DEVELOP_FEATURE_SHOW } from './fixtures.ts'
@@ -50,7 +47,8 @@ describe('templates', () => {
     expect(declaredOf(templateFor('pipeline'))).toEqual({ kind: 'pipeline', name: 'New_Pipeline' })
     expect(declaredOf(templateFor('system'))).toEqual({ kind: 'system', name: 'New_System' })
     expect(declaredOf(templateFor('agent'))).toEqual({ kind: 'agent', name: 'New_Agent' })
-    expect(skillProblems(templateFor('skill'))).toEqual([])
+    expect(declaredOf(templateFor('prompt'))).toEqual({ kind: 'prompt', name: 'New_Prompt' })
+    expect(templateFor('prompt')).toContain('Description => ""')
   })
 })
 
@@ -134,6 +132,9 @@ describe('renaming', () => {
       '-- a comment\nPipeline New_Name {\n  Old_Name [Prompt => "x"];\n}\n',
     )
     expect(renameDeclared('Agent  A [Prompt => "x"];', 'B')).toBe('Agent  B [Prompt => "x"];')
+    expect(renameDeclared('-- c\nPrompt Old [Prompt => "x"];', 'New')).toBe(
+      '-- c\nPrompt New [Prompt => "x"];',
+    )
   })
 
   it('leaves a text that declares no name as it is', () => {
@@ -141,41 +142,8 @@ describe('renaming', () => {
     expect(renameDeclared('Pipeline {', 'X')).toBe('Pipeline {')
   })
 
-  it('changes the name in the frontmatter of a skill and nothing else', () => {
-    const text =
-      '---\nname: old-name\ndescription: Does it. name: not this\n---\n\nname: nor this\n'
-    expect(renameSkill(text, 'new-name')).toBe(
-      '---\nname: new-name\ndescription: Does it. name: not this\n---\n\nname: nor this\n',
-    )
-  })
-
-  it('leaves a skill with no name in its frontmatter as it is', () => {
-    expect(renameSkill('---\ndescription: x\n---\n', 'n')).toBe('---\ndescription: x\n---\n')
-    expect(renameSkill('no frontmatter', 'n')).toBe('no frontmatter')
-  })
-
   it('knows a name a definition can have', () => {
     expect(isDefinitionName('Develop_Feature')).toBe(true)
     for (const name of ['', '1x', 'a b', 'a-b']) expect(isDefinitionName(name)).toBe(false)
-  })
-})
-
-describe('skills', () => {
-  it('knows the form of a skill name', () => {
-    expect(isSkillName('review-code')).toBe(true)
-    for (const name of ['', 'Upper', 'a--b', '-a', 'a-', 'a_b', 'a'.repeat(65)]) {
-      expect(isSkillName(name)).toBe(false)
-    }
-  })
-
-  it('wants a frontmatter with a good name and a description', () => {
-    expect(skillProblems('---\nname: ok-name\ndescription: Does it.\n---\n')).toEqual([])
-    expect(skillProblems('no frontmatter').map((p) => p.message)).toEqual([
-      'the frontmatter has no name',
-      'the frontmatter has no description',
-    ])
-    expect(skillProblems('---\nname: Bad Name\ndescription: x\n---\n')[0]?.message).toMatch(
-      /lowercase/,
-    )
   })
 })

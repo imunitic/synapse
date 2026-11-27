@@ -38,21 +38,12 @@ package body Synapse.Pipeline.Process_Runners is
       Harness   : constant Harnesses.Harness_Kind := Step.Harness;
       Adapter   : constant not null access constant Commands.Headless'Class :=
         Commands.For_Harness (Harness);
-      Prompt    : Unbounded_String;
-      Skill_Dir : Unbounded_String;
-      Problem   : Unbounded_String;
+      Prompt    : constant String :=
+        Support.Prompt_Of (Request, Interactive => False);
    begin
-      Support.Prepare
-        (R.Files.all, R.Skill_Roots, Request, False, Prompt, Skill_Dir,
-         Problem);
-      if Length (Problem) > 0 then
-         return Failed_Session
-           (Request, Failures.Execution_Error, To_String (Problem));
-      end if;
-
       declare
          Made   : constant Commands.Command_Results.Result :=
-           Adapter.Build (Step, To_String (Prompt), To_String (Skill_Dir));
+           Adapter.Build (Step, Prompt);
       begin
          if not Commands.Command_Results.Is_Success (Made) then
             return Failed_Session

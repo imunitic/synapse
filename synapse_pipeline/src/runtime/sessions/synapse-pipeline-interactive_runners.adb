@@ -146,9 +146,6 @@ package body Synapse.Pipeline.Interactive_Runners is
       Step    : Resolved.Step renames Request.Step;
       Adapter : constant access constant Interactive.Interactive'Class :=
         Interactive.For_Harness (Step.Harness);
-      Prompt  : Unbounded_String;
-      Skills  : Unbounded_String;
-      Problem : Unbounded_String;
    begin
       if Adapter = null then
          return Support.Failed_Session
@@ -156,14 +153,9 @@ package body Synapse.Pipeline.Interactive_Runners is
             Harnesses.Name_Of (Step.Harness)
             & " cannot run a step interactively");
       end if;
-      Support.Prepare
-        (R.Files.all, R.Skill_Roots, Request, True, Prompt, Skills, Problem);
-      if Length (Problem) > 0 then
-         return Support.Failed_Session
-           (Request, Failures.Execution_Error, To_String (Problem));
-      end if;
-
       declare
+         Prompt  : constant String :=
+           Support.Prompt_Of (Request, Interactive => True);
          Session : constant Interactive.Session_Handle :=
            (Id        => (if Length (R.Session_Id) > 0 then R.Session_Id
                           else To_Unbounded_String (New_Id)),
@@ -171,8 +163,7 @@ package body Synapse.Pipeline.Interactive_Runners is
             Home      => R.Home,
             Day       => To_Unbounded_String (Today));
          Made    : constant Commands.Command_Results.Result :=
-           Adapter.Build
-             (Step, To_String (Prompt), To_String (Skills), Session);
+           Adapter.Build (Step, Prompt, Session);
       begin
          if not Commands.Command_Results.Is_Success (Made) then
             return Support.Failed_Session

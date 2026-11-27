@@ -4,15 +4,18 @@ with Synapse.Pipeline.Namespaces;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Source_Errors;
 
---  A pipeline definition and the systems and agents it names, made into the
---  one thing a run works from.
+--  A pipeline definition and the systems, agents and prompts it names, made
+--  into the one thing a run works from.
 --
 --  A step is merged with its system:
 --    * each of Harness, Model, Permissions, Timeout, Retries, Outcomes and
 --      Agent is the step's own when it has one, else the system's;
---    * the assignment is the step's `Prompt` or `Skill` when it has either,
---      and then the system's is dropped whole; otherwise it is the system's;
---    * the role is the instructions of the agent that results.
+--    * the assignment is the step's `Prompt` when it has one, and then the
+--      system's is dropped whole; otherwise it is the system's;
+--    * the role is the `Prompt` of the agent that results.
+--  A `Prompt` is text: written in place as a string, or the `Prompt` text of
+--  the Prompt definition it names. Each Prompt definition a step uses is one
+--  of its origins, listed once.
 --  A step with no harness of its own or from its system takes the default
 --  one. The guard of a bare name such as `Changes_Requested` becomes the
 --  JsonLogic test `outcome == "Changes_Requested"`; a guard written as JSON is

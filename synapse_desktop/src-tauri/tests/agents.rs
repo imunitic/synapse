@@ -23,8 +23,8 @@ use synapse_desktop_host::families::{agent_families, first_families, next_famili
 use synapse_desktop_host::inject::SessionPlan;
 use synapse_desktop_host::link::{link_pair, ClientLink};
 use synapse_desktop_host::messages::{
-    AppConfig, CliResult, DefinitionDraftKind, DefinitionKind, DefinitionName, Harness, NoteKind,
-    Project,
+    AgentRunParams, AppConfig, CliResult, DefinitionDraftKind, DefinitionKind, DefinitionName,
+    Harness, NoteKind, Project,
 };
 use synapse_desktop_host::models::ModelStore;
 use synapse_desktop_host::note_runs::NoteRuns;
@@ -41,20 +41,21 @@ use tempfile::{tempdir, TempDir};
 const SKILL: &str = "---\nname: synapse-pipeline\n---\n# synapse-pipeline\n## Crafting a pipeline\nsteps about files\n## Definitions\nA definition file has the extension .synapse.\n## Results and routing\nOutcomes route.\n## Trying a pipeline without agents\nscripted";
 
 fn reviewer() -> Vec<DefinitionName> {
-    vec![DefinitionName {
-        name: "Reviewer".into(),
-        kind: DefinitionDraftKind::Agent,
-    }]
-}
-
-fn skills() -> Vec<String> {
-    vec!["review-code".into()]
+    vec![
+        DefinitionName {
+            name: "Reviewer".into(),
+            kind: DefinitionDraftKind::Agent,
+        },
+        DefinitionName {
+            name: "Review_Code".into(),
+            kind: DefinitionDraftKind::Prompt,
+        },
+    ]
 }
 
 fn request<'a>(
     kind: DefinitionKind,
     definitions: &'a [DefinitionName],
-    skills: &'a [String],
     current: Option<&'a str>,
 ) -> GenerateRequest<'a> {
     GenerateRequest {
@@ -62,14 +63,13 @@ fn request<'a>(
         prompt: "  Build, then review.  ",
         current,
         definitions,
-        skills,
     }
 }
 
 #[test]
 fn the_agent_is_given_the_reference_part_of_the_skill_and_not_the_steps_about_files() {
-    let (d, s) = (reviewer(), skills());
-    let system = system_for(&request(DefinitionKind::Pipeline, &d, &s, None), SKILL).unwrap();
+    let d = reviewer();
+    let system = system_for(&request(DefinitionKind::Pipeline, &d, None), SKILL).unwrap();
     assert!(system.contains("A definition file has the extension .synapse."));
     assert!(system.contains("Outcomes route."));
     assert!(!system.contains("steps about files") && !system.contains("scripted"));
@@ -77,38 +77,54 @@ fn the_agent_is_given_the_reference_part_of_the_skill_and_not_the_steps_about_fi
 
 #[test]
 fn what_exists_is_named_so_that_it_is_reused_and_its_names_are_not_taken() {
-    let (d, s) = (reviewer(), skills());
-    let prompt = prompt_for(&request(DefinitionKind::Pipeline, &d, &s, None));
+    let d = reviewer();
+    let prompt = prompt_for(&request(DefinitionKind::Pipeline, &d, None));
     assert!(prompt.contains("Build, then review."));
     assert!(prompt.contains("- agent Reviewer"));
-    let skill = prompt_for(&request(DefinitionKind::Skill, &d, &s, None));
-    assert!(skill.contains("review-code") && !skill.contains("Reviewer"));
+    assert!(prompt.contains("- prompt Review_Code"));
+    assert!(prompt_for(&request(DefinitionKind::Prompt, &d, None)).contains("- agent Reviewer"));
 }
 
 #[test]
 fn a_revision_is_given_the_current_text_and_asked_for_as_a_change_not_a_new_definition() {
-    let (d, s) = (reviewer(), skills());
-    let asked = request(DefinitionKind::Pipeline, &d, &s, Some("Pipeline P {}\n"));
+    let d = reviewer();
+    let asked = request(DefinitionKind::Pipeline, &d, Some("Pipeline P {}\n"));
     assert!(prompt_for(&asked).contains("Change this pipeline"));
     assert!(prompt_for(&asked).contains("The current text:\n\nPipeline P {}"));
-    assert!(prompt_for(&request(DefinitionKind::Pipeline, &d, &s, None))
-        .contains("Write a new pipeline"));
+    assert!(
+        prompt_for(&request(DefinitionKind::Pipeline, &d, None)).contains("Write a new pipeline")
+    );
     assert!(system_for(&asked, SKILL).unwrap().contains("same name"));
     assert!(
-        !system_for(&request(DefinitionKind::Pipeline, &d, &s, None), SKILL)
+        !system_for(&request(DefinitionKind::Pipeline, &d, None), SKILL)
             .unwrap()
             .contains("same name")
     );
 }
 
 #[test]
-fn a_skill_needs_no_skill_file_and_a_layout_that_is_not_known_is_refused() {
-    let (d, s) = (reviewer(), skills());
-    assert!(
-        system_for(&request(DefinitionKind::Skill, &d, &s, None), "")
-            .unwrap()
-            .contains("SKILL.md")
-    );
+fn a_prompt_is_asked_for_as_a_prompt_definition_with_the_reference() {
+    let d = reviewer();
+    let system = system_for(&request(DefinitionKind::Prompt, &d, None), SKILL).unwrap();
+    assert!(system.contains("a Prompt definition: `Prompt Name [Description => \"...\", Prompt =>"));
+    assert!(system.contains("A definition file has the extension .synapse."));
+    assert!(!system.contains("SKILL.md"));
+    assert!(prompt_for(&request(DefinitionKind::Prompt, &d, None)).contains("Write a new prompt"));
+}
+
+#[test]
+fn the_kind_skill_is_refused_and_the_kind_prompt_is_taken() {
+    let ask = |what: &str| {
+        serde_json::from_value::<AgentRunParams>(json!({
+            "kind": "definition", "what": what, "prompt": "p", "definitions": [],
+        }))
+    };
+    assert!(ask("skill").is_err());
+    assert!(ask("prompt").is_ok());
+}
+
+#[test]
+fn a_layout_that_is_not_known_is_refused() {
     assert!(reference_from("# nothing here")
         .unwrap_err()
         .message
@@ -1119,7 +1135,7 @@ fn pipeline_path(dir: &Path) -> String {
 fn define(extra: Value) -> Value {
     let mut base = json!({
         "kind": "definition", "what": "pipeline", "prompt": "  Build, then review.  ",
-        "definitions": [{ "name": "Reviewer", "kind": "agent" }], "skills": ["review-code"],
+        "definitions": [{ "name": "Reviewer", "kind": "agent" }],
     });
     for (k, v) in extra.as_object().unwrap() {
         base[k] = v.clone();
@@ -1910,13 +1926,14 @@ async fn a_definition_run_that_was_stopped_says_the_run_was_stopped() {
         })
     });
     let request = GenerateRequest {
-        kind: DefinitionKind::Skill,
+        kind: DefinitionKind::Prompt,
         prompt: "x",
         current: None,
         definitions: &[],
-        skills: &[],
     };
-    let env = environment(Path::new("/nowhere"), &[]);
+    let dir = tempdir().unwrap();
+    let path = pipeline_path(dir.path());
+    let env = environment(dir.path(), &[("PATH", &path)]);
     let call = |stopped: bool| {
         let (agent, env, request) = (&agent, &env, &request);
         async move {

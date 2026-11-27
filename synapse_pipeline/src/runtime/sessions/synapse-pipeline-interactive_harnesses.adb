@@ -35,11 +35,10 @@ package body Synapse.Pipeline.Interactive_Harnesses is
    type Claude is new Interactive with null record;
 
    overriding function Build
-     (Item            : Claude;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String;
-      Session         : Session_Handle)
+     (Item    : Claude;
+      Step    : Resolved.Step;
+      Prompt  : String;
+      Session : Session_Handle)
       return Commands.Command_Results.Result;
 
    overriding function Locate
@@ -53,11 +52,10 @@ package body Synapse.Pipeline.Interactive_Harnesses is
       Transcript : String) return Turn_State;
 
    overriding function Build
-     (Item            : Claude;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String;
-      Session         : Session_Handle)
+     (Item    : Claude;
+      Step    : Resolved.Step;
+      Prompt  : String;
+      Session : Session_Handle)
       return Commands.Command_Results.Result
    is
       Made : Commands.Command;
@@ -75,12 +73,8 @@ package body Synapse.Pipeline.Interactive_Harnesses is
          Add ("--model");
          Add (To_String (Step.Model.Value));
       end if;
-      if Skill_Directory /= "" then
-         Add ("--add-dir");
-         Add (Skill_Directory);
-      end if;
-      --  `--add-dir` and `--tools` take any number of values, so the prompt
-      --  is set apart from them.
+      --  `--tools` takes any number of values, so the prompt is set apart
+      --  from them.
       Add ("--");
       Add (Prompt);
       --  Claude does not keep a session that a Claude session started, and
@@ -184,11 +178,10 @@ package body Synapse.Pipeline.Interactive_Harnesses is
    type Codex is new Interactive with null record;
 
    overriding function Build
-     (Item            : Codex;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String;
-      Session         : Session_Handle)
+     (Item    : Codex;
+      Step    : Resolved.Step;
+      Prompt  : String;
+      Session : Session_Handle)
       return Commands.Command_Results.Result;
 
    overriding function Locate
@@ -202,11 +195,10 @@ package body Synapse.Pipeline.Interactive_Harnesses is
       Transcript : String) return Turn_State;
 
    overriding function Build
-     (Item            : Codex;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String;
-      Session         : Session_Handle)
+     (Item    : Codex;
+      Step    : Resolved.Step;
+      Prompt  : String;
+      Session : Session_Handle)
       return Commands.Command_Results.Result
    is
       Made : Commands.Command;
@@ -355,11 +347,10 @@ package body Synapse.Pipeline.Interactive_Harnesses is
    type Opencode is new Interactive with null record;
 
    overriding function Build
-     (Item            : Opencode;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String;
-      Session         : Session_Handle)
+     (Item    : Opencode;
+      Step    : Resolved.Step;
+      Prompt  : String;
+      Session : Session_Handle)
       return Commands.Command_Results.Result;
 
    overriding function Locate
@@ -379,11 +370,10 @@ package body Synapse.Pipeline.Interactive_Harnesses is
    --  option. It is not told to approve what is not denied, so the person is
    --  asked.
    overriding function Build
-     (Item            : Opencode;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String;
-      Session         : Session_Handle)
+     (Item    : Opencode;
+      Step    : Resolved.Step;
+      Prompt  : String;
+      Session : Session_Handle)
       return Commands.Command_Results.Result
    is
       Made   : Commands.Command;

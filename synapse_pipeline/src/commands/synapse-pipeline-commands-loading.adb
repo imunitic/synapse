@@ -3,6 +3,7 @@ with Synapse.Pipeline.File_System;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Namespaces;
 with Synapse.Pipeline.Resolution;
+with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.Source_Errors;
 with Synapse.Pipeline.Validation;
 
@@ -13,13 +14,12 @@ package body Synapse.Pipeline.Commands.Loading is
    LF : constant Character := Character'Val (10);
 
    procedure Load
-     (Env         : Environment;
-      Name        : String;
-      Ok          : out Boolean;
-      Item        : out Resolved.Pipeline;
-      File        : out Unbounded_String;
-      Skill_Roots : out Search_Paths.Root_Vectors.Vector;
-      Advise      : Boolean := False)
+     (Env    : Environment;
+      Name   : String;
+      Ok     : out Boolean;
+      Item   : out Resolved.Pipeline;
+      File   : out Unbounded_String;
+      Advise : Boolean := False)
    is
       Default : constant Harnesses.Default_Results.Result :=
         Harnesses.Default (Env.Vars.all);
@@ -36,11 +36,9 @@ package body Synapse.Pipeline.Commands.Loading is
          Report   : constant Definitions.Load_Report :=
            Definitions.Load
              (Env.Files.all, Search_Paths.Definition_Roots (Env.Vars.all));
-         Roots    : constant Search_Paths.Root_Vectors.Vector :=
-           Search_Paths.Skill_Roots (Env.Vars.all);
          Problems : constant Definitions.Problem_Vectors.Vector :=
            Validation.Validate
-             (Report.Definitions, Env.Files.all, Roots, Name,
+             (Report.Definitions, Name,
               Harnesses.Default_Results.Value (Default));
       begin
          for P of Report.Problems loop
@@ -73,7 +71,6 @@ package body Synapse.Pipeline.Commands.Loading is
             end if;
             Item := Resolution.Resolve_Results.Value (Made);
             File := Namespaces.Element (Report.Definitions, Name).Path;
-            Skill_Roots := Roots;
             Ok := True;
          end;
       end;

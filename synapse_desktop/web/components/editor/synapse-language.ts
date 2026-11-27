@@ -38,7 +38,7 @@ const parser: StreamParser<State> = {
       return 'string'
     }
     if (stream.match(/^"(?:[^"\\]|\\.)*"/)) return 'string'
-    if (stream.match(/^(?:Pipeline|System|Agent|End)\b/)) return 'keyword'
+    if (stream.match(/^(?:Pipeline|System|Agent|Prompt|End)\b/)) return 'keyword'
     if (stream.match(/^[A-Z][A-Za-z_]*(?=\s*=>)/)) return 'propertyName'
     if (stream.match(/^(?:->|=>)/)) return 'operator'
     if (stream.match(/^\d+/)) return 'number'

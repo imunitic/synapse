@@ -6,12 +6,13 @@ import { expect, test, type Page } from './fixtures.ts'
 import { DSL_SHAPES } from '../web/domain/dsl-reference.ts'
 import { openSection, setEditorText, sidePanel, uniqueName } from './helpers.ts'
 
-type Kind = 'pipeline' | 'system' | 'agent'
+type Kind = 'pipeline' | 'system' | 'agent' | 'prompt'
 
 const KINDS: { kind: Kind; plural: string }[] = [
   { kind: 'pipeline', plural: 'Pipelines' },
   { kind: 'system', plural: 'Systems' },
   { kind: 'agent', plural: 'Agents' },
+  { kind: 'prompt', plural: 'Prompts' },
 ]
 
 async function openNew(page: Page, kind: string, plural: string) {
@@ -35,7 +36,7 @@ test('the reference is closed until it is opened, and then has a shape, attribut
   await expect(card(page).locator('summary')).toContainText('Language reference')
 
   await card(page).locator('summary').click()
-  await expect(card(page).getByLabel('A pipeline')).toContainText('Pipeline Name {')
+  await expect(card(page).getByLabel('A pipeline')).toContainText('Pipeline Name [Description => ')
   const table = card(page).getByRole('table', { name: 'Attributes' })
   await expect(table.getByRole('row', { name: /^When/ })).toContainText('outcome name or JSON')
   await expect(table.getByRole('row', { name: /^Max_Iterations/ })).toContainText('integer')
@@ -46,7 +47,7 @@ test('shows the attributes of the kind that is written, and no others', async ({
   await openNew(page, 'agent', 'Agents')
   await card(page).locator('summary').click()
   const names = card(page).getByRole('table', { name: 'Attributes' }).getByRole('rowheader')
-  await expect(names).toHaveText(['Prompt', 'Skill'])
+  await expect(names).toHaveText(['Prompt', 'Description'])
 
   await openNew(page, 'system', 'Systems')
   await card(page).locator('summary').click()
@@ -56,9 +57,12 @@ test('shows the attributes of the kind that is written, and no others', async ({
   await expect(system.filter({ hasText: /^When$/ })).toHaveCount(0)
 })
 
-test('is not shown for a skill, which is not written in the language', async ({ page }) => {
-  await openNew(page, 'skill', 'Skills')
-  await expect(card(page)).toHaveCount(0)
+test('is shown for a prompt, with its own attributes', async ({ page }) => {
+  await openNew(page, 'prompt', 'Prompts')
+  await card(page).locator('summary').click()
+  await expect(card(page).getByLabel('A prompt')).toContainText('Prompt Name [')
+  const names = card(page).getByRole('table', { name: 'Attributes' }).getByRole('rowheader')
+  await expect(names).toHaveText(['Prompt', 'Description'])
 })
 
 for (const { kind, plural } of KINDS) {
@@ -82,17 +86,19 @@ for (const { kind, plural } of KINDS) {
   })
 }
 
-// The editor sees the syntax of a system or an agent that stands alone, and the attributes of
-// either only when a pipeline uses it. So the examples are put to the checker together, as a
-// pipeline built from the other two.
-test('the three examples work together, as the checker reads a pipeline built from them', () => {
+// The editor sees the syntax of a system, an agent or a prompt that stands alone, and the
+// attributes of each only when a pipeline uses it. So the examples are put to the checker together,
+// as a pipeline built from the other three.
+test('the four examples work together, as the checker reads a pipeline built from them', () => {
   const dir = mkdtempSync(join(tmpdir(), 'synapse-dsl-'))
   try {
     const files: Record<string, string> = {
       Shape_Pipeline: DSL_SHAPES.pipeline.replace('Name', 'Shape_Pipeline'),
       Shape_System: DSL_SHAPES.system.replace('Name', 'Shape_System'),
       Shape_Agent: DSL_SHAPES.agent.replace('Name', 'Shape_Agent'),
-      Uses_Both: 'Pipeline Uses_Both { Only [Agent => Shape_Agent, System => Shape_System]; }',
+      Shape_Prompt: DSL_SHAPES.prompt.replace('Name', 'Shape_Prompt'),
+      Uses_Both:
+        'Pipeline Uses_Both { Only [Agent => Shape_Agent, System => Shape_System, Prompt => Shape_Prompt]; }',
     }
     for (const [name, text] of Object.entries(files))
       writeFileSync(join(dir, `${name}.synapse`), text)

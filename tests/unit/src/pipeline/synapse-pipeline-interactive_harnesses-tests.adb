@@ -132,7 +132,7 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
       pragma Unreferenced (T);
       Made : constant Commands_Result :=
         Claude.Build
-          (Step_Of (Model => "m1"), "PROMPT", "", Session_Of (Id => "abc"));
+          (Step_Of (Model => "m1"), "PROMPT", Session_Of (Id => "abc"));
       Args : constant String :=
         (if Command_Results_Ok (Made) then Joined (Arguments_Of (Made))
          else "");
@@ -164,12 +164,11 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
       pragma Unreferenced (T);
       Made : constant Commands_Result :=
         Claude.Build
-          (Step_Of (Permissions => "Read_Only"), "- do it", "/skills/s",
-           Session_Of);
+          (Step_Of (Permissions => "Read_Only"), "- do it", Session_Of);
       Args : constant String := Joined (Arguments_Of (Made));
    begin
       Assert
-        (Has (Args, "--tools Read,Grep,Glob --add-dir /skills/s -- - do it "),
+        (Has (Args, "--tools Read,Grep,Glob -- - do it "),
          "the prompt follows `--` after the options that take lists: " & Args);
    end The_Prompt_Is_Set_Apart_From_The_Options;
 
@@ -181,7 +180,7 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
         (Joined
            (Arguments_Of
               (Claude.Build
-                 (Step_Of (Permissions => Level), "P", "", Session_Of))));
+                 (Step_Of (Permissions => Level), "P", Session_Of))));
    begin
       Assert
         (Has (Args_Of (""), "--permission-mode auto "),
@@ -193,6 +192,28 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
         (Has (Args_Of ("Full_Access"), "--permission-mode bypassPermissions "),
          "a full-access one is not asked");
    end Permissions_Are_The_Same_As_Headless;
+
+   procedure A_Claude_Step_Is_Never_Started_With_Add_Dir
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+
+      procedure Check (Level : String) is
+         Args : constant String :=
+           Joined
+             (Arguments_Of
+                (Claude.Build
+                   (Step_Of (Permissions => Level), "P", Session_Of)));
+      begin
+         Assert
+           (not Has (Args, "--add-dir"),
+            "no directory is added for " & Level & ": " & Args);
+      end Check;
+   begin
+      Check ("Read_Only");
+      Check ("Workspace_Write");
+      Check ("Full_Access");
+   end A_Claude_Step_Is_Never_Started_With_Add_Dir;
 
    procedure Every_Harness_Can_Run_Interactive (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
@@ -346,14 +367,14 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
         (Arguments_Of
            (Codex.Build
               (Step_Of (Permissions => Permissions, Model => Model), Prompt,
-               "", Session_Of (Id => "u-1")))));
+               Session_Of (Id => "u-1")))));
 
    procedure Codex_Is_Started_Interactive_In_The_Sandbox_Of_The_Level
      (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
       Made : constant Commands_Result :=
-        Codex.Build (Step_Of, "PROMPT", "", Session_Of);
+        Codex.Build (Step_Of, "PROMPT", Session_Of);
    begin
       Assert
         (To_String (Command_Of (Made).Program) = "codex", "the program");
@@ -501,7 +522,7 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
       Prompt      : String := "PROMPT") return Commands.Command is
      (Command_Of
         (Opencode.Build
-           (Step_Of (Permissions => Permissions, Model => Model), Prompt, "",
+           (Step_Of (Permissions => Permissions, Model => Model), Prompt,
             Session_Of (Id => "ab-12-cd"))));
 
    function Environment_Of (Made : Commands.Command) return String is
@@ -749,6 +770,9 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
       Register_Routine
         (T, Permissions_Are_The_Same_As_Headless'Access,
          "Permissions are the same as headless");
+      Register_Routine
+        (T, A_Claude_Step_Is_Never_Started_With_Add_Dir'Access,
+         "A Claude step is never started with --add-dir");
       Register_Routine
         (T, Every_Harness_Can_Run_Interactive'Access,
          "Every harness can run interactive");

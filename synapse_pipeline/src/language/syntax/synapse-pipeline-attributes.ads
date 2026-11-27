@@ -9,8 +9,10 @@ with Synapse.Pipeline.Syntax;
 --
 --    Agent            step, system   a name
 --    System           step           a name
---    Prompt           step, system, agent   a string, not empty
---    Skill            step, system, agent   a string, a skill name
+--    Prompt           step, system, agent   a string, not empty, or the
+--                                           name of a Prompt definition
+--                     prompt         a string, not empty
+--    Description      pipeline, system, agent, prompt   a string
 --    Harness          step, system   a name
 --    Model            step, system   a name or a string
 --    Permissions      step, system   a name
@@ -24,7 +26,8 @@ with Synapse.Pipeline.Syntax;
 package Synapse.Pipeline.Attributes is
 
    type Context is
-     (Step_Context, Edge_Context, System_Context, Agent_Context);
+     (Step_Context, Edge_Context, System_Context, Agent_Context,
+      Pipeline_Context, Prompt_Context);
 
    package Error_Options is new Synapse.Core.Options
      (Source_Errors.Source_Error);

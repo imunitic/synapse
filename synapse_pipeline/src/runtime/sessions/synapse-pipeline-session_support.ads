@@ -1,12 +1,9 @@
-with Ada.Strings.Unbounded;
 
 with Synapse.Core.Optional_Text;
 with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Failures;
-with Synapse.Pipeline.File_System;
 with Synapse.Pipeline.Registry_Store;
-with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.Sessions;
 
 --  What a runner of sessions does the same way however the session is run:
@@ -52,18 +49,12 @@ package Synapse.Pipeline.Session_Support is
    --  An answer without the code fence a model sometimes puts round it.
    function Unfenced (Text : String) return String;
 
-   --  The prompt the session of Request is started with, and the directory of
-   --  the skill the step names, empty when it names none. Problem is empty
-   --  unless a skill or its text could not be had, and then says why and the
-   --  rest is not to be used. Interactive is whether a person can answer.
-   procedure Prepare
-     (Files           : File_System.File_System'Class;
-      Skill_Roots     : Search_Paths.Root_Vectors.Vector;
-      Request         : Sessions.Session_Request;
-      Interactive     : Boolean;
-      Prompt          : out Ada.Strings.Unbounded.Unbounded_String;
-      Skill_Directory : out Ada.Strings.Unbounded.Unbounded_String;
-      Problem         : out Ada.Strings.Unbounded.Unbounded_String);
+   --  The prompt the session of Request is started with: the step's role and
+   --  assignment as they were resolved, and what every step is told.
+   --  Interactive is whether a person can answer.
+   function Prompt_Of
+     (Request     : Sessions.Session_Request;
+      Interactive : Boolean) return String;
 
    --  Adds the variables the configuration gives sessions to Into, as
    --  `NAME=value`.

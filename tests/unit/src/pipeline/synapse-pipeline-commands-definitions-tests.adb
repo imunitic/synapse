@@ -12,6 +12,8 @@ package body Synapse.Pipeline.Commands.Definitions.Tests is
 
    package JSON renames Synapse.Core.JSON;
 
+   use type JSON.Kind;
+
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
    --  Two sound definitions of different kinds and two broken files.
@@ -129,6 +131,100 @@ package body Synapse.Pipeline.Commands.Definitions.Tests is
          "empty lists, not missing ones: " & F.Base.Console.Out_Text);
    end Nothing_Defined_Is_An_Empty_Document;
 
+   --  The entry of the definition called Name in a JSON listing, or null.
+   function Entry_Of (Listing : JSON.Value; Name : String) return JSON.Value
+   is
+      Found : constant JSON.Value :=
+        JSON.Member_Value (Listing, "definitions");
+   begin
+      for I in 1 .. JSON.Length (Found) loop
+         if JSON.As_String
+              (JSON.Member_Value (JSON.Element (Found, I), "name")) = Name
+         then
+            return JSON.Element (Found, I);
+         end if;
+      end loop;
+      return JSON.Null_Value;
+   end Entry_Of;
+
+   procedure A_Prompt_Is_Listed_With_Kind_Prompt (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+      G : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Careful.synapse",
+         "Prompt Careful [Prompt => ""Be careful.""];");
+      Assert (Run (Env (F), Args ("--format", "json")) = 0, "in JSON");
+      Assert
+        (JSON.As_String
+           (JSON.Member_Value
+              (Entry_Of (JSON.Parse (F.Base.Console.Out_Text).Item, "Careful"),
+               "kind")) = "prompt",
+         "its kind: " & F.Base.Console.Out_Text);
+      Set_Up (G);
+      G.Files.Add_File
+        ("/defs/Careful.synapse",
+         "Prompt Careful [Prompt => ""Be careful.""];");
+      Assert (Run (Env (G), Args) = 0, "in text");
+      Assert
+        (Has (G.Base.Console.Out_Text,
+              "prompt Careful  /defs/Careful.synapse"),
+         "its line: " & G.Base.Console.Out_Text);
+   end A_Prompt_Is_Listed_With_Kind_Prompt;
+
+   procedure The_Json_Gives_A_Description_Null_When_There_Is_None
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Careful.synapse",
+         "Prompt Careful [Description => ""Asks for care."", "
+         & "Prompt => ""Be careful.""];");
+      F.Files.Add_File
+        ("/defs/Work.synapse",
+         "Pipeline Work [Description => ""Does the work.""] "
+         & "{ A [Harness => Claude, Prompt => Careful]; }");
+      Assert (Run (Env (F), Args ("--format", "json")) = 0, "whatever");
+      declare
+         Listing : constant JSON.Value :=
+           JSON.Parse (F.Base.Console.Out_Text).Item;
+      begin
+         Assert
+           (JSON.As_String
+              (JSON.Member_Value (Entry_Of (Listing, "Careful"),
+               "description")) = "Asks for care."
+            and then JSON.As_String
+                       (JSON.Member_Value (Entry_Of (Listing, "Work"),
+                        "description")) = "Does the work.",
+            "a prompt's and a pipeline's description: "
+            & F.Base.Console.Out_Text);
+         Assert
+           (JSON.Kind_Of
+              (JSON.Member_Value (Entry_Of (Listing, "Reviewer"),
+               "description")) = JSON.JSON_Null,
+            "null for one that has none");
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         G.Files.Add_File
+           ("/defs/Careful.synapse",
+            "Prompt Careful [Description => ""Asks for care."", "
+            & "Prompt => ""Be careful.""];");
+         Assert (Run (Env (G), Args) = 0, "in text");
+         Assert
+           (not Has (G.Base.Console.Out_Text, "Asks for care."),
+            "the text listing is unchanged: " & G.Base.Console.Out_Text);
+      end;
+   end The_Json_Gives_A_Description_Null_When_There_Is_None;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -149,6 +245,12 @@ package body Synapse.Pipeline.Commands.Definitions.Tests is
       Register_Routine
         (T, Text_Lists_The_Same_For_A_Person'Access,
          "Text lists the same for a person");
+      Register_Routine
+        (T, A_Prompt_Is_Listed_With_Kind_Prompt'Access,
+         "A prompt is listed with kind prompt");
+      Register_Routine
+        (T, The_Json_Gives_A_Description_Null_When_There_Is_None'Access,
+         "The JSON gives a definition's description, null when it has none");
       Register_Routine
         (T, Nothing_Defined_Is_An_Empty_Document'Access,
          "Nothing defined is an empty document");

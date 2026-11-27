@@ -233,8 +233,7 @@ package body Synapse.Pipeline.Harness_Commands is
    end Add_Claude_Permissions;
 
    function Claude_Command
-     (Item : Resolved.Step; Prompt : String; Skill_Directory : String)
-      return Command_Results.Result
+     (Item : Resolved.Step; Prompt : String) return Command_Results.Result
    is
       Made : Command;
    begin
@@ -250,10 +249,6 @@ package body Synapse.Pipeline.Harness_Commands is
       if Item.Model.Found then
          Add (Made.Arguments, "--model");
          Add (Made.Arguments, To_String (Item.Model.Value));
-      end if;
-      if Skill_Directory /= "" then
-         Add (Made.Arguments, "--add-dir");
-         Add (Made.Arguments, Skill_Directory);
       end if;
       Made.Standard_Input := To_Unbounded_String (Prompt);
       return Command_Results.Success (Made);
@@ -560,11 +555,10 @@ package body Synapse.Pipeline.Harness_Commands is
    type Claude is new Headless with null record;
 
    overriding function Build
-     (Item            : Claude;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String) return Command_Results.Result is
-     (Claude_Command (Step, Prompt, Skill_Directory));
+     (Item   : Claude;
+      Step   : Resolved.Step;
+      Prompt : String) return Command_Results.Result is
+     (Claude_Command (Step, Prompt));
 
    overriding function Interpret
      (Item  : Claude;
@@ -574,10 +568,9 @@ package body Synapse.Pipeline.Harness_Commands is
    type Codex is new Headless with null record;
 
    overriding function Build
-     (Item            : Codex;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String) return Command_Results.Result is
+     (Item   : Codex;
+      Step   : Resolved.Step;
+      Prompt : String) return Command_Results.Result is
      (Codex_Command (Step, Prompt));
 
    overriding function Interpret
@@ -588,10 +581,9 @@ package body Synapse.Pipeline.Harness_Commands is
    type Opencode is new Headless with null record;
 
    overriding function Build
-     (Item            : Opencode;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String) return Command_Results.Result is
+     (Item   : Opencode;
+      Step   : Resolved.Step;
+      Prompt : String) return Command_Results.Result is
      (Opencode_Command (Step, Prompt));
 
    overriding function Interpret

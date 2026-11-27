@@ -56,16 +56,4 @@ package body Synapse.Pipeline.Search_Paths is
       return Result;
    end Definition_Roots;
 
-   function Skill_Roots
-     (V : Synapse.Ports.Variables.Variables'Class) return Root_Vectors.Vector
-   is
-      Result : Root_Vectors.Vector;
-      Base   : constant String := Config_Directory (V);
-   begin
-      if Base /= "" then
-         Result.Append (Make_Root (Base & "/skills", Required => False));
-      end if;
-      return Result;
-   end Skill_Roots;
-
 end Synapse.Pipeline.Search_Paths;

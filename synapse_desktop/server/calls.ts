@@ -2,7 +2,7 @@
 // allowlist let it.
 
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { ZodError } from 'zod'
 import { appConfigSchema } from '../shared/calls.ts'
 import { HostError, type Handlers as DispatchHandlers } from '../shared/dispatch.ts'
@@ -163,13 +163,11 @@ async function insideRoots(path: string, context: Context): Promise<string> {
 async function pathsOf_(context: Context): Promise<AppPaths> {
   const config = await loadConfig(context.configFile, context.environment)
   const { environment } = context
-  const [skillsDir] = await existingDirs([join(pipelineConfigDir(environment), 'skills')])
   const [recordsDir] = await existingDirs(
     config.workDir === null ? [] : [join(config.workDir, 'pipelines')],
   )
   return {
     definitionDirs: await existingDirs(listDefinitionDirs(config, environment)),
-    skillsDir: skillsDir ?? null,
     recordsDir: recordsDir ?? null,
   }
 }
@@ -192,15 +190,14 @@ type Handlers = {
   [N in CallMessage]: (params: Params<N>, context: Context) => Promise<Result<N>>
 }
 
-// The real path of a definition file or a skill's SKILL.md, only where definitions live: not the
-// records of runs.
+// The real path of a definition file, only where definitions live: not the records of runs.
 async function definitionFile(
   path: string,
   context: Context,
   what: 'saved' | 'removed',
 ): Promise<string> {
-  if (!path.endsWith('.synapse') && basename(path) !== 'SKILL.md') {
-    throw new HostError('bad_request', `only a definition or a SKILL.md can be ${what}`)
+  if (!path.endsWith('.synapse')) {
+    throw new HostError('bad_request', `only a definition can be ${what}`)
   }
   const config = await loadConfig(context.configFile, context.environment)
   try {
@@ -314,7 +311,6 @@ const handlers: Handlers = {
               prompt: request.prompt,
               ...(request.current === undefined ? {} : { current: request.current }),
               definitions: request.definitions,
-              skills: request.skills,
             },
             {
               harness,
@@ -400,17 +396,7 @@ const handlers: Handlers = {
   async 'definition.write'(item, context) {
     if (item.mode === 'delete') {
       const { path } = item
-      const real = await definitionFile(path, context, 'removed')
-      if (basename(real) === 'SKILL.md') {
-        // A skill is its directory, which sits directly in a `skills` directory.
-        const skill = dirname(real)
-        if (basename(dirname(skill)) !== 'skills') {
-          throw new HostError('bad_request', 'a SKILL.md is removed only from a skills directory')
-        }
-        await rm(skill, { recursive: true })
-      } else {
-        await rm(real)
-      }
+      await rm(await definitionFile(path, context, 'removed'))
       return { path }
     }
     if (item.mode === 'replace') {
@@ -423,11 +409,8 @@ const handlers: Handlers = {
       return { path }
     }
     const defaultDir = pipelineConfigDir(context.environment)
-    const path =
-      item.kind === 'definition'
-        ? join(defaultDir, `${item.name}.synapse`)
-        : join(defaultDir, 'skills', item.name, 'SKILL.md')
-    await mkdir(join(path, '..'), { recursive: true })
+    const path = join(defaultDir, `${item.name}.synapse`)
+    await mkdir(defaultDir, { recursive: true })
     try {
       // `wx` fails when the file is there: a definition is never replaced.
       await writeFile(path, item.text, { flag: 'wx' })

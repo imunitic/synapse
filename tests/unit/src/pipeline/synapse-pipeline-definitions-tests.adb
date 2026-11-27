@@ -287,6 +287,76 @@ package body Synapse.Pipeline.Definitions.Tests is
       end;
    end The_Same_File_Reached_Twice_Counts_Once;
 
+   procedure A_Prompt_File_Loads_Under_Its_Name (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      F.Add_File
+        ("/a/Test_Feature.synapse",
+         "Prompt Test_Feature [Prompt => ""Test the feature.""];");
+      declare
+         R : constant Load_Report := Load (F, Roots_Of ("/a"));
+         N : Namespaces.Namespace renames R.Definitions;
+      begin
+         Assert (R.Problems.Is_Empty, "nothing wrong");
+         Assert
+           (Namespaces.Contains (N, "Test_Feature")
+            and then Namespaces.Element (N, "Test_Feature").Item.Kind =
+              Syntax.Prompt_Definition,
+            "a prompt, under its name");
+         Assert
+           (To_String (Namespaces.Element (N, "Test_Feature").Path) =
+            "/a/Test_Feature.synapse",
+            "it remembers its file");
+      end;
+   end A_Prompt_File_Loads_Under_Its_Name;
+
+   procedure A_Prompt_File_Named_Otherwise_Is_A_Problem
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      F.Add_File
+        ("/a/Test_Feature.synapse", "Prompt Test_It [Prompt => ""x""];");
+      declare
+         R : constant Load_Report := Load (F, Roots_Of ("/a"));
+      begin
+         Assert
+           (Namespaces.Has_Failed (R.Definitions, "Test_Feature")
+            and then not Namespaces.Contains (R.Definitions, "Test_It"),
+            "the name the file stands for failed");
+         Assert_Problem
+           (R.Problems (1), "/a/Test_Feature.synapse", 1, 8,
+            "'Test_Feature' declares 'Test_It'", "a name that differs");
+      end;
+   end A_Prompt_File_Named_Otherwise_Is_A_Problem;
+
+   procedure A_Prompt_And_An_Agent_Of_One_Name_Belong_To_Neither
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      F.Add_File ("/a/Reviewer.synapse", Reviewer_Agent);
+      F.Add_File ("/b/Reviewer.synapse", "Prompt Reviewer [Prompt => ""x""];");
+      declare
+         R : constant Load_Report := Load (F, Roots_Of ("/a", "/b"));
+      begin
+         Assert
+           (Namespaces.Has_Failed (R.Definitions, "Reviewer")
+            and then not Namespaces.Contains (R.Definitions, "Reviewer"),
+            "neither the agent nor the prompt can be used");
+         Assert (Natural (R.Problems.Length) = 1, "one problem");
+         Assert_Problem
+           (R.Problems (1), "/b/Reviewer.synapse", 1, 8,
+            "'Reviewer' is defined in both /a/Reviewer.synapse and "
+            & "/b/Reviewer.synapse",
+            "an agent and a prompt of one name");
+      end;
+   end A_Prompt_And_An_Agent_Of_One_Name_Belong_To_Neither;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -325,6 +395,15 @@ package body Synapse.Pipeline.Definitions.Tests is
       Register_Routine
         (T, The_Same_File_Reached_Twice_Counts_Once'Access,
          "The same file reached twice counts once");
+      Register_Routine
+        (T, A_Prompt_File_Loads_Under_Its_Name'Access,
+         "A Prompt file loads under its name");
+      Register_Routine
+        (T, A_Prompt_File_Named_Otherwise_Is_A_Problem'Access,
+         "A Prompt file named other than what it declares is a problem");
+      Register_Routine
+        (T, A_Prompt_And_An_Agent_Of_One_Name_Belong_To_Neither'Access,
+         "A Prompt and an Agent with one name make the name unusable");
    end Register_Tests;
 
 end Synapse.Pipeline.Definitions.Tests;

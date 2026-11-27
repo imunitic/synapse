@@ -4,18 +4,14 @@
 import { z } from 'zod'
 import type { CliResult, Transport } from '../../shared/transport.ts'
 
-// `role` and `assignment`: inline text, or the name of a skill.
-const instructionSchema = z
-  .discriminatedUnion('kind', [
-    z.object({ kind: z.literal('prompt'), text: z.string() }),
-    z.object({ kind: z.literal('skill'), name: z.string() }),
-  ])
-  .nullable()
+// `role` and `assignment`: the text, whether written inline or taken from a Prompt definition.
+const instructionSchema = z.object({ kind: z.literal('prompt'), text: z.string() }).nullable()
 
 export type Instruction = z.infer<typeof instructionSchema>
 
+// A definition a step is built from: its system, its agent and the prompts it names.
 const originSchema = z.object({
-  kind: z.enum(['system', 'agent']),
+  kind: z.enum(['system', 'agent', 'prompt']),
   name: z.string(),
   file: z.string(),
 })
@@ -153,8 +149,8 @@ export async function describePipeline(transport: Transport, name: string): Prom
   return readShown(await transport.cli('synapse-pipeline', ['show', name, '--format', 'json']))
 }
 
-// A prompt is made of parts: what the author wrote (the role and the assignment, or a skill's
-// text) and what the program adds to every step.
+// A prompt is made of parts: what the author wrote (the role and the assignment) and what the
+// program adds to every step.
 const partSchema = z.object({
   kind: z.enum(['role', 'assignment', 'protocol', 'input', 'previous', 'contract']),
   authored: z.boolean(),

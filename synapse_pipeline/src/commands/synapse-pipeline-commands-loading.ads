@@ -2,7 +2,6 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Resolved;
-with Synapse.Pipeline.Search_Paths;
 
 --  Finding a pipeline for a command that does not run it: the definitions are
 --  loaded from the search directories, the pipeline is validated and then
@@ -12,17 +11,16 @@ with Synapse.Pipeline.Search_Paths;
 package Synapse.Pipeline.Commands.Loading is
 
    --  Ok is False once an error has been reported. Otherwise Item is the
-   --  resolved pipeline, File the file it was written in and Skill_Roots the
-   --  directories skills are looked up in. With Advise, what is worth saying
-   --  about a pipeline that can run is a warning on standard error too.
+   --  resolved pipeline and File the file it was written in. With Advise,
+   --  what is worth saying about a pipeline that can run is a warning on
+   --  standard error too.
    procedure Load
-     (Env         : Environment;
-      Name        : String;
-      Ok          : out Boolean;
-      Item        : out Resolved.Pipeline;
-      File        : out Ada.Strings.Unbounded.Unbounded_String;
-      Skill_Roots : out Search_Paths.Root_Vectors.Vector;
-      Advise      : Boolean := False);
+     (Env    : Environment;
+      Name   : String;
+      Ok     : out Boolean;
+      Item   : out Resolved.Pipeline;
+      File   : out Ada.Strings.Unbounded.Unbounded_String;
+      Advise : Boolean := False);
 
    --  The value of an `--input` option: the JSON in the file at Path, or on
    --  standard input for `-`. Ok is False once an error has been reported.

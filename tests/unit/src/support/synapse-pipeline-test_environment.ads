@@ -10,7 +10,7 @@ with Synapse.Test_Environment;
 --  An environment for a pipeline command under test: the fixture the other
 --  commands' tests use, a console that keeps what was written, variables from
 --  a table, a fixed clock and the real process runner, and an in-memory file
---  system for the definitions and skills.
+--  system for the definitions.
 
 package Synapse.Pipeline.Test_Environment is
 

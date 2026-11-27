@@ -16,8 +16,10 @@ with Synapse.Pipeline.Resolved;
 --    edges    in the order declared: index, from, to, guard, max_iterations
 --    limits   default_timeout_seconds, step_ceiling, runner
 --
---  `role` and `assignment` are {"kind": "prompt", "text": ...},
---  {"kind": "skill", "name": ...} or null. An edge's `index` counts from 0
+--  `role` and `assignment` are {"kind": "prompt", "text": ...} or null; the
+--  text of a named Prompt definition is given as its text, and the prompt is
+--  one of the step's `origins`, whose `kind` is "system", "agent" or
+--  "prompt". An edge's `index` counts from 0
 --  and is its position in `state.fired`; `guard` is null for an edge without
 --  one and `max_iterations` null for an edge that is not bounded. The
 --  configuration's environment is not part of the document.

@@ -37,13 +37,11 @@ package body Synapse.Pipeline.Descriptions.Tests is
       Result.Name := U ("P");
       First :=
         (Name => U ("A"), Harness => Harnesses.Claude,
-         Role => (Present => True, Kind => Resolved.Prompt_Text,
-                  Text => U ("Be careful.")),
+         Role => (Present => True, Text => U ("Be careful.")),
          others => <>);
       Second :=
         (Name => U ("B"), Harness => Harnesses.Codex,
-         Assignment => (Present => True, Kind => Resolved.Skill_Name,
-                        Text => U ("test-feature")),
+         Assignment => (Present => True, Text => U ("Test the feature.")),
          Model => (Found => True, Value => U ("m-1")),
          Permissions => (Found => True, Value => U ("Read_Only")),
          Timeout_Seconds => 90, Retries => 2,
@@ -113,17 +111,6 @@ package body Synapse.Pipeline.Descriptions.Tests is
          and then JSON.As_Integer (JSON.Member_Value (B, "retries")) = 2
          and then JSON.As_String (JSON.Member_Value (B, "model")) = "m-1",
          "the second step's own settings");
-      Assert
-        (JSON.As_String
-           (JSON.Member_Value (JSON.Member_Value (B, "assignment"), "kind")) =
-         "skill"
-         and then JSON.As_String
-                    (JSON.Member_Value
-                       (JSON.Member_Value (B, "assignment"), "name")) =
-                  "test-feature"
-         and then not JSON.Has_Member
-                        (JSON.Member_Value (B, "assignment"), "text"),
-         "a skill is its name only");
       declare
          Origin : constant JSON.Value :=
            JSON.Element (JSON.Member_Value (B, "origins"), 1);
@@ -137,6 +124,48 @@ package body Synapse.Pipeline.Descriptions.Tests is
             "where the step came from");
       end;
    end A_Step_Shows_The_Settings_It_Will_Run_With;
+
+   procedure A_Named_Prompt_Is_Described_By_Its_Text_And_Listed_As_Origin
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Item     : Resolved.Pipeline;
+      S        : Resolved.Step :=
+        (Name => U ("A"), Harness => Harnesses.Claude,
+         Assignment => (Present => True, Text => U ("Test the feature.")),
+         others => <>);
+      Settings : Configs.Config;
+   begin
+      Item.Name := U ("P");
+      S.Origins.Append
+        (Resolved.Origin'
+           (Kind => Resolved.Prompt_Origin, Name => U ("Test_Feature"),
+            File => U ("/defs/Test_Feature.synapse")));
+      Item.Steps.Append (S);
+      declare
+         Step       : constant JSON.Value :=
+           JSON.Element
+             (JSON.Member_Value (Describe (Item, Settings), "steps"), 1);
+         Assignment : constant JSON.Value :=
+           JSON.Member_Value (Step, "assignment");
+         Origin     : constant JSON.Value :=
+           JSON.Element (JSON.Member_Value (Step, "origins"), 1);
+      begin
+         Assert
+           (JSON.As_String (JSON.Member_Value (Assignment, "kind")) = "prompt"
+            and then JSON.As_String (JSON.Member_Value (Assignment, "text")) =
+                     "Test the feature."
+            and then not JSON.Has_Member (Assignment, "name"),
+            "the assignment is the prompt's text");
+         Assert
+           (JSON.As_String (JSON.Member_Value (Origin, "kind")) = "prompt"
+            and then JSON.As_String (JSON.Member_Value (Origin, "name")) =
+                     "Test_Feature"
+            and then JSON.As_String (JSON.Member_Value (Origin, "file")) =
+                     "/defs/Test_Feature.synapse",
+            "the prompt is an origin with its file");
+      end;
+   end A_Named_Prompt_Is_Described_By_Its_Text_And_Listed_As_Origin;
 
    procedure Edges_Are_Numbered_As_State_Fired_Is
      (T : in out Test_Cases_Class)
@@ -213,6 +242,11 @@ package body Synapse.Pipeline.Descriptions.Tests is
       Register_Routine
         (T, A_Step_Shows_The_Settings_It_Will_Run_With'Access,
          "A step shows the settings it will run with");
+      Register_Routine
+        (T,
+         A_Named_Prompt_Is_Described_By_Its_Text_And_Listed_As_Origin'Access,
+         "A named prompt is described by its text, and listed as a prompt "
+         & "origin");
       Register_Routine
         (T, Edges_Are_Numbered_As_State_Fired_Is'Access,
          "Edges are numbered as state.fired is");

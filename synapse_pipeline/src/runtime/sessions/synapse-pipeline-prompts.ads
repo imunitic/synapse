@@ -10,7 +10,7 @@ with Synapse.Core.JSON;
 package Synapse.Pipeline.Prompts is
 
    --  What a prompt is made of. The role and the assignment are the author's
-   --  words, or a skill's; the rest is added to every step: the line saying
+   --  words; the rest is added to every step: the line saying
    --  which step it is and whether a person can answer, what the run was
    --  started with, what the step before reported, and how to report.
    type Part_Kind is

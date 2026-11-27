@@ -5,6 +5,7 @@ with AUnit.Assertions;
 
 with Synapse.Pipeline.Fake_Files;
 with Synapse.Pipeline.Harnesses;
+with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.Source_Errors;
 
 package body Synapse.Pipeline.Validation.Tests is
@@ -24,7 +25,11 @@ package body Synapse.Pipeline.Validation.Tests is
          "Agent Reviewer [Prompt => ""Review for correctness.""];");
       F.Add_File
         ("/defs/Developer.synapse",
-         "Agent Developer [Skill => ""develop-feature""];");
+         "Agent Developer [Prompt => Develop_Feature_Prompt];");
+      F.Add_File
+        ("/defs/Develop_Feature_Prompt.synapse",
+         "Prompt Develop_Feature_Prompt [Description => ""How to develop."", "
+         & "Prompt => ""Develop the feature.""];");
       F.Add_File
         ("/defs/Strict_Reviewer.synapse",
          "System Strict_Reviewer [Agent => Reviewer, Harness => Claude, "
@@ -38,7 +43,6 @@ package body Synapse.Pipeline.Validation.Tests is
          & " Review [System => Strict_Reviewer, Harness => Codex];"
          & " Review -> Develop [When => Changes_Requested, "
          & "Max_Iterations => 5]; }");
-      F.Add_File ("/skills/develop-feature/SKILL.md", "a skill");
    end Add_Sound_Files;
 
    function Defs_Roots return Search_Paths.Root_Vectors.Vector is
@@ -50,18 +54,8 @@ package body Synapse.Pipeline.Validation.Tests is
       return Result;
    end Defs_Roots;
 
-   function Skill_Roots return Search_Paths.Root_Vectors.Vector is
-      Result : Search_Paths.Root_Vectors.Vector;
-   begin
-      Result.Append
-        (Search_Paths.Root'(Path => To_Unbounded_String ("/skills"),
-                            Required => False));
-      return Result;
-   end Skill_Roots;
-
    function Problems_Of
-     (F     : Fake_Files.Fake_Files; Name : String;
-      Roots : Search_Paths.Root_Vectors.Vector := Skill_Roots;
+     (F : Fake_Files.Fake_Files; Name : String;
       Default_Harness : Harnesses.Kind_Options.Option :=
         Harnesses.Kind_Options.Of_Value (Harnesses.Claude))
       return Problem_List
@@ -69,7 +63,7 @@ package body Synapse.Pipeline.Validation.Tests is
       Report : constant Definitions.Load_Report :=
         Definitions.Load (F, Defs_Roots);
    begin
-      return Validate (Report.Definitions, F, Roots, Name, Default_Harness);
+      return Validate (Report.Definitions, Name, Default_Harness);
    end Problems_Of;
 
    function Count_With (P : Problem_List; Message : String) return Natural is
@@ -174,21 +168,170 @@ package body Synapse.Pipeline.Validation.Tests is
       end;
    end Attributes_Are_Checked_In_Every_Definition;
 
-   procedure Prompt_And_Skill_Are_Not_Both_Given (T : in out Test_Cases_Class)
+   procedure Skill_On_A_Step_Is_An_Unknown_Attribute
+     (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
       F : Fake_Files.Fake_Files;
    begin
       Add_Sound_Files (F);
       F.Add_File
-        ("/defs/Both.synapse",
-         "Pipeline Both { A [Prompt => ""x"", "
+        ("/defs/Skilled.synapse",
+         "Pipeline Skilled { A [Prompt => ""x"", "
          & "Skill => ""develop-feature""]; }");
       Assert_Has
-        (Problems_Of (F, "Both"), "/defs/Both.synapse",
-         "'Prompt' and 'Skill' are both given", "both");
-      Assert_Count (Problems_Of (F, "Both"), 1, "and nothing else");
-   end Prompt_And_Skill_Are_Not_Both_Given;
+        (Problems_Of (F, "Skilled"), "/defs/Skilled.synapse",
+         "unknown attribute 'Skill'", "a skill");
+      Assert_Count (Problems_Of (F, "Skilled"), 1, "and nothing else");
+   end Skill_On_A_Step_Is_An_Unknown_Attribute;
+
+   procedure A_Steps_Prompt_Names_A_Prompt_Definition
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Named.synapse",
+         "Pipeline Named { A [Prompt => Develop_Feature_Prompt]; }");
+      Assert_Count
+        (Problems_Of (F, "Named"), 0,
+         "a named prompt gives the step its instructions");
+   end A_Steps_Prompt_Names_A_Prompt_Definition;
+
+   procedure An_Agents_Prompt_Names_A_Prompt_Definition
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Through_Agent.synapse",
+         "Pipeline Through_Agent { A [Agent => Developer]; }");
+      Assert_Count
+        (Problems_Of (F, "Through_Agent"), 0,
+         "the agent's named prompt gives the step its instructions");
+   end An_Agents_Prompt_Names_A_Prompt_Definition;
+
+   procedure A_Prompt_Naming_No_Definition_Is_An_Error_At_The_Name
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Lost.synapse", "Pipeline Lost { A [Prompt => Nowhere]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Lost");
+      begin
+         Assert_Count (P, 1, "only the unknown name");
+         Assert_Has
+           (P, "/defs/Lost.synapse", "there is no prompt named 'Nowhere'",
+            "unknown");
+         Assert
+           (Source_Errors.Image (P.First_Element) =
+              "/defs/Lost.synapse:1:30: there is no prompt named 'Nowhere'",
+            "said at the name: " & Describe (P));
+      end;
+   end A_Prompt_Naming_No_Definition_Is_An_Error_At_The_Name;
+
+   procedure A_Prompt_And_An_Agent_Are_Not_Mistaken
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Mixed.synapse",
+         "Pipeline Mixed { A [Prompt => Reviewer];"
+         & " B [Agent => Develop_Feature_Prompt]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Mixed");
+      begin
+         Assert_Has
+           (P, "/defs/Mixed.synapse", "'Reviewer' is an agent, not a prompt",
+            "an agent given as a prompt");
+         Assert_Has
+           (P, "/defs/Mixed.synapse",
+            "'Develop_Feature_Prompt' is a prompt, not an agent",
+            "a prompt given as an agent");
+      end;
+   end A_Prompt_And_An_Agent_Are_Not_Mistaken;
+
+   procedure A_Prompt_Naming_A_Failed_File_Gives_The_Reason
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Broken_Prompt.synapse", "Prompt Broken_Prompt [Prompt => ];");
+      F.Add_File
+        ("/defs/Uses_Broken_Prompt.synapse",
+         "Pipeline Uses_Broken_Prompt { A [Prompt => Broken_Prompt]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Uses_Broken_Prompt");
+      begin
+         Assert_Count (P, 1, "the failure, and no follow-on problems");
+         Assert_Has
+           (P, "/defs/Uses_Broken_Prompt.synapse",
+            "prompt 'Broken_Prompt' failed to load: "
+            & "/defs/Broken_Prompt.synapse:1:33: expected a value",
+            "with its reason");
+      end;
+   end A_Prompt_Naming_A_Failed_File_Gives_The_Reason;
+
+   procedure A_Prompts_Own_Attributes_Are_Checked
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Harnessed_Prompt.synapse",
+         "Prompt Harnessed_Prompt [Prompt => ""x"", Harness => Claude];");
+      F.Add_File
+        ("/defs/Uses_It.synapse",
+         "Pipeline Uses_It { A [Prompt => Harnessed_Prompt];"
+         & " B [Prompt => Harnessed_Prompt]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Uses_It");
+      begin
+         Assert_Count (P, 1, "said once, however often it is used");
+         Assert_Has
+           (P, "/defs/Harnessed_Prompt.synapse",
+            "'Harness' is not an attribute of a prompt",
+            "in the prompt's file");
+      end;
+   end A_Prompts_Own_Attributes_Are_Checked;
+
+   procedure A_Pipelines_Description_Is_Accepted_Its_Harness_Is_Not
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Described.synapse",
+         "Pipeline Described [Description => ""Does a thing.""]"
+         & " { A [Prompt => ""x""]; }");
+      F.Add_File
+        ("/defs/Over_Harnessed.synapse",
+         "Pipeline Over_Harnessed [Harness => Claude]"
+         & " { A [Prompt => ""x""]; }");
+      Assert_Count
+        (Problems_Of (F, "Described"), 0, "a description is fine");
+      Assert_Has
+        (Problems_Of (F, "Over_Harnessed"), "/defs/Over_Harnessed.synapse",
+         "'Harness' is not an attribute of a pipeline", "a harness is not");
+   end A_Pipelines_Description_Is_Accepted_Its_Harness_Is_Not;
 
    procedure References_Name_What_They_Should (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
@@ -302,7 +445,7 @@ package body Synapse.Pipeline.Validation.Tests is
       declare
          P : constant Problem_List :=
            Problems_Of
-             (F, "Harnessed", Skill_Roots,
+             (F, "Harnessed",
               Default_Harness => Harnesses.Kind_Options.None);
       begin
          Assert_Count (P, 2, "A and D have none");
@@ -315,7 +458,7 @@ package body Synapse.Pipeline.Validation.Tests is
       end;
       Assert_Count
         (Problems_Of
-           (F, "Harnessed", Skill_Roots,
+           (F, "Harnessed",
             Default_Harness => Harnesses.Kind_Options.Of_Value
                                  (Harnesses.Codex)),
          0, "a default harness settles them");
@@ -406,29 +549,6 @@ package body Synapse.Pipeline.Validation.Tests is
         (Problems_Of (F, "Hollow"), "/defs/Hollow.synapse",
          "needs at least one step", "no steps");
    end Steps_Are_Declared_Once_And_A_Pipeline_Has_One;
-
-   procedure Skills_Must_Exist (T : in out Test_Cases_Class) is
-      pragma Unreferenced (T);
-      F : Fake_Files.Fake_Files;
-   begin
-      Add_Sound_Files (F);
-      F.Add_File
-        ("/defs/Skilled.synapse",
-         "Pipeline Skilled { A [Skill => ""missing-skill""];"
-         & " B [Skill => ""develop-feature""]; }");
-      Assert_Has
-        (Problems_Of (F, "Skilled"), "/defs/Skilled.synapse",
-         "no skill named 'missing-skill' in /skills", "a missing skill");
-      declare
-         P : constant Problem_List :=
-           Problems_Of (F, "Skilled", Search_Paths.Root_Vectors.Empty_Vector);
-      begin
-         Assert
-           (Count_With (P, "any skill directory (none is set up)") = 2,
-            "with no skill directory at all, neither skill is found:"
-            & Describe (P));
-      end;
-   end Skills_Must_Exist;
 
    procedure An_Edge_To_End_Needs_No_Step_And_No_Bound
      (T : in out Test_Cases_Class)
@@ -598,8 +718,29 @@ package body Synapse.Pipeline.Validation.Tests is
         (T, Attributes_Are_Checked_In_Every_Definition'Access,
          "Attributes are checked in every definition");
       Register_Routine
-        (T, Prompt_And_Skill_Are_Not_Both_Given'Access,
-         "Prompt and Skill are not both given");
+        (T, Skill_On_A_Step_Is_An_Unknown_Attribute'Access,
+         "Skill on a step is an unknown attribute");
+      Register_Routine
+        (T, A_Steps_Prompt_Names_A_Prompt_Definition'Access,
+         "A step's Prompt names a Prompt definition");
+      Register_Routine
+        (T, An_Agents_Prompt_Names_A_Prompt_Definition'Access,
+         "An agent's Prompt names a Prompt definition");
+      Register_Routine
+        (T, A_Prompt_Naming_No_Definition_Is_An_Error_At_The_Name'Access,
+         "A Prompt naming no definition is an error at the name");
+      Register_Routine
+        (T, A_Prompt_And_An_Agent_Are_Not_Mistaken'Access,
+         "A Prompt naming an agent, and an Agent naming a prompt, say so");
+      Register_Routine
+        (T, A_Prompt_Naming_A_Failed_File_Gives_The_Reason'Access,
+         "A Prompt naming a file that failed to load gives the reason");
+      Register_Routine
+        (T, A_Prompts_Own_Attributes_Are_Checked'Access,
+         "A prompt's own attributes are checked");
+      Register_Routine
+        (T, A_Pipelines_Description_Is_Accepted_Its_Harness_Is_Not'Access,
+         "A pipeline's Description is accepted, its Harness is not");
       Register_Routine
         (T, References_Name_What_They_Should'Access,
          "References name what they should");
@@ -627,8 +768,6 @@ package body Synapse.Pipeline.Validation.Tests is
       Register_Routine
         (T, Steps_Are_Declared_Once_And_A_Pipeline_Has_One'Access,
          "Steps are declared once and a pipeline has one");
-      Register_Routine
-        (T, Skills_Must_Exist'Access, "Skills must exist");
       Register_Routine
         (T, An_Edge_To_End_Needs_No_Step_And_No_Bound'Access,
          "An edge to End needs no step and no bound");

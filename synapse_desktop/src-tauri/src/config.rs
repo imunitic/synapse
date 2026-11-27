@@ -169,12 +169,6 @@ pub fn is_definition_name(name: &str) -> bool {
     name.len() <= 128 && matches(&CELL, r"^[A-Za-z][A-Za-z0-9_]*$", name)
 }
 
-/// The form the Agent Skills specification gives a skill's name.
-pub fn is_skill_name(name: &str) -> bool {
-    static CELL: OnceLock<Regex> = OnceLock::new();
-    name.len() <= 64 && matches(&CELL, r"^[a-z0-9]+(-[a-z0-9]+)*$", name)
-}
-
 /// A run's id names a directory, so it may not hold a separator or a dot.
 pub fn is_execution_id(name: &str) -> bool {
     static CELL: OnceLock<Regex> = OnceLock::new();

@@ -1,11 +1,11 @@
-// Which pipelines use a system, an agent or a skill, from what each pipeline
+// Which pipelines use a system, an agent or a prompt, from what each pipeline
 // says about itself.
 
 import type { Transport } from '../../shared/transport.ts'
 import { listDefinitions, type Definition } from './definitions.ts'
 import { describePipeline, type PipelineDescription } from './pipelines.ts'
 
-export type ReferencedKind = 'system' | 'agent' | 'skill'
+export type ReferencedKind = 'system' | 'agent' | 'prompt'
 
 export interface Reference {
   kind: ReferencedKind
@@ -14,38 +14,17 @@ export interface Reference {
   step: string
 }
 
-// What the steps of a pipeline are built from: the systems and agents in their
-// origins, and the skills they name as their role or their assignment.
+// What the steps of a pipeline are built from: the systems, agents and prompts in their
+// origins, each once for a step.
 export function referencesOf(description: PipelineDescription): Reference[] {
-  const found: Reference[] = []
-  for (const step of description.steps) {
-    for (const origin of step.origins) {
-      found.push({
-        kind: origin.kind,
-        name: origin.name,
-        pipeline: description.name,
-        step: step.name,
-      })
-    }
-    for (const instruction of [step.role, step.assignment]) {
-      if (instruction?.kind === 'skill') {
-        found.push({
-          kind: 'skill',
-          name: instruction.name,
-          pipeline: description.name,
-          step: step.name,
-        })
-      }
-    }
-  }
-  // A skill may be both the role and the assignment of one step.
-  const seen = new Set<string>()
-  return found.filter((r) => {
-    const key = `${r.kind}:${r.name}:${r.pipeline}:${r.step}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  return description.steps.flatMap((step) =>
+    step.origins.map((origin) => ({
+      kind: origin.kind,
+      name: origin.name,
+      pipeline: description.name,
+      step: step.name,
+    })),
+  )
 }
 
 export interface ReferenceIndex {

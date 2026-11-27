@@ -6,8 +6,8 @@ with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.Source_Errors;
 
 --  Every definition the search directories hold, in one namespace. A
---  definition file ends in `.synapse`, holds one pipeline, system or agent,
---  and is named after what it declares. A name belongs to exactly one
+--  definition file ends in `.synapse`, holds one pipeline, system, agent or
+--  prompt, and is named after what it declares. A name belongs to exactly one
 --  definition whatever its kind, so two files claiming one name make that
 --  name unusable and nothing shadows anything.
 --

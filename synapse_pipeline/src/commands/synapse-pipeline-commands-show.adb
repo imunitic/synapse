@@ -8,7 +8,6 @@ with Synapse.Pipeline.Syntax;
 with Synapse.Pipeline.Commands.Usage;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Descriptions;
-with Synapse.Pipeline.Instructions;
 with Synapse.Pipeline.Prompts;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Search_Paths;
@@ -59,7 +58,8 @@ package body Synapse.Pipeline.Commands.Show is
      (case Kind is
         when Syn.Pipeline_Definition => "pipeline",
         when Syn.System_Definition   => "system",
-        when Syn.Agent_Definition    => "agent");
+        when Syn.Agent_Definition    => "agent",
+        when Syn.Prompt_Definition   => "prompt");
 
    function Value_JSON (Item : Syn.Value) return JSON.Value is
      (case Item.Kind is
@@ -84,12 +84,18 @@ package body Synapse.Pipeline.Commands.Show is
       return False;
    end Names_Target;
 
+   --  The attribute that names a definition of Kind.
+   function Key_For (Kind : Syn.Definition_Kind) return String is
+     (case Kind is
+        when Syn.System_Definition => "System",
+        when Syn.Prompt_Definition => "Prompt",
+        when others                => "Agent");
+
    function Uses
      (Item : Syn.Definition; Name : String; Kind : Syn.Definition_Kind)
       return Boolean
    is
-      Key : constant String :=
-        (if Kind = Syn.System_Definition then "System" else "Agent");
+      Key : constant String := Key_For (Kind);
    begin
       case Item.Kind is
          when Syn.Pipeline_Definition =>
@@ -100,21 +106,23 @@ package body Synapse.Pipeline.Commands.Show is
             end loop;
             return False;
          when Syn.System_Definition =>
-            return Kind = Syn.Agent_Definition
+            return Kind in Syn.Agent_Definition | Syn.Prompt_Definition
               and then Names_Target (Item.Attributes, Key, Name);
          when Syn.Agent_Definition =>
+            return Kind = Syn.Prompt_Definition
+              and then Names_Target (Item.Attributes, Key, Name);
+         when Syn.Prompt_Definition =>
             return False;
       end case;
    end Uses;
 
-   --  The names of the steps of a pipeline that name Name, a system or an
-   --  agent; none for a definition that is not a pipeline.
+   --  The names of the steps of a pipeline that name Name, a system, an
+   --  agent or a prompt; none for a definition that is not a pipeline.
    function Steps_Using
      (Item : Syn.Definition; Name : String; Kind : Syn.Definition_Kind)
       return JSON.Value
    is
-      Key   : constant String :=
-        (if Kind = Syn.System_Definition then "System" else "Agent");
+      Key   : constant String := Key_For (Kind);
       Count : constant Natural :=
         (if Item.Kind = Syn.Pipeline_Definition
          then Natural (Item.Steps.Length) else 0);
@@ -132,9 +140,9 @@ package body Synapse.Pipeline.Commands.Show is
       return JSON.Make_Array (Names (1 .. Last));
    end Steps_Using;
 
-   --  The definitions that name Name, a system or an agent, in alphabetical
-   --  order: each as an object of its kind, name, file and the steps that
-   --  name it.
+   --  The definitions that name Name, a system, an agent or a prompt, in
+   --  alphabetical order: each as an object of its kind, name, file and the
+   --  steps that name it.
    function Used_By
      (Defs : Namespaces.Namespace; Name : String; Kind : Syn.Definition_Kind)
       return JSON.Value
@@ -165,7 +173,8 @@ package body Synapse.Pipeline.Commands.Show is
       return JSON.Make_Array (Items (1 .. Last));
    end Used_By;
 
-   --  A system or an agent: its attributes as written and who uses it.
+   --  A system, an agent or a prompt: its attributes as written and who uses
+   --  it.
    function Definition_Document
      (Defs : Namespaces.Namespace; Name : String) return JSON.Value
    is
@@ -226,15 +235,13 @@ package body Synapse.Pipeline.Commands.Show is
       return To_String (Result);
    end Definition_Layout;
 
-   --  A role or assignment: what kind it is and, for a prompt, how long.
+   --  A role or assignment: how long its prompt is, or `-` when it has none.
    function Instruction_Line (Item : JSON.Value; Key : String) return String
    is
       Given : constant JSON.Value := JSON.Member_Value (Item, Key);
    begin
       if JSON.Kind_Of (Given) /= JSON.JSON_Object then
          return "-";
-      elsif Text_Of (Given, "kind") = "skill" then
-         return "skill " & Text_Of (Given, "name");
       end if;
       return "prompt," & Natural'Image (Text_Of (Given, "text")'Length)
         & " characters";
@@ -330,7 +337,8 @@ package body Synapse.Pipeline.Commands.Show is
       return JSON.Make_Object (Members);
    end With_Origin;
 
-   --  The system or agent called Name, as a definition document, or False
+   --  The system, agent or prompt called Name, as a definition document, or
+   --  False
    --  when Name is not one.
    function Print_Definition
      (Env : Environment; Name, Format : String) return Boolean
@@ -398,7 +406,6 @@ package body Synapse.Pipeline.Commands.Show is
    function Print_Prompt
      (Env         : Environment;
       Item        : Resolved.Pipeline;
-      Skill_Roots : Search_Paths.Root_Vectors.Vector;
       Step_Name   : String;
       Input_Path  : String;
       Format      : String;
@@ -417,23 +424,13 @@ package body Synapse.Pipeline.Commands.Show is
             end if;
             declare
                Chosen  : constant Resolved.Step := Item.Steps (Index);
-               Role    : Unbounded_String;
-               Task_Of : Unbounded_String;
-               Folder  : Unbounded_String;
-               Problem : Unbounded_String;
+               Role    : constant Unbounded_String :=
+                 (if Chosen.Role.Present then Chosen.Role.Text
+                  else Null_Unbounded_String);
+               Task_Of : constant Unbounded_String :=
+                 (if Chosen.Assignment.Present then Chosen.Assignment.Text
+                  else Null_Unbounded_String);
             begin
-               Instructions.Text_Of
-                 (Env.Files.all, Skill_Roots, Chosen.Role, Role, Folder,
-                  Problem);
-               if Length (Problem) = 0 then
-                  Instructions.Text_Of
-                    (Env.Files.all, Skill_Roots, Chosen.Assignment, Task_Of,
-                     Folder, Problem);
-               end if;
-               if Length (Problem) > 0 then
-                  Complain (Env, "error: " & To_String (Problem) & LF);
-                  return 1;
-               end if;
                declare
                   Parts  : constant Prompts.Part_Vectors.Vector :=
                     Prompts.Parts
@@ -535,12 +532,11 @@ package body Synapse.Pipeline.Commands.Show is
       end if;
 
       declare
-         Settled     : constant Configs.Config_Results.Result :=
+         Settled : constant Configs.Config_Results.Result :=
            Configs.Resolve (Env.Vars.all, Env.Files.Current_Directory);
-         Ok          : Boolean;
-         Item        : Resolved.Pipeline;
-         File        : Unbounded_String;
-         Skill_Roots : Search_Paths.Root_Vectors.Vector;
+         Ok      : Boolean;
+         Item    : Resolved.Pipeline;
+         File    : Unbounded_String;
       begin
          if not Configs.Config_Results.Is_Success (Settled) then
             Complain
@@ -549,13 +545,13 @@ package body Synapse.Pipeline.Commands.Show is
                & LF);
             return 1;
          end if;
-         Loading.Load (Env, To_String (Name), Ok, Item, File, Skill_Roots);
+         Loading.Load (Env, To_String (Name), Ok, Item, File);
          if not Ok then
             return 1;
          end if;
          if Length (Step) > 0 then
             return Print_Prompt
-              (Env, Item, Skill_Roots, To_String (Step),
+              (Env, Item, To_String (Step),
                To_String (Input_Path), To_String (Format), Interactive);
          end if;
          declare

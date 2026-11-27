@@ -9,6 +9,7 @@ with Synapse.Pipeline.Syntax;
 package body Synapse.Pipeline.Resolution is
 
    use Ada.Strings.Unbounded;
+   use type Resolved.Origin_Kind;
    use type Syntax.Definition_Kind;
    use type Syntax.Value_Kind;
    use type Syntax.Attribute_Vectors.Cursor;
@@ -37,25 +38,6 @@ package body Synapse.Pipeline.Resolution is
         when Syntax.Name_Value   => To_String (Item.Name),
         when Syntax.String_Value => To_String (Item.Text),
         when others              => "");
-
-   --  The instructions a list of attributes gives: its prompt, else its skill.
-   function Instruction_Of (List : Syntax.Attribute_Vectors.Vector)
-      return Resolved.Instruction
-   is
-      Prompt : constant Syntax.Attribute_Vectors.Cursor :=
-        Find (List, "Prompt");
-      Skill  : constant Syntax.Attribute_Vectors.Cursor :=
-        Find (List, "Skill");
-   begin
-      if Prompt /= Syntax.Attribute_Vectors.No_Element then
-         return (Present => True, Kind => Resolved.Prompt_Text,
-                 Text => Syntax.Attribute_Vectors.Element (Prompt).Item.Text);
-      elsif Skill /= Syntax.Attribute_Vectors.No_Element then
-         return (Present => True, Kind => Resolved.Skill_Name,
-                 Text => Syntax.Attribute_Vectors.Element (Skill).Item.Text);
-      end if;
-      return (Present => False);
-   end Instruction_Of;
 
    function Resolve
      (Defs            : Namespaces.Namespace;
@@ -107,6 +89,63 @@ package body Synapse.Pipeline.Resolution is
          return Syntax.Attribute_Vectors.Empty_Vector;
       end Referred;
 
+      --  The instruction a list of attributes gives through its `Prompt`:
+      --  the text written in place, or the text of the Prompt definition it
+      --  names. A named prompt is appended to Origins, once per name. Set
+      --  Missing to the name when it names no loaded Prompt definition.
+      function Instruction_Of
+        (List    : Syntax.Attribute_Vectors.Vector;
+         Origins : in out Resolved.Origin_Vectors.Vector;
+         Missing : in out Unbounded_String)
+         return Resolved.Instruction
+      is
+         C : constant Syntax.Attribute_Vectors.Cursor := Find (List, "Prompt");
+      begin
+         if C = Syntax.Attribute_Vectors.No_Element then
+            return (Present => False);
+         end if;
+         declare
+            Item : constant Syntax.Value :=
+              Syntax.Attribute_Vectors.Element (C).Item;
+         begin
+            if Item.Kind /= Syntax.Name_Value then
+               return (Present => True, Text => Item.Text);
+            end if;
+            declare
+               Named  : constant String := To_String (Item.Name);
+               Prompt : constant Syntax.Attribute_Vectors.Vector :=
+                 Referred (List, "Prompt", Syntax.Prompt_Definition);
+               Own    : constant Syntax.Attribute_Vectors.Cursor :=
+                 Find (Prompt, "Prompt");
+               Listed : Boolean := False;
+            begin
+               if not Exists (Named, Syntax.Prompt_Definition)
+                 or else Own = Syntax.Attribute_Vectors.No_Element
+               then
+                  Missing := To_Unbounded_String (Named);
+                  return (Present => False);
+               end if;
+               for O of Origins loop
+                  if O.Kind = Resolved.Prompt_Origin
+                    and then To_String (O.Name) = Named
+                  then
+                     Listed := True;
+                  end if;
+               end loop;
+               if not Listed then
+                  Origins.Append
+                    (Resolved.Origin'
+                       (Kind => Resolved.Prompt_Origin,
+                        Name => To_Unbounded_String (Named),
+                        File => Namespaces.Element (Defs, Named).Path));
+               end if;
+               return
+                 (Present => True,
+                  Text    => Syntax.Attribute_Vectors.Element (Own).Item.Text);
+            end;
+         end;
+      end Instruction_Of;
+
       function Merge_Step
         (S : Syntax.Step; File : String; Made : out Resolved.Step)
          return Resolve_Results.Result
@@ -137,6 +176,13 @@ package body Synapse.Pipeline.Resolution is
            (Pick (Attribute_Name) /= Syntax.Attribute_Vectors.No_Element);
 
          Agent_Attributes : Syntax.Attribute_Vectors.Vector;
+         Missing          : Unbounded_String;
+
+         function No_Prompt return Resolve_Results.Result is
+           (Failure
+              (File, S.Name,
+               "step '" & To_String (S.Name.Name) & "' names prompt '"
+               & To_String (Missing) & "', which there is not"));
       begin
          Made.Name := S.Name.Name;
 
@@ -193,7 +239,6 @@ package body Synapse.Pipeline.Resolution is
                end if;
             end;
          end if;
-         Made.Role := Instruction_Of (Agent_Attributes);
          if Given ("Agent") then
             declare
                Named : constant String := Text_Of (Picked ("Agent"));
@@ -206,9 +251,19 @@ package body Synapse.Pipeline.Resolution is
             end;
          end if;
 
+         Made.Role :=
+           Instruction_Of (Agent_Attributes, Made.Origins, Missing);
+         if Length (Missing) > 0 then
+            return No_Prompt;
+         end if;
+
          Made.Assignment :=
-           (if Has (Own, "Prompt") or else Has (Own, "Skill")
-            then Instruction_Of (Own) else Instruction_Of (System));
+           Instruction_Of
+             ((if Has (Own, "Prompt") then Own else System), Made.Origins,
+              Missing);
+         if Length (Missing) > 0 then
+            return No_Prompt;
+         end if;
 
          if Given ("Model") then
             Made.Model :=

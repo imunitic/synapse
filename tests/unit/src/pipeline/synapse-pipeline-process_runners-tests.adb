@@ -12,7 +12,6 @@ with Synapse.Pipeline.Fake_Registry;
 with Synapse.Pipeline.Registry_Store;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Resolved;
-with Synapse.Pipeline.Search_Paths;
 
 package body Synapse.Pipeline.Process_Runners.Tests is
 
@@ -55,10 +54,10 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       Result.Name := To_Unbounded_String ("Develop");
       Result.Harness := Harness;
       Result.Role :=
-        (Present => True, Kind => Resolved.Prompt_Text,
+        (Present => True,
          Text => To_Unbounded_String ("You are a developer."));
       Result.Assignment :=
-        (Present => True, Kind => Resolved.Prompt_Text,
+        (Present => True,
          Text => To_Unbounded_String ("Implement the feature."));
       return Result;
    end Prompt_Step;
@@ -231,22 +230,22 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       end;
    end Nothing_Is_Kept_Without_A_Record_To_Keep_It_In;
 
-   procedure A_Skill_Is_Read_Into_The_Prompt (T : in out Test_Cases_Class) is
+   procedure A_Prompt_Definition_Is_Sent_As_Its_Text
+     (T : in out Test_Cases_Class)
+   is
       pragma Unreferenced (T);
-      Process : aliased Fake_Process.Fake_Process;
-      Files   : aliased Fake_Files.Fake_Files;
+      Process  : aliased Fake_Process.Fake_Process;
+      Files    : aliased Fake_Files.Fake_Files;
       Registry : aliased Fake_Registry.Fake_Registry;
       Runner   : Process_Runner
         (Process'Access, Files'Access, Registry'Access);
-      Step    : Resolved.Step := Prompt_Step;
-      Root    : Search_Paths.Root;
+      Step     : Resolved.Step := Prompt_Step;
    begin
-      Root.Path := To_Unbounded_String ("/skills");
-      Runner.Skill_Roots.Append (Root);
-      Files.Add_File ("/skills/review-code/SKILL.md", "Review it carefully.");
+      --  What resolution leaves of `Prompt => Review_Code`: the text of the
+      --  Prompt definition.
       Step.Assignment :=
-        (Present => True, Kind => Resolved.Skill_Name,
-         Text => To_Unbounded_String ("review-code"));
+        (Present => True,
+         Text => To_Unbounded_String ("Review it carefully."));
       Process.Outcomes.Append (Fake_Process.Exited (Claude_Said ("Done")));
       declare
          Got  : constant Sessions.Session_Result :=
@@ -261,51 +260,13 @@ package body Synapse.Pipeline.Process_Runners.Tests is
          end loop;
          Assert (Got.Succeeded, "it succeeded");
          Assert
-           (Has (Text, "Review it carefully.")
-            and then Has (Text, "/skills/review-code"),
-            "the skill's text, and where its files are, are in the prompt");
+           (Has (Text, "Review it carefully."),
+            "the prompt's text is in the prompt: " & Text);
          Assert
-           (Has (To_String (Args), "--add-dir /skills/review-code"),
-            "Claude can reach the skill's files");
+           (not Has (To_String (Args), "--add-dir"),
+            "and no directory is added: " & To_String (Args));
       end;
-   end A_Skill_Is_Read_Into_The_Prompt;
-
-   procedure A_Skill_That_Cannot_Be_Found_Fails_Without_A_Process
-     (T : in out Test_Cases_Class)
-   is
-      pragma Unreferenced (T);
-      Process : aliased Fake_Process.Fake_Process;
-      Files   : aliased Fake_Files.Fake_Files;
-      Registry : aliased Fake_Registry.Fake_Registry;
-      Runner   : Process_Runner
-        (Process'Access, Files'Access, Registry'Access);
-      Step    : Resolved.Step := Prompt_Step;
-      Root    : Search_Paths.Root;
-   begin
-      Root.Path := To_Unbounded_String ("/skills");
-      Runner.Skill_Roots.Append (Root);
-      Step.Assignment :=
-        (Present => True, Kind => Resolved.Skill_Name,
-         Text => To_Unbounded_String ("nowhere"));
-      declare
-         Got : constant Sessions.Session_Result :=
-           Runner.Run_Session (Request_Of (Step));
-      begin
-         Assert
-           (not Got.Succeeded
-            and then Got.Failure.Kind = Failures.Execution_Error
-            and then Has
-              (To_String (Got.Failure.Message),
-               "skill 'nowhere' was not found")
-            and then Has (To_String (Got.Failure.Message), "/skills"),
-            "it says which skill and where it looked: "
-            & (if Got.Succeeded then "" else To_String (Got.Failure.Message)));
-         Assert
-           (To_String (Got.Failure.Step) = "Develop",
-            "and in which step");
-      end;
-      Assert (Process.Requests.Is_Empty, "no process was run");
-   end A_Skill_That_Cannot_Be_Found_Fails_Without_A_Process;
+   end A_Prompt_Definition_Is_Sent_As_Its_Text;
 
    function Fails
      (Outcome : Session_Process.Process_Outcome;
@@ -445,11 +406,9 @@ package body Synapse.Pipeline.Process_Runners.Tests is
         (T, Nothing_Is_Kept_Without_A_Record_To_Keep_It_In'Access,
          "Nothing is kept without a record to keep it in");
       Register_Routine
-        (T, A_Skill_Is_Read_Into_The_Prompt'Access,
-         "A skill is read into the prompt");
-      Register_Routine
-        (T, A_Skill_That_Cannot_Be_Found_Fails_Without_A_Process'Access,
-         "A skill that cannot be found fails without a process");
+        (T, A_Prompt_Definition_Is_Sent_As_Its_Text'Access,
+         "A step whose prompt came from a Prompt definition is sent that "
+         & "text");
       Register_Routine
         (T, A_Harness_That_Is_Not_Installed_Is_An_Execution_Error'Access,
          "A harness that is not installed is an execution error");

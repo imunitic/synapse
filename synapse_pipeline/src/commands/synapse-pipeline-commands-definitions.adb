@@ -15,6 +15,8 @@ package body Synapse.Pipeline.Commands.Definitions is
    package JSON renames Synapse.Core.JSON;
    package Syn renames Synapse.Pipeline.Syntax;
 
+   use type Syn.Value_Kind;
+
    LF : constant Character := Character'Val (10);
 
    Format : constant String := "synapse-pipeline-definitions/v1";
@@ -29,7 +31,21 @@ package body Synapse.Pipeline.Commands.Definitions is
      (case Kind is
         when Syn.Pipeline_Definition => "pipeline",
         when Syn.System_Definition   => "system",
-        when Syn.Agent_Definition    => "agent");
+        when Syn.Agent_Definition    => "agent",
+        when Syn.Prompt_Definition   => "prompt");
+
+   --  The text of a definition's Description, or null when it has none.
+   function Description_JSON (Item : Syn.Definition) return JSON.Value is
+   begin
+      for A of Item.Attributes loop
+         if To_String (A.Name.Name) = "Description"
+           and then A.Item.Kind = Syn.String_Value
+         then
+            return JSON.Make_String (To_String (A.Item.Text));
+         end if;
+      end loop;
+      return JSON.Null_Value;
+   end Description_JSON;
 
    function Problem_JSON (Item : Source_Errors.Source_Error) return JSON.Value
    is
@@ -73,7 +89,8 @@ package body Synapse.Pipeline.Commands.Definitions is
                    ([Member ("kind", JSON.Make_String (Kind)),
                      Member ("name", JSON.Make_String (Name)),
                      Member
-                       ("file", JSON.Make_String (To_String (Loaded.Path)))]);
+                       ("file", JSON.Make_String (To_String (Loaded.Path))),
+                     Member ("description", Description_JSON (Loaded.Item))]);
                Append
                  (Text,
                   Kind & " " & Name & "  "
