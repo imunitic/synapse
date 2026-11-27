@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { expect, type Page } from '@playwright/test'
 import { resetSettings, worldAt, type World } from './world.ts'
@@ -61,4 +62,22 @@ export async function openCard(page: Page, name: 'Outcomes' | 'Trace' | 'Events'
   const button = page.getByLabel(name, { exact: true }).locator('.card-fold')
   if ((await button.getAttribute('aria-expanded')) === 'false') await button.click()
   await expect(button).toHaveAttribute('aria-expanded', 'true')
+}
+
+// Starts a run without a terminal from the command line, as the run dialog does not, and opens its
+// page from the Executions panel. The engine answers with the world's script, so the run goes on in
+// the background and ends by itself; its id is returned.
+export async function startRunWithoutTerminal(page: Page, pipeline: string): Promise<string> {
+  const id = `exec-${randomBytes(4).toString('hex')}`
+  spawn('synapse-pipeline', ['run', pipeline, '--id', id], {
+    cwd: world().root,
+    stdio: 'ignore',
+  }).unref()
+  await page.goto('/')
+  await openSection(page, 'Executions')
+  const row = sidePanel(page).locator(`.list-row[data-execution="${id}"] .list-item`)
+  await expect(row).toBeVisible({ timeout: 30_000 })
+  await row.click()
+  await expect(page.getByRole('heading', { level: 1, name: id })).toBeVisible()
+  return id
 }

@@ -42,31 +42,6 @@ export function interactiveProblem(result: CliResult): string | null {
     : 'This pipeline cannot be run interactively.'
 }
 
-// The choice to run without a terminal is kept for each pipeline in the browser, and is off where
-// nothing was kept or the storage cannot be used.
-const choiceKey = (pipeline: string) => `run-autonomous:${pipeline}`
-
-export function readAutonomous(storage: Pick<Storage, 'getItem'>, pipeline: string): boolean {
-  try {
-    return storage.getItem(choiceKey(pipeline)) === '1'
-  } catch {
-    return false
-  }
-}
-
-export function writeAutonomous(
-  storage: Pick<Storage, 'setItem' | 'removeItem'>,
-  pipeline: string,
-  on: boolean,
-): void {
-  try {
-    if (on) storage.setItem(choiceKey(pipeline), '1')
-    else storage.removeItem(choiceKey(pipeline))
-  } catch {
-    // The choice is only a convenience.
-  }
-}
-
 // The folder an interactive run works in is kept for each pipeline too, and is the default folder
 // of the terminals where none was kept.
 const folderKey = (pipeline: string) => `run-folder:${pipeline}`

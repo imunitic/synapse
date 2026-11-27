@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from './fixtures.ts'
-import { launchCard, openLaunch, openSection, world } from './helpers.ts'
+import { launchCard, openLaunch, startRunWithoutTerminal, world } from './helpers.ts'
 
 const bar = (page: Page) => page.getByRole('tablist', { name: 'Open pages' })
 const order = async (page: Page) => bar(page).getByRole('tab').allInnerTexts()
@@ -201,18 +201,7 @@ test('asks first for the page of a run that is going on, and says it goes on', a
   slow.Work = [{ ...(slow.Work?.[0] ?? { delay_seconds: 0 }), delay_seconds: 6 }]
   writeFileSync(world().script, JSON.stringify(slow))
   try {
-    await page.goto('/')
-    await openSection(page, 'Definitions')
-    await page
-      .getByLabel('Side panel')
-      .getByRole('button', { name: 'Fixture_Run', exact: true })
-      .click()
-    await page.getByRole('button', { name: 'Run', exact: true }).click()
-    // The box is ticked and disabled until the pipeline is checked, so wait for it to be free.
-    await expect(page.getByLabel(/Run without a terminal/)).toBeEnabled()
-    await page.getByLabel(/Run without a terminal/).check()
-    await page.getByRole('button', { name: 'Start run' }).click()
-    await expect(page.getByText('Execution', { exact: true })).toBeVisible()
+    await startRunWithoutTerminal(page, 'Fixture_Run')
     // The tab of the run is the one showing, and is found by its name when it is not.
     const name = await page.locator('.tabbar .tab[data-selected="true"] [role="tab"]').innerText()
     const run = tab(page, name)

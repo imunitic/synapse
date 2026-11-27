@@ -248,7 +248,7 @@ test('the run dialog', async ({ page }) => {
     .getByRole('button', { name: 'Run Develop_Feature' })
     .click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByLabel(/Run without a terminal/)).toBeEnabled()
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeEnabled()
   await shot(page, 'run-dialog')
 })
 
