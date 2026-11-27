@@ -55,3 +55,10 @@ export function editor(page: Page) {
 export function resetWorldSettings(): void {
   resetSettings(world())
 }
+
+// Opens a folding card of the execution page, if it is folded, so its rows can be read.
+export async function openCard(page: Page, name: 'Outcomes' | 'Trace' | 'Events'): Promise<void> {
+  const button = page.getByLabel(name, { exact: true }).locator('.card-fold')
+  if ((await button.getAttribute('aria-expanded')) === 'false') await button.click()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+}

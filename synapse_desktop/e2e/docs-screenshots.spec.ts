@@ -290,7 +290,7 @@ test('the outline of a note', async ({ page }) => {
 
 test('what a run changed, in the Changes sidebar', async ({ page }) => {
   await openFixtureRun(page)
-  await page.getByRole('button', { name: 'Changes', exact: true }).click()
+  await page.getByRole('button', { name: /^Show or hide the changes/ }).click()
   const sidebar = page.getByRole('complementary', { name: 'Changes' })
   await expect(sidebar).toContainText('3 files changed')
   await expect(sidebar.getByRole('region', { name: 'Changes in src/render.adb' })).toBeVisible()

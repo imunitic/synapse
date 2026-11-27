@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.ts'
-import { openSection, sidePanel, world } from './helpers.ts'
+import { openCard, openSection, sidePanel, world } from './helpers.ts'
 
 test('a run is started from a pipeline and followed to its end', async ({ page }) => {
   await page.goto('/')
@@ -39,6 +39,7 @@ test('a run is started from a pipeline and followed to its end', async ({ page }
   ).toBeVisible({
     timeout: 30_000,
   })
+  await openCard(page, 'Trace')
   const trace = page.getByLabel('Trace')
   await expect(trace).toContainText('Changes_Requested → Develop')
   await expect(trace).toContainText('Approved → the run completes')
@@ -201,7 +202,7 @@ test('a finished run is deleted from its page', async ({ page }) => {
 test("a running run's row has no delete button", async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')
-  await sidePanel(page).getByRole('button', { name: 'Fixture_Run', exact: true }).click()
+  await sidePanel(page).getByRole('button', { name: 'Held_Run', exact: true }).click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
@@ -260,7 +261,7 @@ test('several runs are deleted in selection mode', async ({ page }) => {
 test('Select all leaves out a running run', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')
-  await sidePanel(page).getByRole('button', { name: 'Fixture_Run', exact: true }).click()
+  await sidePanel(page).getByRole('button', { name: 'Held_Run', exact: true }).click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
@@ -496,6 +497,7 @@ test('what an agent did in a step is read from its transcript', async ({ page })
   await page.goto('/')
   await openSection(page, 'Executions')
   await runRow(page, 'exec-fixture1').locator('.list-item').click()
+  await openCard(page, 'Trace')
   await page.getByRole('button', { name: 'Activity' }).click()
 
   const activity = page.getByLabel('Trace')
@@ -513,6 +515,60 @@ test('what an agent did in a step is read from its transcript', async ({ page })
   await expect(actions.nth(3)).toContainText('Wrote the word.')
   await page.getByRole('button', { name: 'Hide activity' }).click()
   await expect(actions).toHaveCount(0)
+})
+
+test('the outcomes come first, and the trace and events are folded until opened, on every run', async ({
+  page,
+}) => {
+  const open = async () => {
+    await openSection(page, 'Executions')
+    await runRow(page, 'exec-fixture1').locator('.list-item').click()
+    await expect(page.getByRole('heading', { level: 1, name: 'exec-fixture1' })).toBeVisible()
+  }
+  await page.goto('/')
+  await open()
+
+  // Below the summary come the definitions, then the outcomes, the trace and the events. The
+  // definitions are read on their own and can show after the rest, so the order is asked again
+  // until it settles.
+  const cards = page.locator('.content section.card')
+  await expect
+    .poll(async () => {
+      const labels = await cards.evaluateAll((all) => all.map((c) => c.getAttribute('aria-label')))
+      return labels.slice(labels.indexOf('Summary') + 1)
+    })
+    .toEqual(['Definitions it ran', 'Outcomes', 'Trace', 'Events'])
+
+  // The outcomes are open, the trace and the events folded, with how many rows each has.
+  const fold = (name: string) => page.getByLabel(name, { exact: true }).locator('.card-fold')
+  await expect(fold('Outcomes')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByLabel('Outcomes').locator('.trace > div').first()).toBeVisible()
+  await expect(fold('Trace')).toHaveText(/^Trace · \d+ visits?$/)
+  await expect(fold('Events')).toHaveText(/^Events · \d+$/)
+  await expect(fold('Trace')).toHaveAttribute('aria-expanded', 'false')
+  await expect(fold('Events')).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByLabel('Trace').locator('.trace > div')).toHaveCount(0)
+  await expect(page.getByLabel('Events').locator('.event')).toHaveCount(0)
+
+  // The trace opens from the keyboard, and its rows have no link to the changes.
+  await fold('Trace').focus()
+  await page.keyboard.press('Enter')
+  await expect(fold('Trace')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByLabel('Trace').locator('.trace > div').first()).toBeVisible()
+  await expect(
+    page.getByLabel('Trace').getByRole('button', { name: 'Changes', exact: true }),
+  ).toHaveCount(0)
+
+  // The outcomes fold, and their rows go.
+  await fold('Outcomes').click()
+  await expect(fold('Outcomes')).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByLabel('Outcomes').locator('.trace > div')).toHaveCount(0)
+
+  // The choice is kept for the next time a run is opened.
+  await page.reload()
+  await open()
+  await expect(fold('Trace')).toHaveAttribute('aria-expanded', 'true')
+  await expect(fold('Outcomes')).toHaveAttribute('aria-expanded', 'false')
 })
 
 test('an interactive run has its terminal on the page of the run', async ({ page }) => {

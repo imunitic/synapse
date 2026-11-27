@@ -73,6 +73,11 @@ Pipeline Develop_Feature {
    Work [Harness => Claude, Prompt => "Read notes.txt, write result.txt and list the folder."];
 }
 `,
+  // A run that stays running until a test stops it: its one step answers only after two minutes.
+  'Held_Run.synapse': `Pipeline Held_Run {
+   Hold [Harness => Claude, Prompt => "Take your time."];
+}
+`,
 }
 
 const SKILLS: Record<string, string> = {
@@ -113,6 +118,7 @@ const ANSWERS = {
     { outcome: 'Approved', summary: 'looks good', data: {}, delay_seconds: 0.3 },
   ],
   Work: [{ outcome: 'Done', summary: 'worked', data: {}, delay_seconds: 0.1 }],
+  Hold: [{ outcome: 'Done', summary: 'held', data: {}, delay_seconds: 120 }],
 }
 
 function write(path: string, text: string): void {

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { expect, test, type Page } from './fixtures.ts'
-import { launchCard, openLaunch, openSection, sidePanel, world } from './helpers.ts'
+import { launchCard, openCard, openLaunch, openSection, sidePanel, world } from './helpers.ts'
 
 // A repository with one commit, which a terminal is started in.
 function repository(): string {
@@ -306,8 +306,8 @@ test("a run's changes are everything it changed in its folder, and a repository 
     await expect(page.getByRole('heading', { level: 1, name: 'exec-fixture1' })).toBeVisible()
     await expect(sidebar(page)).toHaveCount(0)
 
-    // The Trace's link opens the changes of the whole run, from its start to its end.
-    await page.getByRole('button', { name: 'Changes', exact: true }).click()
+    // The toggle opens the changes of the whole run, from its start to its end.
+    await toggle(page).click()
     await expect(sidebar(page)).toContainText('3 files changed')
     await expect(toggle(page)).toContainText('3')
     // A run has its changes only: there is no Git tab, no step to choose, and its lines cannot be
@@ -363,6 +363,7 @@ test('a file an activity says was changed opens its diff in the sidebar, and a f
   await page.goto('/')
   await openSection(page, 'Executions')
   await sidePanel(page).locator('.list-row[data-execution="exec-fixture1"] .list-item').click()
+  await openCard(page, 'Trace')
   await page.getByRole('button', { name: 'Activity' }).click()
   await expect(sidebar(page)).toHaveCount(0)
 

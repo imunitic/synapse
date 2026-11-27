@@ -325,6 +325,27 @@
   font-weight: 600;
 }
 
+/* The title of a card that folds: the whole header row is the button, chevron first. */
+.card-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-fold:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .card-body {
   display: flex;
   flex-direction: column;
