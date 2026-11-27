@@ -34,6 +34,11 @@ jobs:
           envs: DEPLOY_REPOSITORY,DEPLOY_COMMIT,DEPLOY_GIT_AUTH
           script: |
             set -eu
+            test "$(whoami)" = synapse-deploy
+            export DOCKER_HOST=unix:///run/user/1001/docker.sock
+            unset DOCKER_CONTEXT
+            test -S /run/user/1001/docker.sock
+            docker info --format '{{json .SecurityOptions}}' | grep -q '"name=rootless"'
             cd /opt/synapse
             test -d .git
             test -f .env.live
