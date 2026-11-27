@@ -5,6 +5,9 @@ config=$(mktemp)
 export SYNAPSE_GATEWAY_CONFIG="$config"
 export SYNAPSE_BACKEND_A_TOKEN=ci-fixture-a
 export SYNAPSE_BACKEND_B_TOKEN=ci-fixture-b
+# Public CI-only fixture, never a deployment credential.
+proxy_token=$(printf 'a%.0s' {1..64})
+proxy_curl() { curl -H "X-Synapse-Proxy-Token: $proxy_token" "$@"; }
 compose=(docker compose -p synapse-private-ci -f compose.private-staging.yml)
 cleanup() {
   "${compose[@]}" logs --tail=50 || true
@@ -38,6 +41,7 @@ console.log(JSON.stringify({
   publicOrigin: 'https://staging.example.test',
   buildDirectory: '/opt/synapse/dist',
   trustedProxyAddresses: ['172.29.103.1'],
+  proxyToken: 'a'.repeat(64),
   accounts,
   hosts,
 }))
@@ -146,13 +150,17 @@ echo 'Gateway can reach both backends; cross-backend TCP connections blocked.'
 # Verify the published listener works and neither backend can reach it directly.
 ready=0
 for attempt in $(seq 1 30); do
-  if curl -fsS -H 'Host: staging.example.test' http://127.0.0.1:5180/login >/dev/null; then
+  if proxy_curl -fsS -H 'Host: staging.example.test' http://127.0.0.1:5180/login >/dev/null; then
     ready=1
     break
   fi
   sleep 1
 done
 [[ "$ready" == 1 ]]
+# A forged forwarded identity without the proxy credential must be rejected.
+[[ "$(curl -sS -o /dev/null -w '%{http_code}' \
+  -H 'Host: staging.example.test' -H 'X-Forwarded-For: 198.51.100.7' \
+  http://127.0.0.1:5180/login)" == 403 ]]
 # The loopback-published connection must arrive from the configured trusted peer.
 # Missing or ambiguous forwarded identities must fail closed; a single fixture
 # identity must permit the real composed login path.
@@ -172,7 +180,7 @@ echo 'Composed login accepts only a single forwarded identity from the fixture p
 
 # Capture only the fixture cookie in memory; replay it after logout to verify
 # server-side revocation rather than merely browser-side cookie clearing.
-cookie=$(curl -fsS -D - -o /dev/null \
+cookie=$(proxy_curl -fsS -D - -o /dev/null \
   -H 'Host: staging.example.test' \
   -H 'Origin: https://staging.example.test' \
   -H 'Content-Type: application/json' \
@@ -201,12 +209,12 @@ session_status() {
 }
 [[ "$(session_status http://127.0.0.1:5180/auth/me)" == 200 ]]
 for origin in '' 'https://attacker.example.test'; do
-  [[ "$(curl -sS -o /dev/null -w '%{http_code}' \
+  [[ "$(proxy_curl -sS -o /dev/null -w '%{http_code}' \
     -X POST -H 'Host: staging.example.test' -H "Origin: $origin" \
     -H "Cookie: $cookie" http://127.0.0.1:5180/auth/logout)" == 403 ]]
   [[ "$(session_status http://127.0.0.1:5180/auth/me)" == 200 ]]
 done
-[[ "$(curl -sS -o /dev/null -w '%{http_code}' \
+[[ "$(proxy_curl -sS -o /dev/null -w '%{http_code}' \
   -H 'Host: attacker.example.test' -H "Cookie: $cookie" \
   http://127.0.0.1:5180/auth/me)" == 403 ]]
 [[ "$(session_status -X POST http://127.0.0.1:5180/auth/logout)" == 200 ]]
