@@ -202,7 +202,7 @@ test('a finished run is deleted from its page', async ({ page }) => {
 test("a running run's row has no delete button", async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')
-  await sidePanel(page).getByRole('button', { name: 'Fixture_Run', exact: true }).click()
+  await sidePanel(page).getByRole('button', { name: 'Held_Run', exact: true }).click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
@@ -261,7 +261,7 @@ test('several runs are deleted in selection mode', async ({ page }) => {
 test('Select all leaves out a running run', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')
-  await sidePanel(page).getByRole('button', { name: 'Fixture_Run', exact: true }).click()
+  await sidePanel(page).getByRole('button', { name: 'Held_Run', exact: true }).click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
