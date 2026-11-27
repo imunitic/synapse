@@ -543,7 +543,7 @@ function IntegrationsPage({
               <p>
                 <strong>Are you sure?</strong> This opens a terminal tab and runs this in it:
               </p>
-              <pre className="mono small">{offer.command}</pre>
+              <pre className="command-block mono small">{commandLines(offer.command)}</pre>
               <p>
                 It installs the npm packages for every program on this machine, and writes into the
                 own configuration of {configured.map((h) => HARNESS_NAMES[h]).join(', ')}:
@@ -647,6 +647,12 @@ const TITLES: Record<SettingsSection, string> = {
   environment: 'Environment',
   integrations: 'Integrations',
   terminals: 'Terminals',
+}
+
+// A command of several steps joined by &&, one step on each line, so that it reads as a list and
+// still runs as written when copied.
+function commandLines(command: string): string {
+  return command.split(' && ').join(' &&\n')
 }
 
 // One category of the settings.

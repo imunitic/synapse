@@ -142,6 +142,17 @@
   border-radius: 6px;
 }
 
+/* A command shown before it runs: framed, and wrapped inside its box instead of running out of it. */
+.command-block {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: var(--tabbar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .confirm ul {
   margin: 4px 0 12px;
   padding-left: 20px;
