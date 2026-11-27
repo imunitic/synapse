@@ -1,5 +1,6 @@
-// What a person types in the Run dialog, and what it becomes: the input of a run is any JSON
-// value, handed to the first step as it is. Pure, so the dialog only has to show it.
+// What a person types in the Run dialog, and what it becomes: a JSON value. A pipeline that
+// declares its `Input` checks it, and may fill its one text field from a sentence. Pure, so the
+// dialog only has to show it.
 
 import type { CliResult } from '../../shared/transport.ts'
 

@@ -1,15 +1,18 @@
 package body Synapse.Pipeline.Sessions is
 
    function Request_For
-     (Item     : Resolved.Step;
-      Run      : States.State;
-      Settings : Configs.Config;
-      Attempt  : Positive := 1) return Session_Request
+     (Item           : Resolved.Step;
+      Run            : States.State;
+      Settings       : Configs.Config;
+      Attempt        : Positive := 1;
+      Declared_Input : Synapse.Core.JSON.Value :=
+        Synapse.Core.JSON.Null_Value) return Session_Request
    is
      (Step            => Item,
       Initial_Input   => Run.Initial_Input,
       Previous_Output => Run.Previous_Output,
       Settings        => Settings,
+      Declared_Input  => Declared_Input,
       Timeout_Seconds =>
         (if Item.Timeout_Seconds > 0 then Item.Timeout_Seconds
          else Settings.Default_Timeout_Seconds),

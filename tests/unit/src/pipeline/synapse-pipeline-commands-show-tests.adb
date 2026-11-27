@@ -642,6 +642,99 @@ package body Synapse.Pipeline.Commands.Show.Tests is
          "the words and meanings replace the free word");
    end A_Steps_Prompt_Lists_Its_Outcomes;
 
+   --  A pipeline that declares its input: a required task id and optional
+   --  instructions.
+   procedure Add_A_Pipeline_With_Input (F : in out Fixture) is
+   begin
+      F.Files.Add_File
+        ("/defs/Implement.synapse",
+         "Pipeline Implement [Input => {""fields"": {"
+         & """task_id"": {""type"": ""string"", ""required"": true,"
+         & " ""pattern"": ""^[a-z]+-[0-9]+$"","
+         & " ""description"": ""The task to implement.""},"
+         & """instructions"": {""type"": ""string"","
+         & " ""description"": ""Extra requirements.""}}}]"
+         & " { A [Harness => Claude, Prompt => ""Do it.""]; }");
+   end Add_A_Pipeline_With_Input;
+
+   procedure Show_Prints_The_Declared_Input (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+      G : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Pipeline_With_Input (F);
+      Assert
+        (Run (Env (F), Args ("Implement")) = 0,
+         "it can run: " & F.Base.Console.Err_Text);
+      Assert
+        (Has
+           (F.Base.Console.Out_Text,
+            "input:" & LF
+            & "  task_id  string  required  The task to implement." & LF
+            & "  instructions  string  optional  Extra requirements." & LF),
+         "a line per field: " & F.Base.Console.Out_Text);
+      Set_Up (G);
+      Assert
+        (Run (Env (G), Args ("Develop_Feature")) = 0
+         and then not Has (G.Base.Console.Out_Text, "input:"),
+         "nothing without a declaration");
+   end Show_Prints_The_Declared_Input;
+
+   procedure Show_Step_Writes_The_Input_As_A_List
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Pipeline_With_Input (F);
+      F.Files.Add_File ("/in.json", "{""task_id"": ""synapse-82""}");
+      Assert
+        (Run
+           (Env (F),
+            Args ("Implement", "--step", "A", "--input", "/in.json"))
+         = 0,
+         "the prompt: " & F.Base.Console.Err_Text);
+      Assert
+        (Has
+           (F.Base.Console.Out_Text,
+            "started with this input:" & LF
+            & "- task_id: synapse-82" & LF
+            & "  The task to implement." & LF
+            & "- instructions: (not given)" & LF
+            & "  Extra requirements."),
+         "each field with its description: " & F.Base.Console.Out_Text);
+   end Show_Step_Writes_The_Input_As_A_List;
+
+   procedure Show_Step_Refuses_A_Bad_Input_With_Code_2
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Add_A_Pipeline_With_Input (F);
+      F.Files.Add_File ("/in.json", "{""task"": ""x""}");
+      Assert
+        (Run
+           (Env (F),
+            Args ("Implement", "--step", "A", "--input", "/in.json"))
+         = 2,
+         "refused");
+      Assert
+        (F.Base.Console.Out_Text = "",
+         "no prompt: " & F.Base.Console.Out_Text);
+      Assert
+        (Has
+           (F.Base.Console.Err_Text,
+            "error: input.task_id: required field is missing" & LF)
+         and then Has
+                    (F.Base.Console.Err_Text,
+                     "error: input.task: unknown field" & LF),
+         "every problem: " & F.Base.Console.Err_Text);
+   end Show_Step_Refuses_A_Bad_Input_With_Code_2;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -704,6 +797,15 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Register_Routine
         (T, A_Prompt_Can_Be_Had_As_Json_And_Bad_Asks_Are_Errors'Access,
          "A prompt can be had as JSON and bad asks are errors");
+      Register_Routine
+        (T, Show_Prints_The_Declared_Input'Access,
+         "Show prints the declared input");
+      Register_Routine
+        (T, Show_Step_Writes_The_Input_As_A_List'Access,
+         "Show --step writes the input as a list");
+      Register_Routine
+        (T, Show_Step_Refuses_A_Bad_Input_With_Code_2'Access,
+         "Show --step refuses a bad input with code 2");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Show.Tests;

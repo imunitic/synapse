@@ -1107,6 +1107,19 @@
   margin-bottom: 8px;
 }
 
+/* JSON brackets, colored by depth: 0, 1, 2, then 0 again */
+.code-editor .cm-bracket-depth-0 {
+  color: var(--accent-text);
+}
+
+.code-editor .cm-bracket-depth-1 {
+  color: var(--info);
+}
+
+.code-editor .cm-bracket-depth-2 {
+  color: var(--caution);
+}
+
 .diagram-note {
   margin: 0 24px 8px;
 }

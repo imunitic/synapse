@@ -134,6 +134,48 @@ describe('the outcomes of a step', () => {
   })
 })
 
+describe('the input a pipeline declares', () => {
+  it('a description with input parses', () => {
+    const description = JSON.parse(DEVELOP_FEATURE_SHOW) as Record<string, unknown>
+    description.input = {
+      fields: [
+        {
+          name: 'task_id',
+          type: 'string',
+          required: true,
+          description: 'The task.',
+          pattern: '^[a-z]+-[0-9]+$',
+        },
+        {
+          name: 'files',
+          type: 'list',
+          required: false,
+          description: 'Files.',
+          items: {
+            fields: [{ name: 'path', type: 'string', required: true, description: 'A path.' }],
+          },
+        },
+      ],
+      checks: [{ '!=': [{ var: 'task_id' }, 'x-1'] }],
+      single_text_field: 'task_id',
+    }
+    const parsed = parseDescription(description)
+    expect(parsed?.input?.single_text_field).toBe('task_id')
+    expect(parsed?.input?.fields[0]).toMatchObject({ name: 'task_id', pattern: '^[a-z]+-[0-9]+$' })
+    expect(parsed?.input?.fields[1]?.items).toEqual({
+      fields: [{ name: 'path', type: 'string', required: true, description: 'A path.' }],
+    })
+    expect(parsed?.input?.checks).toHaveLength(1)
+  })
+
+  it('a description without input parses with null', () => {
+    expect(parseDescription(JSON.parse(DEVELOP_FEATURE_SHOW))?.input).toBeNull()
+    const explicit = JSON.parse(DEVELOP_FEATURE_SHOW) as Record<string, unknown>
+    explicit.input = null
+    expect(parseDescription(explicit)?.input).toBeNull()
+  })
+})
+
 describe('describeStepPrompt', () => {
   const prompt = JSON.stringify({
     format: 'synapse-pipeline-prompt/v1',

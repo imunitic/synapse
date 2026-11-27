@@ -7,6 +7,7 @@ with Synapse.Pipeline.Commands.Usage;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Engine;
 with Synapse.Pipeline.Envelopes;
+with Synapse.Pipeline.Inputs;
 with Synapse.Pipeline.File_System;
 with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Resolved;
@@ -149,11 +150,23 @@ package body Synapse.Pipeline.Commands.Next is
                      return 1;
                   end if;
                end if;
-               Say
-                 (Env,
-                  JSON.To_String
-                    (States.To_JSON (States.Initial (Item, Input))) & LF);
-               return 0;
+               declare
+                  Taken : constant Inputs.Acceptance :=
+                    Inputs.Accept_Input (Item.Input, Input);
+               begin
+                  if not Taken.Accepted then
+                     for Problem of Taken.Problems loop
+                        Complain (Env, "error: " & To_String (Problem) & LF);
+                     end loop;
+                     return 2;
+                  end if;
+                  Say
+                    (Env,
+                     JSON.To_String
+                       (States.To_JSON (States.Initial (Item, Taken.Input)))
+                     & LF);
+                  return 0;
+               end;
             end;
          end if;
 

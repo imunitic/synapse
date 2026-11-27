@@ -82,6 +82,7 @@ is a mapping of rules:
 | `enum` | String allow-list the scalar must be in. |
 | `mutable` | `false` freezes the field across updates — the value must be byte-identical on every `vault-write`/`vault-patch` after creation. Absent, or `true`, means it may change. |
 | `format` / `timezone` / `update_on` | Declared metadata for `timestamp` fields (local time, refreshed on write/patch). Declared-but-soft — see [Declared keys vs. enforcement](#declared-keys-vs-enforcement). |
+| `description` | Optional. What the field means, for a person reading the schema. It must be a string. Validation never reads it. |
 
 Known-but-unenforced flags appear in the shipped schemas today (`format`,
 `timezone`, `update_on`) — they document intent without adding a rule the validator

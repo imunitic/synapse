@@ -213,6 +213,46 @@ package body Synapse.Core.Note_Schema.Tests is
          Prefix & ".items: only string is supported in v1");
    end Field_Rules_Are_Checked;
 
+   procedure A_Field_May_Carry_A_Description (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Accepts
+        (With_Field
+           ("      type: string" & LF &
+            "      description: The title of the note, in plain words" & LF));
+      Accepts
+        (With_Field
+           ("      type: list" & LF & "      items: string" & LF &
+            "      description: ""Tags, one per topic""" & LF));
+   end A_Field_May_Carry_A_Description;
+
+   procedure A_Description_That_Is_Not_A_String_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Prefix : constant String := "schema.frontmatter.fields.title";
+   begin
+      Rejects
+        (With_Field ("      type: string" & LF & "      description: 5" & LF),
+         Prefix & ".description: must be string");
+      Rejects
+        (With_Field
+           ("      type: string" & LF & "      description: [a, b]" & LF),
+         Prefix & ".description: must be string");
+   end A_Description_That_Is_Not_A_String_Is_Refused;
+
+   procedure A_Schema_Without_Descriptions_Is_Valid_As_Before
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Accepts (With_Field ("      type: string" & LF));
+      Accepts
+        (With_Field
+           ("      type: string" & LF & "      required: true" & LF &
+            "      min_length: 3" & LF));
+   end A_Schema_Without_Descriptions_Is_Valid_As_Before;
+
    procedure Pattern_Faults_Have_Stable_Names
      (T : in out Test_Cases_Class)
    is
@@ -644,6 +684,15 @@ package body Synapse.Core.Note_Schema.Tests is
          "Frontmatter structure is checked");
       Register_Routine
         (T, Field_Rules_Are_Checked'Access, "Field rules are checked");
+      Register_Routine
+        (T, A_Field_May_Carry_A_Description'Access,
+         "A field may carry a description");
+      Register_Routine
+        (T, A_Description_That_Is_Not_A_String_Is_Refused'Access,
+         "A description that is not a string is refused");
+      Register_Routine
+        (T, A_Schema_Without_Descriptions_Is_Valid_As_Before'Access,
+         "A schema without descriptions is valid as before");
       Register_Routine
         (T, Pattern_Faults_Have_Stable_Names'Access,
          "Pattern faults have stable names");

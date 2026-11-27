@@ -138,8 +138,8 @@ package body Synapse.Pipeline.Commands.Dispatch.Tests is
       Assert (Run (Env (F), Args ("check")) = 2, "check without a name");
       Assert
         (F.Base.Console.Err_Text =
-         "usage: synapse-pipeline check <pipeline> [--interactive]"
-         & Usage.LF,
+         "usage: synapse-pipeline check <pipeline> [--interactive] "
+         & "[--input <file>|-]" & Usage.LF,
          "is the subcommand's own usage, not the unknown-name error");
    end Check_Is_A_Subcommand;
 

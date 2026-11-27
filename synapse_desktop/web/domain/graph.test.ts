@@ -16,6 +16,7 @@ function pipeline(
   return {
     format: 'synapse-pipeline-description/v1',
     name: 'P',
+    input: null,
     steps: steps.map((name) => ({
       name,
       harness: 'Claude',

@@ -168,6 +168,142 @@ package body Synapse.Pipeline.Prompts.Tests is
          "the free word is gone and the rest of the contract stays");
    end Declared_Outcomes_Replace_The_Free_Word;
 
+   --  The design's example: a required task_id and an optional
+   --  instructions, each with its description.
+   Two_Fields : constant String :=
+     "{""fields"": {"
+     & """task_id"": {""type"": ""string"", ""required"": true, "
+     & """description"": ""The id of the Synapse Vault task note to "
+     & "implement, such as synapse-067.""}, "
+     & """instructions"": {""type"": ""string"", "
+     & """description"": ""Extra requirements for this run only, in plain "
+     & "words.""}}}";
+
+   --  The input part of a prompt for Given under the declaration Declared.
+   function Input_Text (Declared, Given : String) return String is
+      Made : constant Part_Vectors.Vector :=
+        Parts
+          (Role            => "",
+           Assignment      => "",
+           Step            => "Implement",
+           Initial_Input   => JSON.Parse (Given).Item,
+           Previous_Output => JSON.Null_Value,
+           Declared_Input  => JSON.Parse (Declared).Item);
+   begin
+      for Item of Made loop
+         if Item.Kind = Input_Part then
+            return To_String (Item.Text);
+         end if;
+      end loop;
+      return "";
+   end Input_Text;
+
+   procedure A_Declared_Input_Is_Written_As_A_List_With_Descriptions
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Text : constant String :=
+        Build
+          (Role            => "",
+           Assignment      => "",
+           Step            => "Implement",
+           Initial_Input   => JSON.Parse
+             ("{""task_id"": ""synapse-067""}").Item,
+           Previous_Output => JSON.Null_Value,
+           Declared_Input  => JSON.Parse (Two_Fields).Item);
+   begin
+      Assert
+        (Has (Text,
+              LF & LF & "The pipeline was started with this input:" & LF
+              & "- task_id: synapse-067" & LF
+              & "  The id of the Synapse Vault task note to implement, "
+              & "such as synapse-067." & LF
+              & "- instructions: (not given)" & LF
+              & "  Extra requirements for this run only, in plain words."
+              & LF & LF),
+         "the design's example, exactly");
+      Assert
+        (not Has (Text, "{""task_id"""),
+         "the raw JSON is not written as well");
+   end A_Declared_Input_Is_Written_As_A_List_With_Descriptions;
+
+   procedure A_Field_Not_Given_Says_Not_Given
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Input_Text (Two_Fields, "{}") =
+         "The pipeline was started with this input:" & LF
+         & "- task_id: (not given)" & LF
+         & "  The id of the Synapse Vault task note to implement, "
+         & "such as synapse-067." & LF
+         & "- instructions: (not given)" & LF
+         & "  Extra requirements for this run only, in plain words.",
+         "every declared field is listed, given or not");
+      Assert
+        (Has (Input_Text (Two_Fields, "null"), "- task_id: (not given)"),
+         "no input at all lists the fields as not given");
+   end A_Field_Not_Given_Says_Not_Given;
+
+   procedure A_List_Is_One_Item_Per_Line (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Declared : constant String :=
+        "{""fields"": {"
+        & """tags"": {""type"": ""list"", ""items"": ""string"", "
+        & """description"": ""Tags.""}, "
+        & """files"": {""type"": ""list"", ""items"": {""fields"": "
+        & "{""path"": {""type"": ""string"", ""description"": ""A path.""}}}, "
+        & """description"": ""Files.""}}}";
+   begin
+      Assert
+        (Input_Text
+           (Declared,
+            "{""tags"": [""a"", ""b c""], "
+            & """files"": [{""path"": ""x.adb""}]}") =
+         "The pipeline was started with this input:" & LF
+         & "- tags:" & LF
+         & "  - a" & LF
+         & "  - b c" & LF
+         & "  Tags." & LF
+         & "- files:" & LF
+         & "  - {""path"":""x.adb""}" & LF
+         & "  Files.",
+         "strings as they are, an item with fields as compact JSON");
+   end A_List_Is_One_Item_Per_Line;
+
+   procedure An_Integer_And_A_Boolean_Are_Written_As_JSON
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Declared : constant String :=
+        "{""fields"": {"
+        & """count"": {""type"": ""integer"", ""description"": ""How many.""},"
+        & """dry"": {""type"": ""boolean"", ""description"": ""Dry run.""}}}";
+   begin
+      Assert
+        (Input_Text (Declared, "{""count"": 3, ""dry"": false}") =
+         "The pipeline was started with this input:" & LF
+         & "- count: 3" & LF & "  How many." & LF
+         & "- dry: false" & LF & "  Dry run.",
+         "as JSON");
+   end An_Integer_And_A_Boolean_Are_Written_As_JSON;
+
+   procedure Without_A_Declaration_The_Input_Is_Raw_JSON
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Input_Text ("null", "{""task_id"": ""synapse-067""}") =
+         "The pipeline was started with this input:" & LF
+         & "{""task_id"":""synapse-067""}",
+         "as before");
+      Assert
+        (Input_Text ("null", "null") = "",
+         "no input and no declaration: no input part");
+   end Without_A_Declaration_The_Input_Is_Raw_JSON;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -191,6 +327,20 @@ package body Synapse.Pipeline.Prompts.Tests is
       Register_Routine
         (T, Declared_Outcomes_Replace_The_Free_Word'Access,
          "Declared outcomes replace the free word");
+      Register_Routine
+        (T, A_Declared_Input_Is_Written_As_A_List_With_Descriptions'Access,
+         "A declared input is written as a list with descriptions");
+      Register_Routine
+        (T, A_Field_Not_Given_Says_Not_Given'Access,
+         "A field not given says (not given)");
+      Register_Routine
+        (T, A_List_Is_One_Item_Per_Line'Access, "A list is one item per line");
+      Register_Routine
+        (T, An_Integer_And_A_Boolean_Are_Written_As_JSON'Access,
+         "An integer and a boolean are written as JSON");
+      Register_Routine
+        (T, Without_A_Declaration_The_Input_Is_Raw_JSON'Access,
+         "Without a declaration the input is raw JSON as before");
    end Register_Tests;
 
 end Synapse.Pipeline.Prompts.Tests;

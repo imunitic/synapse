@@ -280,6 +280,140 @@ package body Synapse.Pipeline.Commands.Run.Tests is
          "a file that is not JSON");
    end The_Input_Is_Read_From_A_File_Or_Standard_Input;
 
+   --  A pipeline that declares its input: a required task id in a set
+   --  shape, and optional instructions.
+   procedure Add_Declared (F : in out Fixture) is
+   begin
+      F.Files.Add_File
+        ("/defs/Declared.synapse",
+         "Pipeline Declared [Input => {""fields"": {"
+         & """task_id"": {""type"": ""string"", ""required"": true, "
+         & """pattern"": ""^[a-z]+-[0-9]+$"", "
+         & """description"": ""The task to implement.""}, "
+         & """instructions"": {""type"": ""string"", "
+         & """description"": ""Extra requirements.""}}}] "
+         & "{ Develop [Harness => Claude, Prompt => ""Implement.""]; }");
+   end Add_Declared;
+
+   procedure A_Missing_Required_Field_Is_Refused_With_No_Record
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      Add_Declared (F);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      F.Base.Vars.Set ("SYNAPSE_PIPELINE_RUNNER", "process");
+      F.Files.Add_File ("/in.json", "{""instructions"": ""be quick""}");
+      Assert
+        (Run (Env (F), Args ("Declared", "--input", "/in.json")) = 2,
+         "refused with code 2: " & F.Base.Console.Err_Text);
+      Assert
+        (F.Base.Console.Err_Text =
+         "error: input.task_id: required field is missing" & LF,
+         "the problem, and nothing else: " & F.Base.Console.Err_Text);
+      Assert (F.Base.Console.Out_Text = "", "nothing on standard output");
+      Assert
+        (F.Registry.Held.Is_Empty and then F.Sessions.Requests.Is_Empty,
+         "no record and no session");
+      F.Base.Console.Clear;
+      Assert
+        (Run (Env (F), Args ("Declared")) = 2
+         and then Has
+                    (F.Base.Console.Err_Text,
+                     "error: input.task_id: required field is missing"),
+         "no input at all is checked as {}: " & F.Base.Console.Err_Text);
+   end A_Missing_Required_Field_Is_Refused_With_No_Record;
+
+   procedure An_Unknown_Field_Is_Refused (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      Add_Declared (F);
+      F.Files.Add_File
+        ("/in.json", "{""task_id"": ""synapse-1"", ""task"": ""x""}");
+      Assert
+        (Run (Env (F), Args ("Declared", "--input", "/in.json")) = 2,
+         "refused");
+      Assert
+        (F.Base.Console.Err_Text = "error: input.task: unknown field" & LF,
+         "names the field: " & F.Base.Console.Err_Text);
+   end An_Unknown_Field_Is_Refused;
+
+   procedure A_Plain_String_Becomes_The_One_Required_Field
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      Add_Declared (F);
+      F.Base.Vars.Set ("SYNAPSE_PIPELINE_RUNNER", "process");
+      F.Files.Add_File ("/in.json", """synapse-70""");
+      Assert
+        (Run (Env (F), Args ("Declared", "--input", "/in.json")) = 1,
+         "accepted, then fails as no harness answers: "
+         & F.Base.Console.Err_Text);
+      Assert
+        (Natural (F.Sessions.Requests.Length) = 1
+         and then Has
+                    (To_String (F.Sessions.Requests (1).Standard_Input),
+                     "- task_id: synapse-70" & LF
+                     & "  The task to implement." & LF
+                     & "- instructions: (not given)"),
+         "the step is started with the string as task_id: "
+         & To_String (F.Sessions.Requests (1).Standard_Input));
+   end A_Plain_String_Becomes_The_One_Required_Field;
+
+   procedure Every_Input_Problem_Is_Reported (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      Add_Declared (F);
+      F.Files.Add_File
+        ("/in.json",
+         "{""task_id"": ""Not A Task"", ""instructions"": 3, ""x"": 1}");
+      Assert
+        (Run (Env (F), Args ("Declared", "--input", "/in.json")) = 2,
+         "refused");
+      Assert
+        (Has (F.Base.Console.Err_Text, "error: input.x: unknown field" & LF)
+         and then Has
+                    (F.Base.Console.Err_Text,
+                     "error: input.task_id: does not match required pattern"
+                     & LF)
+         and then Has
+                    (F.Base.Console.Err_Text,
+                     "error: input.instructions: expected string" & LF)
+         and then Progress_Lines (F.Base.Console.Err_Text) = 3,
+         "one line a problem: " & F.Base.Console.Err_Text);
+   end Every_Input_Problem_Is_Reported;
+
+   procedure A_Pipeline_Without_Input_Runs_Any_Input
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_PIPELINE_RUNNER", "process");
+      F.Files.Add_File ("/in.json", "[1, ""two""]");
+      Assert
+        (Run (Env (F), Args ("Dev", "--input", "/in.json")) = 1,
+         "it is not refused, it fails as no harness answers: "
+         & F.Base.Console.Err_Text);
+      Assert
+        (Natural (F.Sessions.Requests.Length) = 1
+         and then Has
+                    (To_String (F.Sessions.Requests (1).Standard_Input),
+                     "[1,""two""]"),
+         "the step gets the input as it is: "
+         & To_String (F.Sessions.Requests (1).Standard_Input));
+   end A_Pipeline_Without_Input_Runs_Any_Input;
+
    procedure A_Run_Is_Offered_To_Introspection (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       F : aliased Fixture;
@@ -940,6 +1074,22 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Register_Routine
         (T, A_Failed_Run_Keeps_Its_Start_And_End'Access,
          "A failed run keeps its start and end");
+      Register_Routine
+        (T, A_Missing_Required_Field_Is_Refused_With_No_Record'Access,
+         "An input missing a required field is refused with code 2 and no "
+         & "record");
+      Register_Routine
+        (T, An_Unknown_Field_Is_Refused'Access,
+         "An unknown field is refused");
+      Register_Routine
+        (T, A_Plain_String_Becomes_The_One_Required_Field'Access,
+         "A plain string becomes the one required field");
+      Register_Routine
+        (T, Every_Input_Problem_Is_Reported'Access,
+         "Every problem is reported");
+      Register_Routine
+        (T, A_Pipeline_Without_Input_Runs_Any_Input'Access,
+         "A pipeline without Input runs any input as before");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Run.Tests;

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { resetSettings, worldAt, type World } from './world.ts'
 
 // The world of this run of the tests.
@@ -41,9 +41,9 @@ export async function openSection(
   await expect(button).toHaveAttribute('aria-pressed', 'true')
 }
 
-// Replaces what is in the editor with text.
-export async function setEditorText(page: Page, text: string) {
-  await page.locator('.cm-content').click()
+// Replaces what is in the editor with text: the page's one editor, or the one `content` finds.
+export async function setEditorText(page: Page, text: string, content?: Locator) {
+  await (content ?? page.locator('.cm-content')).click()
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.insertText(text)
 }

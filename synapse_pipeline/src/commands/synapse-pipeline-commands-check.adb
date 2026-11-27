@@ -1,7 +1,9 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.JSON;
 with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Harnesses;
+with Synapse.Pipeline.Inputs;
 with Synapse.Pipeline.Interactive_Harnesses;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Commands.Loading;
@@ -50,19 +52,30 @@ package body Synapse.Pipeline.Commands.Check is
       Interactive : Boolean := False;
       Name        : Unbounded_String;
       Named       : Boolean := False;
+      Input_Path  : Unbounded_String;
+      Has_Input   : Boolean := False;
+      I           : Positive := Args.First_Index;
    begin
-      for Arg of Args loop
-         if To_String (Arg) = "--interactive" then
+      while I <= Args.Last_Index loop
+         if To_String (Args (I)) = "--interactive" then
             if Interactive then
                return Usage_Error (Env, Usage);
             end if;
             Interactive := True;
+         elsif To_String (Args (I)) = "--input" then
+            if Has_Input or else I = Args.Last_Index then
+               return Usage_Error (Env, Usage);
+            end if;
+            I := I + 1;
+            Input_Path := Args (I);
+            Has_Input := True;
          elsif not Named then
-            Name := Arg;
+            Name := Args (I);
             Named := True;
          else
             return Usage_Error (Env, Usage);
          end if;
+         I := I + 1;
       end loop;
       if not Named then
          return Usage_Error (Env, Usage);
@@ -84,6 +97,29 @@ package body Synapse.Pipeline.Commands.Check is
             if not Problems.Is_Empty then
                return 1;
             end if;
+         end;
+      end if;
+      if Has_Input then
+         declare
+            Input : Synapse.Core.JSON.Value;
+         begin
+            Loading.Read_Input (Env, To_String (Input_Path), Input, Ok);
+            if not Ok then
+               return 1;
+            end if;
+            declare
+               Taken : constant Inputs.Acceptance :=
+                 Inputs.Accept_Input (Item.Input, Input);
+            begin
+               if not Taken.Accepted then
+                  for Problem of Taken.Problems loop
+                     Complain
+                       (Env,
+                        "error: " & To_String (Problem) & Character'Val (10));
+                  end loop;
+                  return 2;
+               end if;
+            end;
          end;
       end if;
       Say (Env, Describe (Item, To_String (File)));

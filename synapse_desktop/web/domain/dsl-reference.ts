@@ -71,6 +71,12 @@ export const DSL_ATTRIBUTES: readonly DslAttribute[] = [
     value: 'JSON object',
     meaning: 'The outcomes the step may end with, each with what it means. Optional.',
   },
+  {
+    name: 'Input',
+    on: ['pipeline'],
+    value: 'JSON object',
+    meaning: "The fields the pipeline's input has, each with what it means. Optional.",
+  },
   { name: 'When', on: ['edge'], value: 'outcome name or JSON', meaning: 'The guard of the edge.' },
   {
     name: 'Max_Iterations',

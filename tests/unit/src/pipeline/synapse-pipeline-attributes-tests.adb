@@ -363,6 +363,97 @@ package body Synapse.Pipeline.Attributes.Tests is
          "'Prompt' is not an attribute of a pipeline", "Prompt on a pipeline");
    end Harness_Is_Not_An_Attribute_Of_A_Prompt_Or_A_Pipeline;
 
+   --  A declaration with one required string field, valid as an Input.
+   Valid_Input : constant String :=
+     "{""fields"": {""task_id"": {""type"": ""string"", ""required"": true, "
+     & """description"": ""The task to work on.""}}}";
+
+   procedure Input_Is_Accepted_On_A_Pipeline (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Is_Known ("Input"), "Input is known");
+      Assert_Fine
+        (Pipeline_Context, Named ("Input", A_JSON (Valid_Input)),
+         "a declaration");
+   end Input_Is_Accepted_On_A_Pipeline;
+
+   procedure Input_Is_Not_An_Attribute_Elsewhere
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Step_Context, Named ("Input", A_JSON (Valid_Input)), 1,
+         "'Input' is not an attribute of a step", "a step");
+      Assert_Wrong
+        (System_Context, Named ("Input", A_JSON (Valid_Input)), 1,
+         "'Input' is not an attribute of a system", "a system");
+      Assert_Wrong
+        (Agent_Context, Named ("Input", A_JSON (Valid_Input)), 1,
+         "'Input' is not an attribute of an agent", "an agent");
+      Assert_Wrong
+        (Prompt_Context, Named ("Input", A_JSON (Valid_Input)), 1,
+         "'Input' is not an attribute of a prompt", "a prompt");
+      Assert_Wrong
+        (Edge_Context, Named ("Input", A_JSON (Valid_Input)), 1,
+         "'Input' is not an attribute of an edge", "an edge");
+   end Input_Is_Not_An_Attribute_Elsewhere;
+
+   procedure Input_Takes_A_JSON_Value_Not_A_String
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Pipeline_Context, Named ("Input", A_String ("task_id")), 9,
+         "'Input' takes a JSON value, not a string", "a string");
+      Assert_Wrong
+        (Pipeline_Context, Named ("Input", A_Name ("Task")), 9,
+         "'Input' takes a JSON value, not a name", "a name");
+   end Input_Takes_A_JSON_Value_Not_A_String;
+
+   procedure A_Declaration_Without_A_Description_Is_An_Error_At_Input
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Pipeline_Context,
+         Named
+           ("Input",
+            A_JSON
+              ("{""fields"": {""task_id"": {""type"": ""string""}}}")),
+         9, "'Input': input.fields.task_id.description: required string "
+         & "is missing", "no description");
+   end A_Declaration_Without_A_Description_Is_An_Error_At_Input;
+
+   procedure A_Declaration_Problem_Is_Reported_With_Its_Path
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Declared : constant Syntax.Attribute :=
+        Named
+          ("Input",
+           A_JSON
+             ("{""fields"": {""files"": {""type"": ""list"", "
+              & """description"": ""The files."", ""items"": {""fields"": "
+              & "{""path"": {""type"": ""string"", ""mutable"": true, "
+              & """description"": ""A path.""}}}}, "
+              & """task_id"": {""type"": ""any""}}}"));
+   begin
+      Assert_Wrong
+        (Pipeline_Context, Declared, 9,
+         "input.fields.files.items.fields.path.mutable: not allowed in an "
+         & "input", "a nested path");
+      Assert_Wrong
+        (Pipeline_Context, Declared, 9,
+         "; input.fields.task_id.", "every problem, joined");
+      Assert_Wrong
+        (Pipeline_Context, Declared, 9,
+         "input.fields.task_id.type: any is not allowed in an input",
+         "the second field");
+   end A_Declaration_Problem_Is_Reported_With_Its_Path;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -416,6 +507,22 @@ package body Synapse.Pipeline.Attributes.Tests is
       Register_Routine
         (T, Harness_Is_Not_An_Attribute_Of_A_Prompt_Or_A_Pipeline'Access,
          "Harness is not an attribute of a prompt or a pipeline");
+      Register_Routine
+        (T, Input_Is_Accepted_On_A_Pipeline'Access,
+         "Input is accepted on a pipeline");
+      Register_Routine
+        (T, Input_Is_Not_An_Attribute_Elsewhere'Access,
+         "Input is not an attribute of a step, a system, an agent, a prompt "
+         & "or an edge");
+      Register_Routine
+        (T, Input_Takes_A_JSON_Value_Not_A_String'Access,
+         "Input takes a JSON value, not a string");
+      Register_Routine
+        (T, A_Declaration_Without_A_Description_Is_An_Error_At_Input'Access,
+         "A declaration without a description is an error at Input");
+      Register_Routine
+        (T, A_Declaration_Problem_Is_Reported_With_Its_Path'Access,
+         "A declaration problem is reported with its path");
    end Register_Tests;
 
 end Synapse.Pipeline.Attributes.Tests;

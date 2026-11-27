@@ -304,6 +304,65 @@ package body Acceptance.Agent_Pipeline_Tests is
       end;
    end The_Input_Reaches_The_First_Session;
 
+   --  How many files and directories Dir holds; none when it is not there.
+   function Entries_In (Dir : String) return Natural is
+      Count  : Natural := 0;
+      Search : Ada.Directories.Search_Type;
+      Item   : Ada.Directories.Directory_Entry_Type;
+   begin
+      if not Ada.Directories.Exists (Dir) then
+         return 0;
+      end if;
+      Ada.Directories.Start_Search (Search, Dir, "");
+      while Ada.Directories.More_Entries (Search) loop
+         Ada.Directories.Get_Next_Entry (Search, Item);
+         if Ada.Directories.Simple_Name (Item) not in "." | ".." then
+            Count := Count + 1;
+         end if;
+      end loop;
+      Ada.Directories.End_Search (Search);
+      return Count;
+   end Entries_In;
+
+   procedure A_Bad_Input_Is_Refused_Before_Anything_Starts
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define
+        (F, "Declared",
+         "Pipeline Declared [Input => {""fields"": {""task_id"": "
+         & "{""type"": ""string"", ""required"": true, "
+         & """description"": ""The task.""}}}] {" & LF
+         & "   Work [Harness => Claude, Prompt => ""Do it.""];" & LF
+         & "}" & LF);
+      Install_Claude
+        (F, "touch """ & Root (F) & "/started""" & LF & Says_Done);
+      Write_File (Root (F) & "/input.json", "{""task"":""build""}");
+      declare
+         R : constant Result :=
+           Run_Pipeline
+             (F, "run", "Declared", "--input", Root (F) & "/input.json");
+         Runs : constant String := Work (F) & "/pipelines";
+      begin
+         Assert_Exit (R, 2, "run");
+         Assert_Contains
+           (Err_Of (R), "error: input.task: unknown field",
+            "the unknown field");
+         Assert_Contains
+           (Err_Of (R), "error: input.task_id: required field is missing",
+            "and the missing one");
+         Assert (Out_Of (R) = "", "nothing on standard output: " & Out_Of (R));
+         Assert
+           (not Ada.Directories.Exists (Root (F) & "/started"),
+            "no session started");
+         Assert
+           (Entries_In (Runs) = 0, "no execution in the work directory");
+      end;
+   end A_Bad_Input_Is_Refused_Before_Anything_Starts;
+
    procedure A_Session_Past_Its_Limit_Is_Stopped (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
@@ -884,6 +943,9 @@ package body Acceptance.Agent_Pipeline_Tests is
       Register_Routine
         (T, Every_Help_Needs_No_Environment'Access,
          "every help needs no environment");
+      Register_Routine
+        (T, A_Bad_Input_Is_Refused_Before_Anything_Starts'Access,
+         "a bad input is refused before anything starts");
    end Register_Tests;
 
 end Acceptance.Agent_Pipeline_Tests;

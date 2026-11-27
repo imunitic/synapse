@@ -1,7 +1,7 @@
 import { expect, test, type Page } from './fixtures.ts'
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { openSection, sidePanel, world } from './helpers.ts'
+import { openSection, setEditorText, sidePanel, world } from './helpers.ts'
 
 async function openDefinition(
   page: Page,
@@ -124,11 +124,11 @@ test('the run dialog shows the first step prompt with the input that is typed', 
 
   // JSON is for a pipeline that expects an object.
   await dialog.getByRole('tab', { name: 'JSON' }).click()
-  await dialog.getByLabel('Input as JSON, handed to the first step as it is').fill('{"issue": 7}')
+  await setEditorText(page, '{"issue": 7}', dialog.locator('.cm-content'))
   await expect(dialog.locator('.prompt-added-text')).toContainText('{"issue":7}')
 
   // Input that is not JSON is said so when the run is started, and nothing is started.
-  await dialog.getByLabel('Input as JSON, handed to the first step as it is').fill('{oops')
+  await setEditorText(page, '{oops', dialog.locator('.cm-content'))
   await dialog.getByRole('button', { name: 'Start run' }).click()
   await expect(dialog).toContainText('The input is not valid JSON')
 })

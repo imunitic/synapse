@@ -5,7 +5,14 @@ import { EditorState } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
 import { useEffect, useRef } from 'react'
 import type { Mark } from '../domain/drafts.ts'
+import { jsonLanguage, rainbowBrackets } from './editor/json-language.ts'
 import { editorTheme, synapseHighlight, synapseLanguage } from './editor/synapse-language.ts'
+
+const languages = {
+  synapse: [synapseLanguage, synapseHighlight],
+  json: [jsonLanguage, rainbowBrackets],
+  plain: [],
+}
 
 // A text editor for a definition. It is given the text to start with and says
 // what the text becomes; `marks` underline what is wrong, at places in the text
@@ -15,14 +22,15 @@ export function CodeEditor({
   onChange,
   marks,
   label,
-  highlight = true,
+  language = 'synapse',
   replacement = null,
 }: {
   initial: string
   onChange: (text: string) => void
   marks: readonly Mark[]
   label: string
-  highlight?: boolean
+  // How the text is colored: as a definition, as JSON, or not at all.
+  language?: 'synapse' | 'json' | 'plain'
   // Text to put in place of what is there, once for each id. It is one change
   // in the editor's history, so undoing it brings back what was written.
   replacement?: { id: number; text: string } | null
@@ -49,7 +57,7 @@ export function CodeEditor({
           bracketMatching(),
           lintGutter(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-          highlight ? [synapseLanguage, synapseHighlight] : [],
+          languages[language],
           editorTheme,
           EditorView.contentAttributes.of({ 'aria-label': label }),
           EditorView.updateListener.of((update) => {
@@ -63,7 +71,7 @@ export function CodeEditor({
       editor.destroy()
       view.current = null
     }
-  }, [initial, label, highlight])
+  }, [initial, label, language])
 
   useEffect(() => {
     const editor = view.current

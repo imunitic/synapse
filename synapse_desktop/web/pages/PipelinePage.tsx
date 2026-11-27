@@ -238,6 +238,7 @@ export function PipelinePage({
         <RunDialog
           pipeline={name}
           firstStep={description?.steps[0]?.name}
+          input={description?.input}
           onClose={() => setRunning(false)}
           onStarted={(id) => {
             setRunning(false)

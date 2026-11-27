@@ -45,9 +45,49 @@ const edgeSchema = z.object({
   max_iterations: z.number().nullable(),
 })
 
+// One field of a pipeline's `Input`: its rules as written. A list's `items` is a type name, or
+// fields of the same shape.
+export interface InputField {
+  name: string
+  type: string
+  required: boolean
+  description: string
+  min_length?: number | undefined
+  const?: unknown
+  pattern?: string | undefined
+  enum?: unknown[] | undefined
+  items?: string | { fields: InputField[] } | undefined
+}
+
+const inputFieldSchema: z.ZodType<InputField> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    type: z.string(),
+    required: z.boolean(),
+    description: z.string(),
+    min_length: z.number().optional(),
+    const: z.unknown().optional(),
+    pattern: z.string().optional(),
+    enum: z.array(z.unknown()).optional(),
+    items: z.union([z.string(), z.object({ fields: z.array(inputFieldSchema) })]).optional(),
+  }),
+)
+
+// What a pipeline declares it is started with. `single_text_field` is the field a plain
+// sentence fills, or null when the input must be JSON.
+const inputDeclarationSchema = z.object({
+  fields: z.array(inputFieldSchema),
+  checks: z.array(z.unknown()),
+  single_text_field: z.string().nullable(),
+})
+
+export type InputDeclaration = z.infer<typeof inputDeclarationSchema>
+
 const descriptionSchema = z.object({
   format: z.literal('synapse-pipeline-description/v1'),
   name: z.string(),
+  // Null when the pipeline declares no `Input` and takes any JSON value.
+  input: inputDeclarationSchema.nullable().default(null),
   steps: z.array(stepSchema),
   edges: z.array(edgeSchema),
   limits: z.object({

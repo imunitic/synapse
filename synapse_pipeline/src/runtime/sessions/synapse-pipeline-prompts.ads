@@ -41,7 +41,14 @@ package Synapse.Pipeline.Prompts is
    --  are then the ones the reply is to choose from. In an interactive session
    --  a person can answer in the terminal, so the agent is told to ask when it
    --  needs to and to give the reply only when it is done; the reply it is
-   --  asked for is the same.
+   --  asked for is the same. Declared_Input is the pipeline's `Input`
+   --  declaration, null when it has none: the input is then written as it
+   --  is, as JSON. With one, it is written as a list, one entry per declared
+   --  field in declared order: `- <name>: <value>` and the field's
+   --  description on the next line, indented by two spaces. A field the
+   --  input does not give is `(not given)`; a string is written as it is, a
+   --  list one item per line as `  - <item>` (an item with fields as compact
+   --  JSON), and an integer or boolean as JSON.
    --  The parts of the prompt, in order, without the ones that are empty.
    function Parts
      (Role            : String;
@@ -51,7 +58,9 @@ package Synapse.Pipeline.Prompts is
       Previous_Output : Synapse.Core.JSON.Value;
       Outcomes        : Synapse.Core.JSON.Value :=
         Synapse.Core.JSON.Null_Value;
-      Interactive     : Boolean := False) return Part_Vectors.Vector;
+      Interactive     : Boolean := False;
+      Declared_Input  : Synapse.Core.JSON.Value :=
+        Synapse.Core.JSON.Null_Value) return Part_Vectors.Vector;
 
    --  The prompt the parts make: each followed by a blank line.
    function Text_Of (Parts : Part_Vectors.Vector) return String;
@@ -65,6 +74,8 @@ package Synapse.Pipeline.Prompts is
       Previous_Output : Synapse.Core.JSON.Value;
       Outcomes        : Synapse.Core.JSON.Value :=
         Synapse.Core.JSON.Null_Value;
-      Interactive     : Boolean := False) return String;
+      Interactive     : Boolean := False;
+      Declared_Input  : Synapse.Core.JSON.Value :=
+        Synapse.Core.JSON.Null_Value) return String;
 
 end Synapse.Pipeline.Prompts;

@@ -20,6 +20,9 @@ with Synapse.Pipeline.Syntax;
 --    Retries          step, system   an integer, at most 100
 --    Outcomes         step, system   a JSON object from each outcome to its
 --                                    meaning, see Outcomes
+--    Input            pipeline       a JSON object declaring the input's
+--                                    fields, see Synapse.Core.Object_Schema;
+--                                    every problem with it is one error
 --    When             edge           a name or a JSON value
 --    Max_Iterations   edge           an integer, from 1 to 100
 
