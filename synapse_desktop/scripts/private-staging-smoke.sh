@@ -85,6 +85,32 @@ echo 'Containers run non-root; backend home writes remain isolated.'
   git -C "$work" diff -- fixture.txt | grep -q "^+after$"
 '
 echo 'Backend development tools execute and Git produces a task diff.'
+"${compose[@]}" exec -T backend_a node --input-type=module <<'NODE'
+import assert from 'node:assert/strict'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { planSession } from './server/inject.ts'
+
+const home = await mkdtemp(join(tmpdir(), 'synapse-session-'))
+try {
+  const plan = await planSession('Codex', {
+    env: process.env,
+    home,
+    dataDir: join(home, 'sessions'),
+  })
+  assert.equal(plan.command, 'codex')
+  assert.equal(plan.loaded, true, plan.note)
+  assert.ok(plan.env.CODEX_HOME)
+  assert.ok(plan.env.SYNAPSE_CONTENT_ROOT)
+  const hooks = await readFile(join(plan.env.CODEX_HOME, 'hooks.json'), 'utf8')
+  assert.match(hooks, /synapse-hook/)
+  assert.ok((await readdir(join(plan.env.CODEX_HOME, 'skills'))).length > 0)
+} finally {
+  await rm(home, { recursive: true, force: true })
+}
+NODE
+echo 'Codex session loads Synapse skills and hooks.'
 for backend in backend_a backend_b; do
   address=172.29.101.2
   if [[ "$backend" == backend_b ]]; then address=172.29.102.2; fi
