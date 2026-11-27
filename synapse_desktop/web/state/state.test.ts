@@ -699,9 +699,9 @@ describe('the side panel following the page', () => {
   })
 
   it('shows the kind of a definition that is being made', () => {
-    const state = reduce(base, { type: 'openPage', page: { kind: 'create', definition: 'skill' } })
+    const state = reduce(base, { type: 'openPage', page: { kind: 'create', definition: 'prompt' } })
     expect(state.section).toBe('definitions')
-    expect(state.definitionKind).toBe('skill')
+    expect(state.definitionKind).toBe('prompt')
   })
 
   it('is left where it was by the pages that belong to no section', () => {

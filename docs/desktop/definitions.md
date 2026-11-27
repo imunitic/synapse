@@ -1,6 +1,6 @@
 # Definitions
 
-A pipeline is a set of steps that agents work through, one after another. It is written in files: the pipeline itself, and the systems, agents and skills its steps use. Together these are the definitions. The Definitions panel lists them, shows what each one does, lets you edit them and starts a pipeline. Open it with the list icon on the rail.
+A pipeline is a set of steps that agents work through, one after another. It is written in files: the pipeline itself, and the systems, agents and prompts its steps use. Together these are the definitions. The Definitions panel lists them, shows what each one does, lets you edit them and starts a pipeline. Open it with the list icon on the rail.
 
 For how pipelines work and how their files are written, see [synapse-pipeline](../synapse/synapse-pipeline.md) and [the pipeline language](../synapse/synapse-pipeline-language.md).
 
@@ -8,7 +8,7 @@ For how pipelines work and how their files are written, see [synapse-pipeline](.
 
 ## Find a definition
 
-The panel has a tab for each kind: Pipelines, Systems, Agents and Skills. Click a tab to list that kind. Type in "Filter..." to show only the names that contain what you typed; case does not matter, and the filter stays when you change the tab. The refresh button reads the lists again. A file that cannot be read is listed under "Did not load", with why, and the other definitions are still listed.
+The panel has a tab for each kind: Pipelines, Systems, Agents and Prompts. Click a tab to list that kind. A definition that has a description shows it next to its name, cut short when it is long. Type in "Filter..." to show only the names that contain what you typed; case does not matter, and the filter stays when you change the tab. The refresh button reads the lists again. A file that cannot be read is listed under "Did not load", with why, and the other definitions are still listed.
 
 ## Open a pipeline
 
@@ -25,7 +25,7 @@ The page shows:
 
 When a pipeline has an error, its page says "This pipeline cannot run" and lists the problems with file and line.
 
-A system, an agent or a skill opens a page of its own. A system or an agent lists its attributes and the pipelines and systems that use it. A skill shows its description, its files and the pipeline steps that use it. Click a name under "Used by" to open it.
+A system, an agent or a prompt opens a page of its own. Its description, if it has one, is under its name. A system or an agent lists its attributes and the pipelines and systems that use it. A prompt shows its text and the pipeline steps, systems and agents that use it. Click a name under "Used by" to open it.
 
 ## Edit a definition
 
@@ -40,11 +40,11 @@ To make a new definition, click the plus at the top of the panel. It makes one o
 
 ## Clone a pipeline
 
-Click the copy button on a pipeline's row in the Pipelines list, between its run and delete buttons, to make a copy of it under a new name. The name starts as the pipeline's name with "_Copy" added; change it as you like. A name has letters, digits and underscores and starts with a letter. A name that another definition already has is refused, and so is a name that breaks the rule: the dialog says why, and "Clone" stays disabled. Only the pipeline's own name changes in the copy. The copy uses the same systems, agents and skills. When the copy is written, its page opens; click "Edit" there to change it.
+Click the copy button on a pipeline's row in the Pipelines list, between its run and delete buttons, to make a copy of it under a new name. The name starts as the pipeline's name with "_Copy" added; change it as you like. A name has letters, digits and underscores and starts with a letter. A name that another definition already has is refused, and so is a name that breaks the rule: the dialog says why, and "Clone" stays disabled. Only the pipeline's own name changes in the copy. The copy uses the same systems, agents and prompts. Systems, agents and prompts have no copy button. When the copy is written, its page opens; click "Edit" there to change it.
 
 ## Delete a definition
 
-Click the bin next to a name. A definition that another one uses cannot be deleted: the app says which pipelines or systems use it, and you delete those first. Otherwise it asks once, and "Yes, delete" removes the file. A skill's whole folder is removed. It cannot be undone.
+Click the bin next to a name. A definition that another one uses cannot be deleted: the app says which pipelines, systems or agents use it, and you delete those first. Otherwise it asks once, and "Yes, delete" removes the file. It cannot be undone.
 
 ## Run a pipeline
 

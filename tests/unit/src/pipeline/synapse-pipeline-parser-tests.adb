@@ -71,7 +71,8 @@ package body Synapse.Pipeline.Parser.Tests is
           ("Pipeline Develop_Feature {" & LF
            & "   Develop [Agent => Developer, Harness => Claude, Prompt => "
            & """Implement the checklist."", Retries => 2];" & LF
-           & "   Test    [Agent => Tester, Skill => ""test-feature""];" & LF
+           & "   Test    [Agent => Tester, Prompt => ""Test the feature.""];"
+           & LF
            & "   Review  [System => Strict_Reviewer, Harness => Codex];" & LF
            & "   Review -> Develop [When => Changes_Requested,"
            & " Max_Iterations => 5];" & LF
@@ -235,12 +236,13 @@ package body Synapse.Pipeline.Parser.Tests is
    begin
       Assert_Fails
         ("", 1, 1,
-         "expected Pipeline, System or Agent, found the end of the file",
+         "expected Pipeline, System, Agent or Prompt, found the end of the "
+         & "file",
          "an empty file");
       Assert_Fails
         ("Frobnicate X [];", 1, 1,
-         "expected Pipeline, System or Agent, found 'Frobnicate'",
-         "an unknown kind");
+         "expected Pipeline, System, Agent or Prompt, found 'Frobnicate'",
+         "an unknown opening word names all four kinds");
       Assert_Fails
         ("Pipeline {", 1, 10, "expected the name of the Pipeline, found '{'",
          "a pipeline without a name");
@@ -371,6 +373,83 @@ package body Synapse.Pipeline.Parser.Tests is
          "a chain that goes on after End");
    end The_End_Of_A_Run_Is_A_Target_Not_A_Step;
 
+   procedure A_Prompt_Definition_Is_Read_With_Its_Attributes
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      D : constant Syntax.Definition :=
+        Parse_OK
+          ("Prompt Review_Code [Description => ""Reviews a change"", "
+           & "Prompt => """"""Review the change." & LF
+           & "Be strict.""""""];");
+   begin
+      Assert
+        (D.Kind = Syntax.Prompt_Definition
+         and then Name_Of (D.Name) = "Review_Code"
+         and then D.Name.Column = 8,
+         "a prompt named Review_Code, at 1:8");
+      Assert (Natural (D.Attributes.Length) = 2, "two attributes");
+      Assert
+        (Name_Of (D.Attributes (1).Name) = "Description"
+         and then To_String (D.Attributes (1).Item.Text) = "Reviews a change",
+         "its description");
+      Assert
+        (Name_Of (D.Attributes (2).Name) = "Prompt"
+         and then D.Attributes (2).Item.Kind = Syntax.String_Value
+         and then To_String (D.Attributes (2).Item.Text) =
+                  "Review the change." & LF & "Be strict.",
+         "its text");
+      Assert_Fails
+        ("Prompt P []", 1, 12, "expected ';', found the end of the file",
+         "a prompt without its semicolon");
+      Assert_Fails
+        ("Pipeline P { Prompt [] ; }", 1, 14, "keyword",
+         "a step named Prompt");
+   end A_Prompt_Definition_Is_Read_With_Its_Attributes;
+
+   procedure A_Pipeline_Takes_An_Attribute_List_Before_Its_Body
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      D : constant Syntax.Definition :=
+        Parse_OK
+          ("Pipeline P [Description => ""Builds it""] {" & LF
+           & "  A [];" & LF & "  A -> End;" & LF & "}");
+   begin
+      Assert
+        (D.Kind = Syntax.Pipeline_Definition
+         and then Name_Of (D.Name) = "P",
+         "a pipeline named P");
+      Assert
+        (Natural (D.Attributes.Length) = 1
+         and then Name_Of (D.Attributes (1).Name) = "Description"
+         and then To_String (D.Attributes (1).Item.Text) = "Builds it",
+         "its description");
+      Assert
+        (Natural (D.Steps.Length) = 1 and then Natural (D.Edges.Length) = 1,
+         "and its body");
+      Assert
+        (Parse_OK ("Pipeline P [] {}").Attributes.Is_Empty,
+         "an empty attribute list");
+      Assert_Fails
+        ("Pipeline P [A => b {}", 1, 20, "expected ',' or ']', found '{'",
+         "an attribute list left open");
+      Assert_Fails
+        ("Pipeline P [] ;", 1, 15, "expected '{', found ';'",
+         "an attribute list without a body");
+   end A_Pipeline_Takes_An_Attribute_List_Before_Its_Body;
+
+   procedure A_Pipeline_Without_An_Attribute_List_Still_Parses
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      D : constant Syntax.Definition := Parse_OK ("Pipeline P { A []; }");
+   begin
+      Assert
+        (D.Attributes.Is_Empty and then Natural (D.Steps.Length) = 1,
+         "no attributes, one step");
+   end A_Pipeline_Without_An_Attribute_List_Still_Parses;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -409,6 +488,15 @@ package body Synapse.Pipeline.Parser.Tests is
       Register_Routine
         (T, The_End_Of_A_Run_Is_A_Target_Not_A_Step'Access,
          "The end of a run is a target, not a step");
+      Register_Routine
+        (T, A_Prompt_Definition_Is_Read_With_Its_Attributes'Access,
+         "A Prompt definition is read with its attributes");
+      Register_Routine
+        (T, A_Pipeline_Takes_An_Attribute_List_Before_Its_Body'Access,
+         "A pipeline takes an attribute list before its body");
+      Register_Routine
+        (T, A_Pipeline_Without_An_Attribute_List_Still_Parses'Access,
+         "A pipeline without an attribute list still parses");
    end Register_Tests;
 
 end Synapse.Pipeline.Parser.Tests;

@@ -15,43 +15,9 @@ const listing = JSON.stringify({
   problems: [],
 })
 
-function pipelineShowing(skill: string | null) {
-  return JSON.stringify({
-    format: 'synapse-pipeline-description/v1',
-    name: 'Develop',
-    steps: [
-      {
-        name: 'Review',
-        harness: 'Claude',
-        model: null,
-        permissions: 'Read_Only',
-        timeout_seconds: 60,
-        retries: 0,
-        outcomes: null,
-        role: null,
-        assignment: skill === null ? null : { kind: 'skill', name: skill },
-        origins: [],
-      },
-    ],
-    edges: [],
-    limits: { default_timeout_seconds: 60, step_ceiling: 10, runner: 'x' },
-  })
-}
-
-function agentShowing(name: string, skill: string | null, kind = 'agent') {
-  return JSON.stringify({
-    format: 'synapse-pipeline-definition/v1',
-    kind,
-    name,
-    file: `/d/${name}.synapse`,
-    attributes: skill === null ? [] : [{ name: 'Skill', value: skill }],
-    used_by: [],
-  })
-}
-
 function world(shows: Record<string, CliResult>) {
   return fakeTransport({
-    paths: { definitionDirs: ['/d'], skillsDir: null, recordsDir: null },
+    paths: { definitionDirs: ['/d'], recordsDir: null },
     files: {},
     cli: (_binary, args) =>
       args[0] === 'definitions'
@@ -91,39 +57,28 @@ describe('definitionUse', () => {
     })
   })
 
-  it('says a skill is used by the steps that name it and the agents and systems that carry it', async () => {
-    const use = await definitionUse(
-      world({
-        Develop: ok(pipelineShowing('review-code')),
-        Reviewer: ok(agentShowing('Reviewer', 'review-code')),
-        Plain: ok(agentShowing('Plain', null)),
-        Broken: { code: 1, stdout: '', stderr: 'error: broken' },
-        Strict: ok(agentShowing('Strict', 'review-code', 'system')),
-      }),
-      'skill',
-      'review-code',
+  it('has the steps, systems and agents a prompt is used by, as the CLI says', async () => {
+    const shown = JSON.stringify({
+      format: 'synapse-pipeline-definition/v1',
+      kind: 'prompt',
+      name: 'Review_Code',
+      file: '/d/Review_Code.synapse',
+      attributes: [{ name: 'Prompt', value: 'Review it.' }],
+      used_by: [
+        { kind: 'agent', name: 'Reviewer', file: '/d/Reviewer.synapse' },
+        { kind: 'pipeline', name: 'Develop', file: '/d/Develop.synapse', steps: ['Review'] },
+        { kind: 'system', name: 'Strict', file: '/d/Strict.synapse' },
+      ],
+    })
+    expect(await definitionUse(world({ Review_Code: ok(shown) }), 'prompt', 'Review_Code')).toEqual(
+      {
+        users: [
+          { kind: 'agent', name: 'Reviewer', steps: [] },
+          { kind: 'pipeline', name: 'Develop', steps: ['Review'] },
+          { kind: 'system', name: 'Strict', steps: [] },
+        ],
+        unchecked: [],
+      },
     )
-    expect(use.users).toEqual([
-      { kind: 'pipeline', name: 'Develop', steps: ['Review'] },
-      { kind: 'agent', name: 'Reviewer', steps: [] },
-      { kind: 'system', name: 'Strict', steps: [] },
-    ])
-    // An agent that cannot be read might carry the skill: it is not passed over.
-    expect(use.unchecked).toEqual(['Broken'])
-  })
-
-  it('finds a skill that nothing names unused', async () => {
-    const use = await definitionUse(
-      world({
-        Develop: ok(pipelineShowing('another')),
-        Reviewer: ok(agentShowing('Reviewer', 'another')),
-        Plain: ok(agentShowing('Plain', null)),
-        Broken: ok(agentShowing('Broken', null)),
-        Strict: ok(agentShowing('Strict', null, 'system')),
-      }),
-      'skill',
-      'review-code',
-    )
-    expect(use).toEqual({ users: [], unchecked: [] })
   })
 })

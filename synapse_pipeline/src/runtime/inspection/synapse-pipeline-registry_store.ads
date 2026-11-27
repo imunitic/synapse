@@ -82,11 +82,10 @@ package Synapse.Pipeline.Registry_Store is
      (S : in out Store; Id, Content : String) return Boolean is abstract;
 
    --  Keeps Content as the definition file Path of the execution: a
-   --  `.synapse` file of its pipeline, a system or an agent, or the `SKILL.md`
-   --  of a skill, laid out as a configuration directory is, so that Path is
-   --  `synapse-pipeline/Name.synapse` or
-   --  `synapse-pipeline/skills/name/SKILL.md`. A Path that Is_Plain_Path does
-   --  not accept is refused. True when it was written. The files are history:
+   --  `.synapse` file of its pipeline, a system, an agent or a prompt, laid
+   --  out as a configuration directory is, so that Path is
+   --  `synapse-pipeline/Name.synapse`. A Path that Is_Plain_Path does not
+   --  accept is refused. True when it was written. The files are history:
    --  nothing runs from them.
    function Write_Definition
      (S : in out Store; Id, Path, Content : String) return Boolean

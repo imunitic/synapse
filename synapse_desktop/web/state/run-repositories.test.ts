@@ -36,7 +36,7 @@ function world(repositories: string[] = ['/work/api', '/work/web', RUN_DIR]) {
   const transport = {
     ...fakeTransport({
       files: {},
-      paths: { definitionDirs: [], skillsDir: null, recordsDir: RECORDS },
+      paths: { definitionDirs: [], recordsDir: RECORDS },
     }),
     snapshotChanges(folder: string, of?: 'head'): Promise<Snapshot> {
       snapshots.push(`${folder}${of === undefined ? '' : ` ${of}`}`)
@@ -276,7 +276,7 @@ describe('a run whose record is gone', () => {
     const { transport, unpinned } = world()
     const noRecords = {
       ...transport,
-      getPaths: () => Promise.resolve({ definitionDirs: [], skillsDir: null, recordsDir: null }),
+      getPaths: () => Promise.resolve({ definitionDirs: [], recordsDir: null }),
     }
     await addRunRepository(noRecords, 'exec-1', RUN_DIR, '/work/api')
     await forgetGoneRuns(transport, RECORDS, [])

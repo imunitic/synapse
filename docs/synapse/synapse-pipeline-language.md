@@ -1,7 +1,7 @@
 # Synapse Pipeline definition language
 
-The format of the files `synapse-pipeline` reads: how to write a pipeline, the systems and agents it
-refers to, and the rules that decide what runs when. For running a pipeline, the commands and the
+The format of the files `synapse-pipeline` reads: how to write a pipeline, the systems, agents and
+prompts it refers to, and the rules that decide what runs when. For running a pipeline, the commands and the
 environment, see [synapse-pipeline.md](synapse-pipeline.md).
 
 A definition is a small declarative text, limited to declarations and references. There is no
@@ -14,9 +14,9 @@ what each one is, and how control moves between them.
 
 ```
 -- Build a change, then have it reviewed until it is approved.
-Pipeline Develop_Feature {
+Pipeline Develop_Feature [Description => "Build a change and have it reviewed."] {
    Develop [Agent => Developer, Harness => Claude, Prompt => "Implement the supplied task."];
-   Test    [Agent => Tester, Harness => Claude, Skill => "test-feature"];
+   Test    [Agent => Tester, Harness => Claude, Prompt => Test_Feature];
    Review  [System => Strict_Reviewer, Harness => Codex];
    Review -> Develop [When => Changes_Requested, Max_Iterations => 5];
 }
@@ -25,7 +25,15 @@ Pipeline Develop_Feature {
 `Strict_Reviewer.synapse`:
 
 ```
-System Strict_Reviewer [Agent => Reviewer, Harness => Claude, Permissions => Read_Only, Skill => "review-code"];
+System Strict_Reviewer [Agent => Reviewer, Harness => Claude, Permissions => Read_Only, Prompt => Review_Code];
+```
+
+`Review_Code.synapse`:
+
+```
+Prompt Review_Code [Description => "Review a change against its task.", Prompt => """
+Read the change and the task it was made for. Report every problem you find in data.problems.
+"""];
 ```
 
 `Reviewer.synapse`:
@@ -37,7 +45,7 @@ Agent Reviewer [Prompt => "You are a reviewer. Find what is wrong with the chang
 ## Files and names
 
 - A definition file has the extension `.synapse` and holds exactly one definition. Its first word says
-  which kind: `Pipeline`, `System` or `Agent`.
+  which kind: `Pipeline`, `System`, `Agent` or `Prompt`.
 - The file's name, without the extension, is the name the definition declares: `Reviewer.synapse`
   declares `Agent Reviewer`. A file whose name differs from its declaration is an error.
 - Definitions are found in the directories listed in `SYNAPSE_PIPELINE_PATH` (separated as the
@@ -61,30 +69,36 @@ Agent Reviewer [Prompt => "You are a reviewer. Find what is wrong with the chang
 | Integer | Plain decimal. |
 | Duration | A quoted string with a number and a unit of `s`, `m` or `h`: `"90s"`, `"30m"`, `"2h"`. |
 | JSON value | After `=>`, a `{` or `[` begins a JSON value that runs to its matching close. |
-| Reserved | `Pipeline`, `System`, `Agent` and `End`. Attribute names have a namespace of their own, so a step may be called `Test`. |
+| Reserved | `Pipeline`, `System`, `Agent`, `Prompt` and `End`. Attribute names have a namespace of their own, so a step may be called `Test`. |
 
-## The three kinds
+## The four kinds
 
 | Kind | What it is |
 |---|---|
 | `Pipeline` | A set of steps and the edges between them. |
 | `System` | A named, reusable partial step: the setup a session runs with. |
-| `Agent` | A role: a `Prompt` or a `Skill` that says who the session is, such as "You are a tester." It is independent of any harness. |
+| `Agent` | A role: a `Prompt` that says who the session is, such as "You are a tester." It is independent of any harness. |
+| `Prompt` | A named, reusable text of instructions. A step, a system or an agent uses it with `Prompt => Name`. |
+
+Every kind can have a `Description`: a short text for a person, such as a list of definitions shows.
+It is never part of a session's prompt.
 
 A step is a system and a system is a step: a step either gives its whole setup itself or names a
 system with `System =>` and overrides what it likes. An agent says who the session is, and the step's
-own prompt or skill says what to do.
+own prompt says what to do.
 
-Everything is referred to by name. `Agent =>` and `System =>` take the name of a definition; there are
+Everything is referred to by name. `Agent =>` and `System =>` take the name of a definition, and
+`Prompt =>` takes either a string or the name of a `Prompt` definition; there are
 no inline or anonymous definitions. A reference is checked for the kind its attribute expects, so
 `System => Reviewer` is an error if `Reviewer` is an agent.
 
 ## Pipelines
 
-A pipeline body holds steps and edges.
+A pipeline body holds steps and edges. An attribute list between the name and the body is optional,
+and takes only `Description`.
 
 ```
-Pipeline Name {
+Pipeline Name [Description => "..."] {
    Step_Name [attribute list];
    From_Step -> To_Step [attribute list];
    A -> B -> C [attribute list];
@@ -103,8 +117,9 @@ Pipeline Name {
 |---|---|---|---|
 | `Agent` | step, system | name | The agent that sets the role. |
 | `System` | step | name | The system the step is built from. |
-| `Prompt` | step, system, agent | string | Instructions, inline. |
-| `Skill` | step, system, agent | name | Instructions from a skill. |
+| `Prompt` | step, system, agent | string, or the name of a Prompt definition | Instructions: the text itself, or the text of that definition. |
+| `Prompt` | prompt | string | The prompt's text. |
+| `Description` | pipeline, system, agent, prompt | string | A short text for a person. Not part of any prompt. |
 | `Harness` | step, system | `Claude`, `Codex` or `Opencode` | What runs the session. |
 | `Model` | step, system | name or string | The model the harness is asked to use. |
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` or `Full_Access` | What the session may do. Default `Workspace_Write`. |
@@ -116,10 +131,9 @@ Pipeline Name {
 
 - An unknown attribute, an attribute that is not allowed where it is written, and an attribute written
   twice on one node are errors.
-- `Prompt` and `Skill` are alternatives: a node gives one or the other.
+- A string `Prompt` must not be empty.
 - Every back-edge, an edge to a step that is declared earlier than its own or to itself, must have
   `Max_Iterations`.
-- A skill name has 1 to 64 lowercase letters, digits and single hyphens.
 - Step names are written in `Pascal_Case` by convention.
 
 ### How a step is built
@@ -127,22 +141,21 @@ Pipeline Name {
 The values a session runs with come from the step, its system and its agent:
 
 - A step's own attributes override the system's.
-- `Prompt` or `Skill` written on the step replaces the system's `Prompt` or `Skill` as a unit.
-- The agent's `Prompt` or `Skill` is the role. It is kept separate from the step's own instruction,
+- `Prompt` written on the step replaces the system's `Prompt`, whether each is a text or a name.
+- The agent's `Prompt` is the role. It is kept separate from the step's own instruction,
   which is the assignment.
 - A system cannot name another system.
 - The harness comes from the step, else its system, else `SYNAPSE_PIPELINE_HARNESS`. A step that ends
   up with none is an error.
 - A session's time limit is the step's `Timeout`, else `SYNAPSE_PIPELINE_TIMEOUT`, else 30 minutes.
 
-## Skills
+## Prompts
 
-A skill is a directory `<name>/` holding a `SKILL.md`, in the form of the
-[Agent Skills](https://agentskills.io) specification. It is looked for in
-`$XDG_CONFIG_HOME/synapse-pipeline/skills/` (`~/.config/synapse-pipeline/skills/` when that variable
-is unset). A skill that is not there is an error that names the directories searched. Looking a skill
-up needs no harness. When the step runs, the skill's `SKILL.md` becomes part of the prompt together
-with the directory its other files are in.
+A `Prompt` definition is text only: `Prompt Name [Description => "...", Prompt => """..."""];`. When a
+step runs, the text of each prompt it names becomes part of its prompt, as an inline string would.
+
+Files next to a prompt have no place in it. A step that needs files names their location in its
+prompt, and gets access to them through its `Permissions`.
 
 ## Results and guards
 
@@ -154,8 +167,8 @@ Every step ends with one result, in a fixed shape:
 
 - `outcome` is a non-empty string: one word naming what happened. Guards route on it.
 - `summary` is a string, for a person.
-- `data` is an object, empty if there is nothing to hand on. The step's prompt or skill says which
-  fields it should hold.
+- `data` is an object, empty if there is nothing to hand on. The step's prompt says which fields it
+  should hold.
 - Any other member makes the result invalid, so a guard has exactly these three things to read.
 
 The next step is given the pipeline's initial input and the previous step's result. The last step's
@@ -193,8 +206,8 @@ Review -> Develop [When => Changes_Requested, Max_Iterations => 5];
 `Outcomes` is optional. A step without it ends with any word, and a guard can test any word. Declaring
 them is strongly suggested wherever an edge tests the outcome, because then:
 
-- the prompt lists the words and what each means, so a prompt or a skill need not name them and one
-  skill can serve pipelines that use different words;
+- the prompt lists the words and what each means, so a prompt need not name them and one prompt
+  can serve pipelines that use different words;
 - an edge whose guard tests a word the step does not declare is an error in the definition, so a
   misspelt outcome cannot make an edge that never fires;
 - an answer with any other word is a `result_contract_failure`, tried again as `Retries` says.
@@ -244,9 +257,9 @@ nothing in the pipeline can catch the failure.
 `synapse-pipeline check` and `synapse-pipeline run` check, before the first session starts:
 
 - the grammar, with the file, line and column of every error;
-- that every step, edge, system, agent and skill that is named exists, and is of the right kind (an edge may also lead to `End`);
+- that every step, edge, system, agent and prompt that is named exists, and is of the right kind (an edge may also lead to `End`);
 - that every step has a harness, a known permission level and a well-formed duration;
-- that `Prompt` and `Skill` are not both given, and that a system does not name a system;
+- that a system does not name a system;
 - that every guard is a rule the evaluator can run, and every back-edge is bounded;
 - that a step that declares `Outcomes` declares well (words and one-line meanings) and has no edge testing a word it does not declare.
 

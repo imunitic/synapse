@@ -15,7 +15,7 @@ export function AgentCard({
 }: {
   definition: DefinitionKind
   // What exists, or null until it has been read.
-  existing: { definitions: Pick<Definition, 'name' | 'kind'>[]; skills: string[] } | null
+  existing: { definitions: Pick<Definition, 'name' | 'kind'>[] } | null
   // The text to change; absent when the definition is to be written new.
   current?: string
   onWritten: (text: string) => void
@@ -41,7 +41,6 @@ export function AgentCard({
         ...(model === null ? {} : { model }),
         current,
         definitions: existing.definitions.map((d) => ({ name: d.name, kind: d.kind })),
-        skills: existing.skills,
       })
       onWritten(text)
     } catch (error) {

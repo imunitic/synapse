@@ -3,7 +3,6 @@ with Ada.Strings.Unbounded;
 with Synapse.Ports.Variables;
 with Synapse.Pipeline.File_System;
 with Synapse.Pipeline.Registry_Store;
-with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.Session_Process;
 with Synapse.Pipeline.Session_Runner;
 with Synapse.Pipeline.Sessions;
@@ -41,9 +40,6 @@ package Synapse.Pipeline.Interactive_Runners is
       Files    : not null access File_System.File_System'Class;
       Registry : not null access Registry_Store.Store'Class)
    is limited new Session_Runner.Runner with record
-      --  Where a skill is looked for, in order.
-      Skill_Roots : Search_Paths.Root_Vectors.Vector;
-
       --  The home directory of the user, where a harness keeps its sessions.
       Home        : Ada.Strings.Unbounded.Unbounded_String;
 

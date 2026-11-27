@@ -39,6 +39,27 @@ test('a new pipeline is drawn as it is typed, shows what is wrong, and is saved 
   expect(readFileSync(file, 'utf8')).toContain('Only [Harness => Claude')
 })
 
+test('a new prompt starts from a template and is saved as a file', async ({ page }) => {
+  const name = uniqueName('Created_Prompt')
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await sidePanel(page).getByRole('button', { name: 'Prompts', exact: true }).click()
+  await sidePanel(page).getByRole('button', { name: 'New prompt' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'New prompt' })).toBeVisible()
+  await expect(editor(page)).toContainText('Prompt ')
+
+  await setEditorText(
+    page,
+    `Prompt ${name} [Description => "Says hello.", Prompt => "Say hello to the person."];`,
+  )
+  await expect(page.getByLabel('Problems')).toContainText('None.')
+  await page.getByRole('button', { name: 'Create', exact: true }).click()
+
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible()
+  const file = join(world().definitions, `${name}.synapse`)
+  expect(readFileSync(file, 'utf8')).toContain('Say hello to the person.')
+})
+
 test('a name that is taken is refused', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')

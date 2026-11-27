@@ -3,7 +3,7 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Ports.Variables;
 
---  Where definitions and skills are looked for. Where a variable comes from is
+--  Where definitions are looked for. Where a variable comes from is
 --  passed in, so none of this touches the real environment unless the caller
 --  hands it the system's.
 
@@ -32,12 +32,6 @@ package Synapse.Pipeline.Search_Paths is
    --  The directories definitions are loaded from, in order: the configuration
    --  directory, then each directory `SYNAPSE_PIPELINE_PATH` lists.
    function Definition_Roots
-     (V : Synapse.Ports.Variables.Variables'Class) return Root_Vectors.Vector;
-
-   --  The directories skills are looked up in, first to last. For now the
-   --  `skills` directory of the configuration directory; the harnesses' own
-   --  directories and the application's join it later.
-   function Skill_Roots
      (V : Synapse.Ports.Variables.Variables'Class) return Root_Vectors.Vector;
 
 end Synapse.Pipeline.Search_Paths;

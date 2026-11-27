@@ -5,7 +5,7 @@ with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Source_Errors;
 with Synapse.Pipeline.Syntax;
 
---  The definitions there are, by name. One namespace for all three kinds, so a
+--  The definitions there are, by name. One namespace for all four kinds, so a
 --  name belongs to exactly one definition whatever its kind.
 --
 --  A name can instead have failed: its file did not load, or more than one

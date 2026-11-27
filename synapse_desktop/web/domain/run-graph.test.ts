@@ -7,7 +7,7 @@ import { describeRun } from './run-graph.ts'
 function transportWith(options: { socket: RunAnswer | Error; show: CliResult }): Transport {
   const base = fakeTransport({
     files: {},
-    paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+    paths: { definitionDirs: [], recordsDir: null },
   })
   return {
     ...base,
@@ -26,7 +26,7 @@ const shown: CliResult = { code: 0, stdout: DEVELOP_FEATURE_SHOW, stderr: '' }
 function finishedRun(files: Record<string, string>, show: CliResult): Transport {
   const base = fakeTransport({
     files,
-    paths: { definitionDirs: [], skillsDir: null, recordsDir: '/w/pipelines' },
+    paths: { definitionDirs: [], recordsDir: '/w/pipelines' },
   })
   return { ...base, cli: () => Promise.resolve(show) }
 }

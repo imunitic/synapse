@@ -157,20 +157,17 @@ export function referenceFrom(skill: string): string {
 
 const REPLY_RULES = `Reply with the text of one file and nothing else: no code fences, no explanation before or after. You cannot run commands or write files here; the text you give is checked afterwards, so it has to be right as written.`
 
-const SKILL_FORMAT = `A skill is a SKILL.md: frontmatter between --- lines holding name (1 to 64 lowercase letters, digits and single hyphens) and description (what the skill does and when to use it), then the instructions the agent follows.`
-
 const REVISE_RULES = `You are given the current text of the file. Reply with the whole revised text, with the same name and the same kind of definition, and change only what the description asks for.`
 
 export function systemFor(request: GenerateRequest, skill: string): string {
   const revising = request.current === undefined ? '' : `\n\n${REVISE_RULES}`
-  if (request.kind === 'skill') {
-    return `You write skills for coding agents. ${SKILL_FORMAT}\n\n${REPLY_RULES}${revising}`
-  }
   const wanted = {
     pipeline:
       "a Pipeline: a single file, with each step's role and instructions in its own Prompt. Refer to an existing Agent or System only when one in the list below fits. Give every step a Harness and say in its prompt the exact outcome words it may report. Every back-edge needs Max_Iterations.",
     system: 'a System: one reusable setup that steps can share.',
     agent: 'an Agent: one role, a Prompt that says who the session is.',
+    prompt:
+      'a Prompt definition: `Prompt Name [Description => "...", Prompt => """..."""];`, one reusable text that steps, systems and agents name in their Prompt.',
   }[request.kind]
   return `You write definition files for synapse-pipeline. Write ${wanted}\n\n${REPLY_RULES}${revising}\n\n${referenceFrom(skill)}`
 }
@@ -188,17 +185,11 @@ export function promptFor(request: GenerateRequest): string {
           '',
           request.current,
         ]
-  if (request.kind !== 'skill' && request.definitions.length > 0) {
+  if (request.definitions.length > 0) {
     lines.push(
       '',
       'Definitions that exist (a name is taken by any of them):',
       ...request.definitions.map((d) => `- ${d.kind} ${d.name}`),
-    )
-  }
-  if (request.kind === 'skill' && request.skills.length > 0) {
-    lines.push(
-      '',
-      `Skills that exist (a name is taken by any of them): ${request.skills.join(', ')}`,
     )
   }
   return lines.join('\n')
@@ -223,7 +214,7 @@ export async function generateText(
     signal?: AbortSignal
   },
 ): Promise<string> {
-  const skill = request.kind === 'skill' ? '' : await findPipelineSkill(deps.pathVariable)
+  const skill = await findPipelineSkill(deps.pathVariable)
   const result = await deps.agent({
     env: deps.env,
     harness: deps.harness,

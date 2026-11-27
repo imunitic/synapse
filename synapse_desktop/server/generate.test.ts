@@ -14,6 +14,7 @@ import {
   type AgentRun,
 } from './generate.ts'
 import { HostError } from '../shared/dispatch.ts'
+import { messages } from '../shared/messages.ts'
 import { createNoteRuns } from './note-runs.ts'
 
 const SKILL = [
@@ -34,8 +35,10 @@ const SKILL = [
 const request: GenerateRequest = {
   kind: 'pipeline',
   prompt: '  Build, then review.  ',
-  definitions: [{ name: 'Reviewer', kind: 'agent' }],
-  skills: ['review-code'],
+  definitions: [
+    { name: 'Reviewer', kind: 'agent' },
+    { name: 'Review_Code', kind: 'prompt' },
+  ],
 }
 
 // What the request asks of agent.run: the message names the kind of definition `what`.
@@ -67,8 +70,8 @@ describe('what the agent is given', () => {
     const prompt = promptFor(request)
     expect(prompt).toContain('Build, then review.')
     expect(prompt).toContain('- agent Reviewer')
-    expect(promptFor({ ...request, kind: 'skill' })).toContain('review-code')
-    expect(promptFor({ ...request, kind: 'skill' })).not.toContain('Reviewer')
+    expect(prompt).toContain('- prompt Review_Code')
+    expect(promptFor({ ...request, kind: 'prompt' })).toContain('- agent Reviewer')
   })
 
   it('gives the current text and asks for a revision, not a new definition', () => {
@@ -80,8 +83,31 @@ describe('what the agent is given', () => {
     expect(systemFor(request, SKILL)).not.toContain('same name')
   })
 
-  it('needs no skill file to write a skill', () => {
-    expect(systemFor({ ...request, kind: 'skill' }, '')).toContain('SKILL.md')
+  it('asks for a Prompt definition, with the reference, when the kind is prompt', () => {
+    const system = systemFor({ ...request, kind: 'prompt' }, SKILL)
+    expect(system).toContain('a Prompt definition: `Prompt Name [Description => "...", Prompt =>')
+    expect(system).toContain('A definition file has the extension .synapse.')
+    expect(system).not.toContain('SKILL.md')
+    expect(promptFor({ ...request, kind: 'prompt' })).toContain('Write a new prompt')
+  })
+
+  it('refuses the kind skill, which is no definition', () => {
+    expect(
+      messages['agent.run'].params.safeParse({
+        kind: 'definition',
+        what: 'skill',
+        prompt: 'p',
+        definitions: [],
+      }).success,
+    ).toBe(false)
+    expect(
+      messages['agent.run'].params.safeParse({
+        kind: 'definition',
+        what: 'prompt',
+        prompt: 'p',
+        definitions: [],
+      }).success,
+    ).toBe(true)
   })
 
   it('refuses a skill whose layout it does not know', () => {

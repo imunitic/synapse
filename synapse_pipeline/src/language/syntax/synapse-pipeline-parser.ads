@@ -7,9 +7,10 @@ with Synapse.Pipeline.Syntax;
 --  holds. A file holds exactly one:
 --
 --    file       = definition End_Of_Input
---    definition = "Pipeline" Name "{" { statement } "}"
+--    definition = "Pipeline" Name [ attributes ] "{" { statement } "}"
 --               | "System" Name attributes ";"
 --               | "Agent" Name attributes ";"
+--               | "Prompt" Name attributes ";"
 --    statement  = Name attributes ";"
 --               | Name { "->" Name } [ attributes ] ";"        (one or more)
 --    attributes = "[" [ attribute { "," attribute } ] "]"
@@ -17,7 +18,7 @@ with Synapse.Pipeline.Syntax;
 --
 --  The parser reads what is written and no more: that a step is declared
 --  once, that an attribute is a real one or that an edge ends at a step that
---  exists is for the validation that follows. The three keywords may name an
+--  exists is for the validation that follows. The four keywords may name an
 --  attribute but not a definition or a step.
 
 package Synapse.Pipeline.Parser is

@@ -5,7 +5,6 @@ with Synapse.Core.Text_Lists;
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Attributes;
 with Synapse.Pipeline.Outcomes;
-with Synapse.Pipeline.Skills;
 with Synapse.Pipeline.Source_Errors;
 with Synapse.Pipeline.Syntax;
 
@@ -19,7 +18,8 @@ package body Synapse.Pipeline.Validation is
      (case Kind is
         when Syntax.Pipeline_Definition => "pipeline",
         when Syntax.System_Definition   => "system",
-        when Syntax.Agent_Definition    => "agent");
+        when Syntax.Agent_Definition    => "agent",
+        when Syntax.Prompt_Definition   => "prompt");
 
    function Article (Kind : Syntax.Definition_Kind) return String is
      (if Kind = Syntax.Agent_Definition then "an " else "a ");
@@ -33,7 +33,7 @@ package body Synapse.Pipeline.Validation is
 
    function Has_Instructions
      (List : Syntax.Attribute_Vectors.Vector) return Boolean is
-     (Has_Attribute (List, "Prompt") or else Has_Attribute (List, "Skill"));
+     (Has_Attribute (List, "Prompt"));
 
    --  The value of the attribute called Key in List, null when there is none.
    function Json_Of
@@ -128,16 +128,15 @@ package body Synapse.Pipeline.Validation is
    end Step_Called;
 
    function Validate
-     (Defs        : Namespaces.Namespace;
-      Files       : File_System.File_System'Class;
-      Skill_Roots : Search_Paths.Root_Vectors.Vector;
-      Name        : String;
+     (Defs            : Namespaces.Namespace;
+      Name            : String;
       Default_Harness : Harnesses.Kind_Options.Option)
       return Definitions.Problem_Vectors.Vector
    is
       Problems : Definitions.Problem_Vectors.Vector;
 
-      --  The systems and agents already checked, so each is checked once.
+      --  The systems, agents and prompts already checked, so each is
+      --  checked once.
       Checked : Synapse.Core.Text_Lists.Set;
 
       procedure Add (File : String; Error : Source_Errors.Source_Error) is
@@ -173,38 +172,8 @@ package body Synapse.Pipeline.Validation is
                      "'" & Attribute_Name & "' is given more than once");
                end if;
                Seen.Include (Attribute_Name);
-
-               if not Found.Found and then Attribute_Name = "Skill" then
-                  declare
-                     Skill : constant String := To_String (A.Item.Text);
-                  begin
-                     if not Skills.Find (Files, Skill_Roots, Skill).Found then
-                        Add
-                          (File,
-                           Source_Errors.Make
-                             ("no skill named '" & Skill & "' in "
-                              & (if Skill_Roots.Is_Empty
-                                 then "any skill directory (none is set up)"
-                                 else Skills.Searched (Skill_Roots)),
-                              A.Item.Line, A.Item.Column));
-                     end if;
-                  end;
-               end if;
             end;
          end loop;
-         if Has_Attribute (List, "Prompt")
-           and then Has_Attribute (List, "Skill")
-         then
-            for A of List loop
-               if Name_Of (A.Name) = "Skill" then
-                  Add_At
-                    (File, A.Name,
-                     "'Prompt' and 'Skill' are both given; a definition "
-                     & "takes one instruction source");
-                  exit;
-               end if;
-            end loop;
-         end if;
       end Check_Attributes;
 
       --  What is wrong with a reference to the Expected kind of definition,
@@ -246,6 +215,21 @@ package body Synapse.Pipeline.Validation is
       end Resolves;
 
       procedure Check_Definition (Referred : String);
+
+      --  Checks the prompt that the `Prompt` of List names, if it names one
+      --  rather than giving the text itself.
+      procedure Follow_Prompt
+        (File : String; List : Syntax.Attribute_Vectors.Vector) is
+      begin
+         for A of List loop
+            if Name_Of (A.Name) = "Prompt"
+              and then A.Item.Kind = Syntax.Name_Value
+              and then Resolves (File, A, Syntax.Prompt_Definition)
+            then
+               Check_Definition (To_String (A.Item.Name));
+            end if;
+         end loop;
+      end Follow_Prompt;
 
       --  The attribute called Attribute_Name in List, if there is one.
       function Find
@@ -352,7 +336,7 @@ package body Synapse.Pipeline.Validation is
          end;
       end Follow;
 
-      --  Checks a system or an agent, once.
+      --  Checks a system, an agent or a prompt, once.
       procedure Check_Definition (Referred : String) is
          Loaded : constant Namespaces.Loaded :=
            Namespaces.Element (Defs, Referred);
@@ -366,6 +350,7 @@ package body Synapse.Pipeline.Validation is
          if Item.Kind = Syntax.System_Definition then
             Check_Attributes
               (File, Attributes.System_Context, Item.Attributes);
+            Follow_Prompt (File, Item.Attributes);
             declare
                Resolved   : Boolean := True;
                Instructed : Boolean := False;
@@ -377,6 +362,10 @@ package body Synapse.Pipeline.Validation is
          elsif Item.Kind = Syntax.Agent_Definition then
             Check_Attributes
               (File, Attributes.Agent_Context, Item.Attributes);
+            Follow_Prompt (File, Item.Attributes);
+         elsif Item.Kind = Syntax.Prompt_Definition then
+            Check_Attributes
+              (File, Attributes.Prompt_Context, Item.Attributes);
          end if;
       end Check_Definition;
 
@@ -392,6 +381,7 @@ package body Synapse.Pipeline.Validation is
          if Item.Steps.Is_Empty then
             Add_At (File, Item.Name, "a pipeline needs at least one step");
          end if;
+         Check_Attributes (File, Attributes.Pipeline_Context, Item.Attributes);
 
          for S of Item.Steps loop
             Count := Count + 1;
@@ -408,6 +398,7 @@ package body Synapse.Pipeline.Validation is
                end if;
             end;
             Check_Attributes (File, Attributes.Step_Context, S.Attributes);
+            Follow_Prompt (File, S.Attributes);
             declare
                Resolved   : Boolean := True;
                Instructed : Boolean := Has_Instructions (S.Attributes);
@@ -432,8 +423,8 @@ package body Synapse.Pipeline.Validation is
                   Add_At
                     (File, S.Name,
                      "step '" & Name_Of (S.Name) & "' has no instructions: "
-                     & "give a Prompt or a Skill, or an Agent or a System "
-                     & "that has one");
+                     & "give a Prompt, or an Agent or a System that has "
+                     & "one");
                end if;
             end;
          end loop;

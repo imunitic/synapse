@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from 'react'
-import { listSkills } from '../domain/definitions.ts'
 import { formatDuration } from '../domain/format.ts'
 import { layoutGraph } from '../domain/graph.ts'
 import { fallThrough, routesFrom } from '../domain/outcomes.ts'
@@ -41,29 +40,11 @@ function ProblemList({ problems }: { problems: Problem[] }) {
   )
 }
 
-function InstructionCell({
-  instruction,
-  skillPath,
-  onOpen,
-}: {
-  instruction: Instruction
-  skillPath: string | undefined
-  onOpen: (page: Page) => void
-}) {
+// An instruction is its text, whether it was written on the step or came from a Prompt
+// definition; a Prompt definition it came from is listed under "Built from".
+function InstructionCell({ instruction }: { instruction: Instruction }) {
   if (instruction === null) return <span className="muted">none</span>
-  if (instruction.kind === 'prompt') return <span className="prompt">{instruction.text}</span>
-  if (skillPath === undefined) {
-    return <span className="mono">skill {instruction.name} (not found)</span>
-  }
-  const name = instruction.name
-  return (
-    <button
-      className="link mono"
-      onClick={() => onOpen({ kind: 'definition', definition: 'skill', name, path: skillPath })}
-    >
-      skill {name}
-    </button>
-  )
+  return <span className="prompt">{instruction.text}</span>
 }
 
 // The outcomes a step's edges wait for, and where each leads.
@@ -92,15 +73,12 @@ function Routes({ description, step }: { description: PipelineDescription; step:
 function StepDetails({
   description,
   step,
-  skills,
   onOpen,
 }: {
   description: PipelineDescription
   step: PipelineStep
-  skills: Map<string, string>
   onOpen: (page: Page) => void
 }) {
-  const skillPath = (i: Instruction) => (i?.kind === 'skill' ? skills.get(i.name) : undefined)
   return (
     <section className="card" aria-label={`Step ${step.name}`}>
       <h2 className="card-title">
@@ -139,19 +117,11 @@ function StepDetails({
         </dd>
         <dt>Role</dt>
         <dd>
-          <InstructionCell
-            instruction={step.role}
-            skillPath={skillPath(step.role)}
-            onOpen={onOpen}
-          />
+          <InstructionCell instruction={step.role} />
         </dd>
         <dt>Assignment</dt>
         <dd>
-          <InstructionCell
-            instruction={step.assignment}
-            skillPath={skillPath(step.assignment)}
-            onOpen={onOpen}
-          />
+          <InstructionCell instruction={step.assignment} />
         </dd>
         <dt>Outcomes</dt>
         <dd>
@@ -223,13 +193,10 @@ export function PipelinePage({
   // An interactive run of this pipeline is started in the terminals, with this input and name.
   onStartInteractive: (input: unknown, folder: string, runName?: string) => void
 }) {
-  const load = useCallback(async () => {
-    const [described, skills] = await Promise.all([
-      describePipeline(transport, name),
-      listSkills(transport),
-    ])
-    return { described, skills: new Map(skills.map((s) => [s.name, s.path])) }
-  }, [name])
+  const load = useCallback(
+    async () => ({ described: await describePipeline(transport, name) }),
+    [name],
+  )
   const { state } = useLoad(load)
   const [chosen, setChosen] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
@@ -303,12 +270,7 @@ export function PipelinePage({
                 subtitles={Object.fromEntries(description.steps.map((s) => [s.name, s.harness]))}
               />
             </section>
-            <StepDetails
-              description={description}
-              step={selected}
-              skills={state.data.skills}
-              onOpen={onOpen}
-            />
+            <StepDetails description={description} step={selected} onOpen={onOpen} />
             <Edges description={description} />
           </>
         )}

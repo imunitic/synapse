@@ -37,7 +37,7 @@ function running(id: string, started: string): string {
   })
 }
 
-const paths = { definitionDirs: [], skillsDir: null, recordsDir: '/w/pipelines' }
+const paths = { definitionDirs: [], recordsDir: '/w/pipelines' }
 
 describe('parseExecution', () => {
   it('reads a completed record', () => {
@@ -140,7 +140,7 @@ describe('parseEvents', () => {
 
 describe('listExecutions', () => {
   it('is empty without a work directory or records directory', async () => {
-    const none = { definitionDirs: [], skillsDir: null, recordsDir: null }
+    const none = { definitionDirs: [], recordsDir: null }
     expect(await listExecutions(fakeTransport({ paths: none, files: {} }))).toEqual([])
   })
 

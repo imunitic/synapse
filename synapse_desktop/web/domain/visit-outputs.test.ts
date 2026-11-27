@@ -4,7 +4,7 @@ import { fakeTransport } from './fake-transport.ts'
 import type { Visit } from './progress.ts'
 import { outputPath, problemsOf, readVisitOutput, startsOpen } from './visit-outputs.ts'
 
-const paths = { definitionDirs: [], skillsDir: null, recordsDir: '/w/pipelines' }
+const paths = { definitionDirs: [], recordsDir: '/w/pipelines' }
 const visit: Visit = { n: 2, step: 'Review', outcome: 'Approved', next: null }
 const twoTries: RecordedSession[] = [
   { attempt: 1, succeeded: false, transcript: null },

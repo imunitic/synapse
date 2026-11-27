@@ -3,11 +3,18 @@ import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openSection, sidePanel, world } from './helpers.ts'
 
-async function openDefinition(page: Page, kind: 'Pipelines' | 'Systems' | 'Agents', name: string) {
+async function openDefinition(
+  page: Page,
+  kind: 'Pipelines' | 'Systems' | 'Agents' | 'Prompts',
+  name: string,
+) {
   await page.goto('/')
   await openSection(page, 'Definitions')
   await sidePanel(page).getByRole('button', { name: kind }).click()
-  await sidePanel(page).getByRole('button', { name, exact: true }).click()
+  // A definition's description is part of its button's name, after the definition's own name.
+  await sidePanel(page)
+    .getByRole('button', { name: new RegExp(`^${name}( |$)`) })
+    .click()
 }
 
 test('a system page lists its attributes as written and the pipeline step that uses it', async ({
@@ -18,7 +25,7 @@ test('a system page lists its attributes as written and the pipeline step that u
   await expect(attributes).toContainText('Agent')
   await expect(attributes).toContainText('Reviewer')
   await expect(attributes).toContainText('Codex')
-  await expect(attributes).toContainText('review-code')
+  await expect(attributes).toContainText('Review_Code')
 
   const used = page.getByLabel('Used by')
   await expect(used).toContainText('Develop_Feature')
@@ -34,6 +41,24 @@ test('an agent page says which system uses it', async ({ page }) => {
   const used = page.getByLabel('Used by')
   await expect(used.getByRole('button', { name: 'Strict_Reviewer' })).toBeVisible()
   await expect(used).toContainText('system')
+})
+
+test('a prompt page shows its description and text, and the steps and systems that use it', async ({
+  page,
+}) => {
+  await openDefinition(page, 'Prompts', 'Test_Feature')
+  await expect(page.locator('.page-head')).toContainText(
+    'Run the tests for a feature and report which ones fail.',
+  )
+  await expect(page.getByLabel('Attributes')).toContainText("Run the project's tests")
+  const used = page.getByLabel('Used by')
+  await expect(used.getByRole('button', { name: 'Develop_Feature' })).toBeVisible()
+  await expect(used).toContainText('step Test')
+
+  await openDefinition(page, 'Prompts', 'Review_Code')
+  const system = page.getByLabel('Used by')
+  await expect(system.getByRole('button', { name: 'Strict_Reviewer' })).toBeVisible()
+  await expect(system).toContainText('system')
 })
 
 test('an agent that nothing uses says so', async ({ page }) => {

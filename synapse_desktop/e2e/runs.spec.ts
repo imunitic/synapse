@@ -582,6 +582,10 @@ test('an interactive run has its terminal on the page of the run', async ({ page
   // The dialog starts an interactive run, without the box touched.
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
+  // Until the interactive check has answered, the dialog would start the run without a terminal.
+  const autonomous = dialog.getByLabel(/Run without a terminal/)
+  await expect(autonomous).toBeEnabled()
+  await expect(autonomous).not.toBeChecked()
   await dialog.getByRole('button', { name: 'Start run' }).click()
 
   // The page of the run, with its terminal in a card under the graph, open.

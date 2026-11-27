@@ -1,11 +1,12 @@
-// Describing a system or an agent: what `synapse-pipeline show <name> --format json`
+// Describing a system, an agent or a prompt: what `synapse-pipeline show <name> --format json`
 // answers, with the definitions that use it.
 
 import { z } from 'zod'
 import type { Transport } from '../../shared/transport.ts'
 
 const userSchema = z.object({
-  // A pipeline uses a system or an agent; a system uses an agent.
+  // A pipeline uses a system, an agent or a prompt; a system an agent or a prompt; an agent a
+  // prompt. A prompt uses nothing.
   kind: z.enum(['pipeline', 'system', 'agent']),
   name: z.string(),
   file: z.string(),
@@ -15,7 +16,7 @@ const userSchema = z.object({
 
 const infoSchema = z.object({
   format: z.literal('synapse-pipeline-definition/v1'),
-  kind: z.enum(['system', 'agent']),
+  kind: z.enum(['system', 'agent', 'prompt']),
   name: z.string(),
   file: z.string(),
   // As they are written in the file, in order.
@@ -31,7 +32,7 @@ export function valueLabel(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
-// The system or agent as the CLI describes it. Throws with the CLI's own words when it
+// The system, agent or prompt as the CLI describes it. Throws with the CLI's own words when it
 // cannot, and when the answer is in a format this app does not know.
 export async function describeDefinition(
   transport: Transport,

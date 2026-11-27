@@ -50,15 +50,13 @@ package Synapse.Pipeline.Harness_Commands is
    --  A harness that can run one bounded, non-interactive session of a step.
    type Headless is interface;
 
-   --  The command that runs Prompt as the session of Step. Skill_Directory is
-   --  the directory of the step's skill, empty when it has none. Fails, saying
+   --  The command that runs Prompt as the session of Step. Fails, saying
    --  why, when the step asks for something the harness cannot do: a tool
    --  allowlist for a harness that has none.
    function Build
-     (Item            : Headless;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String) return Command_Results.Result is abstract;
+     (Item   : Headless;
+      Step   : Resolved.Step;
+      Prompt : String) return Command_Results.Result is abstract;
 
    --  What the process of this harness that ended as Ended came to. A harness
    --  that reports a quota or a rate limit is told from one that failed.

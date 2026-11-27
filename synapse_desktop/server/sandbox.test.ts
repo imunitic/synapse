@@ -7,20 +7,17 @@ import { buildSandbox } from './sandbox.ts'
 let dir: string
 let real: string
 let other: string
-let skills: string
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'synapse-desktop-sandbox-test-'))
   real = join(dir, 'real')
   other = join(dir, 'other')
-  skills = join(real, 'skills')
-  await mkdir(join(skills, 'review-code'), { recursive: true })
+  await mkdir(real)
   await mkdir(other)
   await writeFile(join(real, 'Reviewer.synapse'), 'Agent Reviewer [Prompt => "r"];')
   await writeFile(join(real, 'Dev.synapse'), 'Pipeline Dev { old }')
   await writeFile(join(real, 'notes.txt'), 'not a definition')
   await writeFile(join(other, 'Elsewhere.synapse'), 'Agent Elsewhere [Prompt => "e"];')
-  await writeFile(join(skills, 'review-code', 'SKILL.md'), 'skill text')
 })
 
 afterEach(async () => {
@@ -32,7 +29,6 @@ describe('buildSandbox', () => {
     const box = await buildSandbox({
       defaultDir: real,
       otherDirs: [other],
-      skillsDir: skills,
       draft: { name: 'New', text: 'Pipeline New {}' },
     })
     try {
@@ -41,7 +37,6 @@ describe('buildSandbox', () => {
         'Dev.synapse',
         'New.synapse',
         'Reviewer.synapse',
-        'skills',
       ])
       expect(await readFile(join(copy, 'New.synapse'), 'utf8')).toBe('Pipeline New {}')
       expect(await readdir(box.env.SYNAPSE_PIPELINE_PATH)).toEqual(['Elsewhere.synapse'])
@@ -54,7 +49,6 @@ describe('buildSandbox', () => {
     const box = await buildSandbox({
       defaultDir: real,
       otherDirs: [],
-      skillsDir: null,
       draft: { name: 'Dev', text: 'Pipeline Dev { new }' },
     })
     try {
@@ -66,22 +60,21 @@ describe('buildSandbox', () => {
     }
   })
 
-  it('links the skills, which are then readable through the copy', async () => {
+  it('holds only the definition files, with no skills folder beside them', async () => {
+    await mkdir(join(real, 'skills', 'review-code'), { recursive: true })
+    await writeFile(join(real, 'skills', 'review-code', 'SKILL.md'), 'skill text')
     const box = await buildSandbox({
       defaultDir: real,
       otherDirs: [],
-      skillsDir: skills,
       draft: { name: 'New', text: 'x' },
     })
     try {
-      const linked = join(
-        box.env.XDG_CONFIG_HOME,
-        'synapse-pipeline',
-        'skills',
-        'review-code',
-        'SKILL.md',
-      )
-      expect(await readFile(linked, 'utf8')).toBe('skill text')
+      const copy = join(box.env.XDG_CONFIG_HOME, 'synapse-pipeline')
+      expect((await readdir(copy)).sort()).toEqual([
+        'Dev.synapse',
+        'New.synapse',
+        'Reviewer.synapse',
+      ])
     } finally {
       await box.cleanup()
     }
@@ -91,7 +84,6 @@ describe('buildSandbox', () => {
     const box = await buildSandbox({
       defaultDir: join(dir, 'missing'),
       otherDirs: [join(dir, 'also-missing')],
-      skillsDir: null,
       draft: { name: 'Agent_One', text: 'Agent Agent_One [Prompt => "x"];' },
       extra: { name: 'Probe', text: 'Pipeline Probe {}' },
     })
@@ -107,7 +99,6 @@ describe('buildSandbox', () => {
     const box = await buildSandbox({
       defaultDir: real,
       otherDirs: [],
-      skillsDir: null,
       draft: { name: 'New', text: 'x' },
     })
     const root = box.env.XDG_CONFIG_HOME

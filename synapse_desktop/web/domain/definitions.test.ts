@@ -3,7 +3,6 @@ import {
   kindOfSource,
   listDefinitions,
   listRecordedDefinitions,
-  listSkills,
   loadDefinitions,
 } from './definitions.ts'
 import { fakeTransport } from './fake-transport.ts'
@@ -13,6 +12,7 @@ describe('kindOfSource', () => {
     expect(kindOfSource('Pipeline P { A; }')).toBe('pipeline')
     expect(kindOfSource('System S [Agent => A];')).toBe('system')
     expect(kindOfSource('Agent A [Prompt => "x"];')).toBe('agent')
+    expect(kindOfSource('Prompt P [Prompt => "x"];')).toBe('prompt')
   })
 
   it('skips comments and blank lines before it', () => {
@@ -34,7 +34,7 @@ describe('kindOfSource', () => {
 describe('loadDefinitions', () => {
   const answered = (text: string, code = 0, stderr = '') =>
     fakeTransport({
-      paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+      paths: { definitionDirs: [], recordsDir: null },
       files: {},
       cli: (binary, args) => {
         expect([binary, ...args]).toEqual(['synapse-pipeline', 'definitions', '--format', 'json'])
@@ -55,9 +55,34 @@ describe('loadDefinitions', () => {
   it('has the definitions the CLI lists, by name, kind and file', async () => {
     const found = await loadDefinitions(answered(listing))
     expect(found.definitions).toEqual([
-      { name: 'Develop', kind: 'pipeline', path: '/a/Develop.synapse' },
-      { name: 'Reviewer', kind: 'agent', path: '/a/Reviewer.synapse' },
-      { name: 'Strict', kind: 'system', path: '/b/Strict.synapse' },
+      { name: 'Develop', kind: 'pipeline', path: '/a/Develop.synapse', description: null },
+      { name: 'Reviewer', kind: 'agent', path: '/a/Reviewer.synapse', description: null },
+      { name: 'Strict', kind: 'system', path: '/b/Strict.synapse', description: null },
+    ])
+  })
+
+  it('has a prompt in the listing as a prompt, with its description', async () => {
+    const withPrompt = JSON.stringify({
+      format: 'synapse-pipeline-definitions/v1',
+      definitions: [
+        {
+          kind: 'prompt',
+          name: 'Review_Code',
+          file: '/a/Review_Code.synapse',
+          description: 'Review a change.',
+        },
+        { kind: 'agent', name: 'Reviewer', file: '/a/Reviewer.synapse', description: null },
+      ],
+      problems: [],
+    })
+    expect(await listDefinitions(answered(withPrompt))).toEqual([
+      {
+        name: 'Review_Code',
+        kind: 'prompt',
+        path: '/a/Review_Code.synapse',
+        description: 'Review a change.',
+      },
+      { name: 'Reviewer', kind: 'agent', path: '/a/Reviewer.synapse', description: null },
     ])
   })
 
@@ -100,59 +125,35 @@ describe('loadDefinitions', () => {
   })
 })
 
-describe('listSkills', () => {
-  it('lists the directories that hold a SKILL.md', async () => {
-    const transport = fakeTransport({
-      paths: { definitionDirs: [], skillsDir: '/s', recordsDir: null },
-      files: {
-        '/s/test-feature/SKILL.md': '---\nname: test-feature\n---',
-        '/s/test-feature/notes.md': 'x',
-        '/s/empty/readme.md': 'no skill file',
-      },
-    })
-    expect(await listSkills(transport)).toEqual([
-      { name: 'test-feature', path: '/s/test-feature/SKILL.md' },
-    ])
-  })
-
-  it('finds none without a skills directory', async () => {
-    const transport = fakeTransport({
-      paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
-      files: {},
-    })
-    expect(await listSkills(transport)).toEqual([])
-  })
-})
-
 describe('listRecordedDefinitions', () => {
-  const paths = { definitionDirs: [], skillsDir: null, recordsDir: '/w/pipelines' }
+  const paths = { definitionDirs: [], recordsDir: '/w/pipelines' }
   const dir = '/w/pipelines/exec-1/definitions/synapse-pipeline'
 
-  it('lists the files a run kept, by name and kind, with its skills', async () => {
+  it('lists the files a run kept, by name and kind, a recorded Prompt file as a prompt', async () => {
     const transport = fakeTransport({
       paths,
       files: {
         [`${dir}/Dev.synapse`]: 'Pipeline Dev {}',
-        [`${dir}/Reviewer.synapse`]: 'Agent Reviewer [Prompt => "x"];',
-        [`${dir}/skills/review-code/SKILL.md`]: '---\nname: review-code\n---',
+        [`${dir}/Reviewer.synapse`]: 'Agent Reviewer [Prompt => Review_Code];',
+        [`${dir}/Review_Code.synapse`]: '-- Review.\nPrompt Review_Code [Prompt => "Review it."];',
       },
     })
     const kept = await listRecordedDefinitions(transport, 'exec-1')
     expect(kept.definitions.map((d) => [d.name, d.kind])).toEqual([
       ['Dev', 'pipeline'],
+      ['Review_Code', 'prompt'],
       ['Reviewer', 'agent'],
     ])
-    expect(kept.skills.map((s) => s.name)).toEqual(['review-code'])
   })
 
   it('has nothing for a record made before it kept them, or without a work directory', async () => {
     const old = fakeTransport({ paths, files: { '/w/pipelines/exec-1/execution.json': '{}' } })
-    expect(await listRecordedDefinitions(old, 'exec-1')).toEqual({ definitions: [], skills: [] })
+    expect(await listRecordedDefinitions(old, 'exec-1')).toEqual({ definitions: [] })
     const none = fakeTransport({
-      paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+      paths: { definitionDirs: [], recordsDir: null },
       files: {},
     })
-    expect(await listRecordedDefinitions(none, 'exec-1')).toEqual({ definitions: [], skills: [] })
+    expect(await listRecordedDefinitions(none, 'exec-1')).toEqual({ definitions: [] })
   })
 
   it('does not mix the files of two runs', async () => {

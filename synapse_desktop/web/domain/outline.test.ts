@@ -20,7 +20,7 @@ const SAMPLE = [
   '',
 ].join('\n')
 
-const paths = { definitionDirs: [], skillsDir: null, recordsDir: null }
+const paths = { definitionDirs: [], recordsDir: null }
 
 describe('parseDocMap', () => {
   it('keeps the heading lines in order with their title and depth', () => {

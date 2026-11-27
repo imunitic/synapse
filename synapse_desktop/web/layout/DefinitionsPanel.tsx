@@ -1,6 +1,6 @@
 import { useState, type Dispatch } from 'react'
 import { definitionUse, type DefinitionUse } from '../domain/definition-use.ts'
-import { listSkills, loadDefinitions } from '../domain/definitions.ts'
+import { loadDefinitions } from '../domain/definitions.ts'
 import { filterByName } from '../domain/filter.ts'
 import { transport } from '../transport/index.ts'
 import { CloneDialog } from '../components/CloneDialog.tsx'
@@ -16,17 +16,14 @@ import {
 import { useLoad } from '../state/useLoad.ts'
 import { useWatch } from '../state/useWatch.ts'
 
-async function loadAll() {
-  const [{ definitions, problems }, skills] = await Promise.all([
-    loadDefinitions(transport),
-    listSkills(transport),
-  ])
-  return { definitions, problems, skills }
+function loadAll() {
+  return loadDefinitions(transport)
 }
 
 interface Item {
   name: string
   path: string
+  description: string | null
 }
 
 // The last part of a path, for a list that has little room.
@@ -96,7 +93,14 @@ function DefinitionRow({
           aria-current={active ? 'true' : undefined}
           onClick={() => dispatch({ type: 'openPage', page })}
         >
-          <span className="list-name">{item.name}</span>
+          <span className="list-line">
+            <span className="list-name">{item.name}</span>
+            {item.description !== null && item.description !== '' && (
+              <span className="muted small list-name-one-line" title={item.description}>
+                {item.description}
+              </span>
+            )}
+          </span>
         </button>
         {kind === 'pipeline' && (
           <button
@@ -183,10 +187,7 @@ function DefinitionRow({
             </strong>
           </p>
           <p className="small mono">{item.path}</p>
-          <p className="small">
-            {kind === 'skill' ? 'The skill’s whole folder is removed.' : 'The file is removed.'} It
-            cannot be undone.
-          </p>
+          <p className="small">The file is removed. It cannot be undone.</p>
           <div className="row">
             <button
               className="danger"
@@ -235,8 +236,7 @@ export function DefinitionsPanel({
 
   let items: Item[] = []
   if (load.status === 'ready') {
-    items =
-      kind === 'skill' ? load.data.skills : load.data.definitions.filter((d) => d.kind === kind)
+    items = load.data.definitions.filter((d) => d.kind === kind)
   }
 
   const shown = filterByName(items, filter)
@@ -306,7 +306,7 @@ export function DefinitionsPanel({
           />
         ))}
       </div>
-      {load.status === 'ready' && kind !== 'skill' && load.data.problems.length > 0 && (
+      {load.status === 'ready' && load.data.problems.length > 0 && (
         <section className="panel-problems" aria-label="Files that did not load">
           <h3 className="panel-subtitle">Did not load</h3>
           <ul>

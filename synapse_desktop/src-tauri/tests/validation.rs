@@ -49,7 +49,7 @@ fn every_example_keeps_to_the_rules() {
 }
 
 #[test]
-fn the_names_of_a_definition_a_skill_a_run_and_a_graph_are_of_the_form_a_path_cannot_be_made_of() {
+fn the_names_of_a_definition_a_run_and_a_graph_are_of_the_form_a_path_cannot_be_made_of() {
     for name in ["../x", "a b", "", "1abc", "a/b"] {
         let draft = json!({ "kind": "pipeline", "name": name, "text": "x" });
         refused("definition.preview", "draft", draft);
@@ -58,10 +58,9 @@ fn the_names_of_a_definition_a_skill_a_run_and_a_graph_are_of_the_form_a_path_ca
         let item = json!({ "mode": "create", "kind": "definition", "name": name, "text": "x" });
         assert!(check_params("definition.write", &item).is_err(), "{name}");
     }
-    for name in ["Upper", "../x", "a--b", "-a"] {
-        let item = json!({ "mode": "create", "kind": "skill", "name": name, "text": "x" });
-        assert!(check_params("definition.write", &item).is_err(), "{name}");
-    }
+    // A skill is no definition: the kind is not known.
+    let skill = json!({ "mode": "create", "kind": "skill", "name": "do-it", "text": "x" });
+    assert!(check_params("definition.write", &skill).is_err());
     allowed("run.stop", "executionId", json!("exec-0a1b2c3d"));
     for id in ["../x", "", "a b", "x".repeat(65).as_str()] {
         refused("run.stop", "executionId", json!(id));
@@ -106,13 +105,14 @@ fn the_lists_of_a_generation_request_are_held_to_a_thousand() {
         .map(|i| json!({ "name": format!("D{i}"), "kind": "agent" }))
         .collect();
     let request = json!({
-        "kind": "definition", "what": "pipeline", "prompt": "x", "definitions": many, "skills": [],
+        "kind": "definition", "what": "pipeline", "prompt": "x", "definitions": many,
     });
     assert!(check_params("agent.run", &request).is_err());
-    let bad_skill = json!({
-        "kind": "definition", "what": "pipeline", "prompt": "x", "definitions": [], "skills": ["Bad Skill"],
+    let bad_name = json!({
+        "kind": "definition", "what": "prompt", "prompt": "x",
+        "definitions": [{ "name": "Bad Name", "kind": "prompt" }],
     });
-    assert!(check_params("agent.run", &bad_skill).is_err());
+    assert!(check_params("agent.run", &bad_name).is_err());
 }
 
 #[test]
@@ -165,7 +165,7 @@ fn a_snapshot_must_be_a_tree_id_so_that_it_can_never_be_taken_for_an_option() {
 #[test]
 fn a_run_id_of_an_agent_run_is_the_form_of_a_run_name_and_a_stop_needs_one() {
     let kinds = [
-        json!({ "kind": "definition", "what": "pipeline", "prompt": "x", "definitions": [], "skills": [] }),
+        json!({ "kind": "definition", "what": "pipeline", "prompt": "x", "definitions": [] }),
         json!({ "kind": "note", "what": "note", "prompt": "x" }),
         json!({ "kind": "note-edit", "path": "a.md", "prompt": "x" }),
     ];

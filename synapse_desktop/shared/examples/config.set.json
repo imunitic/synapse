@@ -24,7 +24,6 @@
     },
     "paths": {
       "definitionDirs": ["/defs"],
-      "skillsDir": null,
       "recordsDir": "/w/pipelines"
     }
   }

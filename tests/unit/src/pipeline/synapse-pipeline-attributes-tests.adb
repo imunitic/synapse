@@ -39,6 +39,8 @@ package body Synapse.Pipeline.Attributes.Tests is
               Source => To_Unbounded_String (Text), Json => Parsed.Item);
    end A_JSON;
 
+   type Context_List is array (Positive range <>) of Context;
+
    --  Item must be fine as an attribute of Where.
    procedure Assert_Fine
      (Where : Context; Item : Syntax.Attribute; Label : String) is
@@ -75,9 +77,8 @@ package body Synapse.Pipeline.Attributes.Tests is
       Assert_Fine (System_Context, Named ("Agent", A_Name ("X")), "Agent");
       Assert_Fine (Step_Context, Named ("System", A_Name ("X")), "System");
       for Where in Context loop
-         if Where /= Edge_Context then
+         if Where not in Edge_Context | Pipeline_Context then
             Assert_Fine (Where, Named ("Prompt", A_String ("do")), "Prompt");
-            Assert_Fine (Where, Named ("Skill", A_String ("a-b")), "Skill");
          end if;
       end loop;
       Assert_Fine (Step_Context, Named ("Harness", A_Name ("Claude")), "H");
@@ -135,7 +136,7 @@ package body Synapse.Pipeline.Attributes.Tests is
         (Step_Context, Named ("Agent", A_String ("X")), 9,
          "'Agent' takes a name, not a string", "a string for a name");
       Assert_Wrong
-        (Step_Context, Named ("Prompt", A_Name ("X")), 9,
+        (Prompt_Context, Named ("Prompt", A_Name ("X")), 9,
          "'Prompt' takes a string, not a name", "a name for a string");
       Assert_Wrong
         (Step_Context, Named ("Model", An_Integer (4)), 9,
@@ -151,9 +152,6 @@ package body Synapse.Pipeline.Attributes.Tests is
       Assert_Wrong
         (Step_Context, Named ("Prompt", A_String ("")), 9, "'Prompt' is empty",
          "an empty prompt");
-      Assert_Wrong
-        (Step_Context, Named ("Skill", A_String ("Review_Code")), 9,
-         "is not a skill name", "a bad skill name");
       Assert_Wrong
         (Step_Context, Named ("Harness", A_Name ("Cluade")), 9,
          "'Cluade' is not a harness", "a misspelt harness");
@@ -201,7 +199,9 @@ package body Synapse.Pipeline.Attributes.Tests is
       pragma Unreferenced (T);
    begin
       Assert (Is_Known ("Agent") and then Is_Known ("System"), "Agent System");
-      Assert (Is_Known ("Prompt") and then Is_Known ("Skill"), "Prompt Skill");
+      Assert
+        (Is_Known ("Prompt") and then Is_Known ("Description"),
+         "Prompt Description");
       Assert
         (Is_Known ("Harness") and then Is_Known ("Model"), "Harness Model");
       Assert
@@ -216,7 +216,7 @@ package body Synapse.Pipeline.Attributes.Tests is
       Assert (Is_Known ("Outcomes"), "Outcomes");
       Assert
         (not Is_Known ("Colour") and then not Is_Known ("")
-         and then not Is_Known ("agent"),
+         and then not Is_Known ("agent") and then not Is_Known ("Skill"),
          "and only those, spelled so");
    end Is_Known_Knows_The_Twelve;
 
@@ -264,6 +264,105 @@ package body Synapse.Pipeline.Attributes.Tests is
          "two lines");
    end Outcomes_Are_Words_With_A_Line_Of_Meaning;
 
+   procedure Prompt_Takes_A_Name_On_A_Step_A_System_And_An_Agent
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      for Where of Context_List'[Step_Context, System_Context, Agent_Context]
+      loop
+         Assert_Fine
+           (Where, Named ("Prompt", A_Name ("Test_Feature")), "a name");
+         Assert_Fine (Where, Named ("Prompt", A_String ("do")), "a string");
+      end loop;
+      Assert_Wrong
+        (Step_Context, Named ("Prompt", A_String ("")), 9, "'Prompt' is empty",
+         "an empty string on a step");
+      Assert_Wrong
+        (Step_Context, Named ("Prompt", An_Integer (1)), 9,
+         "'Prompt' takes a name or a string, not an integer", "an integer");
+   end Prompt_Takes_A_Name_On_A_Step_A_System_And_An_Agent;
+
+   procedure Prompt_On_A_Prompt_Takes_A_String_Only
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Fine
+        (Prompt_Context, Named ("Prompt", A_String ("Test it.")), "a string");
+      Assert_Wrong
+        (Prompt_Context, Named ("Prompt", A_Name ("Other")), 9,
+         "'Prompt' takes a string, not a name", "a name");
+      Assert_Wrong
+        (Prompt_Context, Named ("Prompt", A_String ("")), 9,
+         "'Prompt' is empty", "an empty string");
+   end Prompt_On_A_Prompt_Takes_A_String_Only;
+
+   procedure Description_Is_Accepted_On_Every_Definition
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      for Where of Context_List'
+        [Pipeline_Context, System_Context, Agent_Context, Prompt_Context]
+      loop
+         Assert_Fine
+           (Where, Named ("Description", A_String ("What it is for.")),
+            "a description");
+         Assert_Fine
+           (Where, Named ("Description", A_String ("")), "an empty one");
+      end loop;
+   end Description_Is_Accepted_On_Every_Definition;
+
+   procedure Description_Is_Not_An_Attribute_Of_A_Step_Or_An_Edge
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Step_Context, Named ("Description", A_String ("x")), 1,
+         "'Description' is not an attribute of a step", "a step");
+      Assert_Wrong
+        (Edge_Context, Named ("Description", A_String ("x")), 1,
+         "'Description' is not an attribute of an edge", "an edge");
+   end Description_Is_Not_An_Attribute_Of_A_Step_Or_An_Edge;
+
+   procedure Description_Takes_A_String_Not_A_Name
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Agent_Context, Named ("Description", A_Name ("Reviewer")), 9,
+         "'Description' takes a string, not a name", "a name");
+   end Description_Takes_A_String_Not_A_Name;
+
+   procedure Skill_Is_An_Unknown_Attribute (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      for Where in Context loop
+         Assert_Wrong
+           (Where, Named ("Skill", A_String ("test-feature")), 1,
+            "unknown attribute 'Skill'", "Skill");
+      end loop;
+   end Skill_Is_An_Unknown_Attribute;
+
+   procedure Harness_Is_Not_An_Attribute_Of_A_Prompt_Or_A_Pipeline
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Prompt_Context, Named ("Harness", A_Name ("Claude")), 1,
+         "'Harness' is not an attribute of a prompt", "a prompt");
+      Assert_Wrong
+        (Pipeline_Context, Named ("Harness", A_Name ("Claude")), 1,
+         "'Harness' is not an attribute of a pipeline", "a pipeline");
+      Assert_Wrong
+        (Pipeline_Context, Named ("Prompt", A_String ("x")), 1,
+         "'Prompt' is not an attribute of a pipeline", "Prompt on a pipeline");
+   end Harness_Is_Not_An_Attribute_Of_A_Prompt_Or_A_Pipeline;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -295,6 +394,28 @@ package body Synapse.Pipeline.Attributes.Tests is
       Register_Routine
         (T, Outcomes_Are_Words_With_A_Line_Of_Meaning'Access,
          "Outcomes are words with a line of meaning");
+      Register_Routine
+        (T, Prompt_Takes_A_Name_On_A_Step_A_System_And_An_Agent'Access,
+         "Prompt takes a name on a step, a system and an agent");
+      Register_Routine
+        (T, Prompt_On_A_Prompt_Takes_A_String_Only'Access,
+         "Prompt on a prompt takes a string only");
+      Register_Routine
+        (T, Description_Is_Accepted_On_Every_Definition'Access,
+         "Description is accepted on a pipeline, a system, an agent and a "
+         & "prompt");
+      Register_Routine
+        (T, Description_Is_Not_An_Attribute_Of_A_Step_Or_An_Edge'Access,
+         "Description is not an attribute of a step or an edge");
+      Register_Routine
+        (T, Description_Takes_A_String_Not_A_Name'Access,
+         "Description takes a string, not a name");
+      Register_Routine
+        (T, Skill_Is_An_Unknown_Attribute'Access,
+         "Skill is an unknown attribute");
+      Register_Routine
+        (T, Harness_Is_Not_An_Attribute_Of_A_Prompt_Or_A_Pipeline'Access,
+         "Harness is not an attribute of a prompt or a pipeline");
    end Register_Tests;
 
 end Synapse.Pipeline.Attributes.Tests;

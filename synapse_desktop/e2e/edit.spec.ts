@@ -3,9 +3,14 @@ import { join } from 'node:path'
 import { expect, test } from './fixtures.ts'
 import { openSection, setEditorText, uniqueName, world } from './helpers.ts'
 
-async function openDefinition(page: import('@playwright/test').Page, name: string) {
+async function openDefinition(
+  page: import('@playwright/test').Page,
+  name: string,
+  kind: 'Pipelines' | 'Prompts' = 'Pipelines',
+) {
   await page.goto('/')
   await openSection(page, 'Definitions')
+  await page.getByLabel('Side panel').getByRole('button', { name: kind, exact: true }).click()
   await page.getByLabel('Side panel').getByRole('button', { name, exact: true }).click()
   await expect(page.getByRole('heading', { name })).toBeVisible()
 }
@@ -36,6 +41,23 @@ test('an existing definition is edited in place, keeping its name', async ({ pag
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
   await expect(page.getByLabel('Step Then, Codex')).toBeVisible()
   expect(readFileSync(file, 'utf8')).toContain('Then [Harness => Codex')
+})
+
+test('a prompt is edited in place, and its page shows the new text', async ({ page }) => {
+  const name = uniqueName('Edited_Prompt')
+  const file = join(world().definitions, `${name}.synapse`)
+  writeFileSync(file, `Prompt ${name} [Prompt => "One."];\n`)
+  await openDefinition(page, name, 'Prompts')
+
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await setEditorText(page, `Prompt ${name} [Description => "Counts.", Prompt => "Two."];`)
+  await expect(page.getByLabel('Problems')).toContainText('None.')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
+  await expect(page.getByLabel('Attributes')).toContainText('Two.')
+  await expect(page.locator('.page-head')).toContainText('Counts.')
+  expect(readFileSync(file, 'utf8')).toContain('Prompt => "Two."')
 })
 
 test('a save is refused when the file has changed since it was read', async ({ page }) => {

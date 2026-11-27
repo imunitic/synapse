@@ -13,7 +13,6 @@ package body Synapse.Pipeline.Resolution.Tests is
 
    use AUnit.Assertions;
    use Ada.Strings.Unbounded;
-   use type Resolved.Instruction_Kind;
    use type Resolved.Origin_Kind;
    use type Harnesses.Harness_Kind;
    use type Synapse.Core.JSON.Value;
@@ -32,7 +31,16 @@ package body Synapse.Pipeline.Resolution.Tests is
         ("/defs/Reviewer.synapse",
          "Agent Reviewer [Prompt => ""You are a reviewer.""];");
       F.Add_File
-        ("/defs/Tester.synapse", "Agent Tester [Skill => ""test-skill""];");
+        ("/defs/Tester.synapse", "Agent Tester [Prompt => Tester_Role];");
+      F.Add_File
+        ("/defs/Tester_Role.synapse",
+         "Prompt Tester_Role [Prompt => ""You are a tester.""];");
+      F.Add_File
+        ("/defs/Own_Task.synapse",
+         "Prompt Own_Task [Description => ""A task."", "
+         & "Prompt => ""Own task.""];");
+      F.Add_File
+        ("/defs/Doubler.synapse", "Agent Doubler [Prompt => Own_Task];");
       F.Add_File
         ("/defs/Base.synapse",
          "System Base [Agent => Reviewer, Harness => Codex, "
@@ -48,7 +56,18 @@ package body Synapse.Pipeline.Resolution.Tests is
         ("/defs/Inherits.synapse",
          "Pipeline Inherits { A [System => Base];"
          & " B [System => Base, Harness => Claude, Retries => 0, "
-         & "Timeout => ""1h"", Agent => Tester, Skill => ""own-skill""]; }");
+         & "Timeout => ""1h"", Agent => Tester, Prompt => Own_Task];"
+         & " C [System => Base, Prompt => ""Own text.""]; }");
+      F.Add_File
+        ("/defs/Named.synapse",
+         "Pipeline Named { A [Harness => Claude, Prompt => Own_Task]; }");
+      F.Add_File
+        ("/defs/Twice.synapse",
+         "Pipeline Twice { A [Harness => Claude, Agent => Doubler, "
+         & "Prompt => Own_Task]; }");
+      F.Add_File
+        ("/defs/Lost.synapse",
+         "Pipeline Lost { A [Harness => Claude, Prompt => Nowhere]; }");
       F.Add_File
         ("/defs/Edges.synapse",
          "Pipeline Edges { A [Harness => Claude, Prompt => ""x""];"
@@ -107,10 +126,15 @@ package body Synapse.Pipeline.Resolution.Tests is
    end Resolve_OK;
 
    function Is_Instruction
-     (Item : Resolved.Instruction; Kind : Resolved.Instruction_Kind;
-      Text : String) return Boolean is
-     (Item.Present and then Item.Kind = Kind
-      and then To_String (Item.Text) = Text);
+     (Item : Resolved.Instruction; Text : String) return Boolean is
+     (Item.Present and then To_String (Item.Text) = Text);
+
+   --  Whether Item is an origin of the given kind, name and file.
+   function Is_Origin
+     (Item : Resolved.Origin; Kind : Resolved.Origin_Kind;
+      Name, File : String) return Boolean is
+     (Item.Kind = Kind and then To_String (Item.Name) = Name
+      and then To_String (Item.File) = File);
 
    function Text_Of (Item : Synapse.Core.Optional_Text.Option) return String is
      (if Item.Found then To_String (Item.Value) else "<none>");
@@ -129,7 +153,7 @@ package body Synapse.Pipeline.Resolution.Tests is
          "its name and harness");
       Assert (not S.Role.Present, "no agent, no role");
       Assert
-        (Is_Instruction (S.Assignment, Resolved.Prompt_Text, "do a"),
+        (Is_Instruction (S.Assignment, "do a"),
          "its own prompt");
       Assert (Text_Of (S.Model) = "Opus", "a model, from a name");
       Assert (Text_Of (S.Permissions) = "<none>", "no permissions");
@@ -148,10 +172,10 @@ package body Synapse.Pipeline.Resolution.Tests is
       Assert (S.Harness = Harnesses.Codex, "the system's harness");
       Assert
         (Is_Instruction
-           (S.Role, Resolved.Prompt_Text, "You are a reviewer."),
+           (S.Role, "You are a reviewer."),
          "the role, from the system's agent");
       Assert
-        (Is_Instruction (S.Assignment, Resolved.Prompt_Text, "System task."),
+        (Is_Instruction (S.Assignment, "System task."),
          "the assignment, from the system");
       Assert
         (Text_Of (S.Model) = "big-model"
@@ -180,19 +204,94 @@ package body Synapse.Pipeline.Resolution.Tests is
         (S.Retries = 0 and then S.Timeout_Seconds = 3600,
          "its own retries, even none, and timeout");
       Assert
-        (Is_Instruction (S.Role, Resolved.Skill_Name, "test-skill"),
+        (Is_Instruction (S.Role, "You are a tester."),
          "its own agent, not the system's");
       Assert
-        (Is_Instruction (S.Assignment, Resolved.Skill_Name, "own-skill"),
-         "its own skill replaces the system's prompt whole");
+        (Is_Instruction (S.Assignment, "Own task."),
+         "its own prompt replaces the system's prompt whole");
       Assert
         (Text_Of (S.Model) = "big-model",
          "and what it does not set still comes from the system");
       Assert
-        (Natural (S.Origins.Length) = 2
+        (Natural (S.Origins.Length) >= 2
          and then To_String (S.Origins (2).Name) = "Tester",
          "its own agent is the origin of its role");
    end A_Step_Overrides_Its_System;
+
+   procedure A_Steps_Prompt_Name_Gives_The_Prompts_Text_As_The_Assignment
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      S : constant Resolved.Step := Resolve_OK ("Named").Steps (1);
+   begin
+      Assert
+        (Is_Instruction (S.Assignment, "Own task."),
+         "the assignment is the named prompt's own text");
+      Assert (not S.Role.Present, "no agent, no role");
+   end A_Steps_Prompt_Name_Gives_The_Prompts_Text_As_The_Assignment;
+
+   procedure An_Agents_Prompt_Name_Gives_The_Role
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      S : constant Resolved.Step := Resolve_OK ("Inherits").Steps (2);
+   begin
+      Assert
+        (Is_Instruction (S.Role, "You are a tester."),
+         "the role is the text of the prompt the agent names");
+   end An_Agents_Prompt_Name_Gives_The_Role;
+
+   procedure A_Named_Prompt_Is_An_Origin_With_Its_File
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      S     : constant Resolved.Step := Resolve_OK ("Inherits").Steps (2);
+      Twice : constant Resolved.Step := Resolve_OK ("Twice").Steps (1);
+      Plain : constant Resolved.Step := Resolve_OK ("Inherits").Steps (3);
+   begin
+      Assert
+        (Natural (S.Origins.Length) = 4
+         and then Is_Origin
+                    (S.Origins (1), Resolved.System_Origin, "Base",
+                     "/defs/Base.synapse")
+         and then Is_Origin
+                    (S.Origins (2), Resolved.Agent_Origin, "Tester",
+                     "/defs/Tester.synapse")
+         and then Is_Origin
+                    (S.Origins (3), Resolved.Prompt_Origin, "Tester_Role",
+                     "/defs/Tester_Role.synapse")
+         and then Is_Origin
+                    (S.Origins (4), Resolved.Prompt_Origin, "Own_Task",
+                     "/defs/Own_Task.synapse"),
+         "the system, the agent, then the role's and the assignment's "
+         & "prompts");
+      Assert
+        (Natural (Twice.Origins.Length) = 2
+         and then Is_Origin
+                    (Twice.Origins (2), Resolved.Prompt_Origin, "Own_Task",
+                     "/defs/Own_Task.synapse"),
+         "a prompt used for both the role and the assignment is listed once");
+      Assert
+        (Natural (Plain.Origins.Length) = 2,
+         "a prompt written in place is no origin");
+   end A_Named_Prompt_Is_An_Origin_With_Its_File;
+
+   procedure The_Steps_Prompt_Replaces_The_Systems_Whether_Text_Or_Name
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : constant Resolved.Pipeline := Resolve_OK ("Inherits");
+   begin
+      Assert
+        (Is_Instruction (P.Steps (2).Assignment, "Own task."),
+         "a name replaces the system's prompt");
+      Assert
+        (Is_Instruction (P.Steps (3).Assignment, "Own text."),
+         "a string replaces the system's prompt");
+      Assert
+        (Is_Instruction (P.Steps (1).Assignment, "System task."),
+         "without one of its own, the step takes the system's");
+   end The_Steps_Prompt_Replaces_The_Systems_Whether_Text_Or_Name;
 
    procedure The_Default_Harness_Fills_A_Missing_One
      (T : in out Test_Cases_Class)
@@ -263,6 +362,8 @@ package body Synapse.Pipeline.Resolution.Tests is
            Resolve (Defs, "Ghosts", No_Default);
          Typo    : constant Resolve_Results.Result :=
            Resolve (Defs, "Misspelt", No_Default);
+         Lost    : constant Resolve_Results.Result :=
+           Resolve (Defs, "Lost", No_Default);
       begin
          Assert
            (not Resolve_Results.Is_Success (Unknown)
@@ -282,6 +383,13 @@ package body Synapse.Pipeline.Resolution.Tests is
                        (To_String (Resolve_Results.Error (Typo).Message),
                         "a harness that does not exist") > 0,
             "a harness that does not exist");
+         Assert
+           (not Resolve_Results.Is_Success (Lost)
+            and then Ada.Strings.Fixed.Index
+                       (To_String (Resolve_Results.Error (Lost).Message),
+                        "step 'A' names prompt 'Nowhere', which there is not")
+                     > 0,
+            "a prompt that is not there");
       end;
    end What_Cannot_Be_Resolved_Is_A_Failure_Not_A_Raise;
 
@@ -339,6 +447,20 @@ package body Synapse.Pipeline.Resolution.Tests is
       Register_Routine
         (T, What_Cannot_Be_Resolved_Is_A_Failure_Not_A_Raise'Access,
          "What cannot be resolved is a failure, not a raise");
+      Register_Routine
+        (T,
+         A_Steps_Prompt_Name_Gives_The_Prompts_Text_As_The_Assignment'Access,
+         "A step's Prompt name gives the prompt's text as the assignment");
+      Register_Routine
+        (T, An_Agents_Prompt_Name_Gives_The_Role'Access,
+         "An agent's Prompt name gives the role");
+      Register_Routine
+        (T, A_Named_Prompt_Is_An_Origin_With_Its_File'Access,
+         "A named prompt is an origin with its file");
+      Register_Routine
+        (T,
+         The_Steps_Prompt_Replaces_The_Systems_Whether_Text_Or_Name'Access,
+         "The step's Prompt replaces the system's whether text or name");
    end Register_Tests;
 
 end Synapse.Pipeline.Resolution.Tests;

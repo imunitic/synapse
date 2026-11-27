@@ -67,25 +67,6 @@ package body Synapse.Pipeline.Search_Paths.Tests is
       end;
    end Definition_Roots_Are_The_Default_Then_The_Listed;
 
-   procedure Skill_Roots_Start_With_The_User_Directory
-     (T : in out Test_Cases_Class)
-   is
-      pragma Unreferenced (T);
-      V : Synapse.Adapters.Fake_Variables.Fake_Variables;
-   begin
-      Assert (Skill_Roots (V).Is_Empty, "no home, no root");
-      V.Set ("XDG_CONFIG_HOME", "/x");
-      declare
-         R : constant Root_Vectors.Vector := Skill_Roots (V);
-      begin
-         Assert
-           (Natural (R.Length) = 1
-            and then Path_Of (R, 1) = "/x/synapse-pipeline/skills"
-            and then not R (1).Required,
-            "the user's skills directory");
-      end;
-   end Skill_Roots_Start_With_The_User_Directory;
-
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -103,9 +84,6 @@ package body Synapse.Pipeline.Search_Paths.Tests is
       Register_Routine
         (T, Definition_Roots_Are_The_Default_Then_The_Listed'Access,
          "Definition roots are the default then the listed");
-      Register_Routine
-        (T, Skill_Roots_Start_With_The_User_Directory'Access,
-         "Skill roots start with the user directory");
    end Register_Tests;
 
 end Synapse.Pipeline.Search_Paths.Tests;

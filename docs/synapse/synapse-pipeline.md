@@ -79,7 +79,7 @@ for a usage error.
 
 ## What a run does
 
-1. **Resolve.** The configuration and the pipeline, with every system, agent and skill it names, are
+1. **Resolve.** The configuration and the pipeline, with every system, agent and prompt it names, are
    resolved once, before the first session. The run uses that for its whole life, so editing a
    definition, a configuration or the vault directory while it goes changes nothing for it.
 2. **Run the first step.** A session of the step's harness is started with a prompt made of the
@@ -160,12 +160,6 @@ A harness that reports that a limit or quota was reached fails the step as `quot
 the time the limit resets when the harness says it. This is recognised from the wording the harness
 uses ("usage limit", "rate limit", "hit your limit", "quota", "too many requests"); a harness that
 words it differently is reported as an `execution_error`.
-
-### Skills
-
-The text of a step's skill is placed in the prompt, so no harness needs the skill installed, and the
-prompt says which directory the skill's other files are in. Claude is also given that directory to
-read.
 
 ## Running without a harness
 
@@ -308,8 +302,7 @@ events.jsonl        one event a line, as the socket gives them
 description.json    the pipeline the run began with, as the socket answers `pipeline`
 definitions/        the definition files the run was made from, laid out as a configuration directory
   synapse-pipeline/
-    Develop_Feature.synapse    the pipeline, and every system and agent a step was built from
-    skills/review-code/SKILL.md    the SKILL.md of each skill a step names
+    Develop_Feature.synapse    the pipeline, and every system, agent and prompt a step was built from
 transcripts/
   1-Develop-1.jsonl   what a harness printed for one step attempt, as it printed it
   2-Review-1.jsonl
@@ -441,9 +434,9 @@ fixed names, and a change to them is a new format.
 | `edges` | in the order declared: `index`, `from`, `to`, `guard` (a JsonLogic rule; null when unconditional), `max_iterations` (null when unbounded) |
 | `limits` | `default_timeout_seconds`, `step_ceiling`, `runner` |
 
-`role` and `assignment` are `{"kind": "prompt", "text": ...}`, `{"kind": "skill", "name": ...}` or null;
-a skill is described by its name. `origins` lists the system and the agent a step was built from, each
-with `kind`, `name` and `file`. An edge's `index` counts from 0 and is its position in `state.fired`.
+`role` and `assignment` are `{"kind": "prompt", "text": ...}` or null; a named prompt is described by
+its text. `origins` lists the system, the agent and the prompts a step was built from, each with
+`kind` (`system`, `agent` or `prompt`), `name` and `file`. An edge's `index` counts from 0 and is its position in `state.fired`.
 The configuration's environment values are not part of it.
 
 Events are `run.started`, `step.started`, `session.started`, `session.finished`, `step.finished`, `run.completed` and `run.failed`, each with

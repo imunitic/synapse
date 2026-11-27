@@ -100,7 +100,6 @@ with Synapse.Pipeline.Disk_Registry.Tests;
 with Synapse.Pipeline.Durations.Tests;
 with Synapse.Pipeline.Fake_Registry.Tests;
 with Synapse.Pipeline.Id_Claims.Tests;
-with Synapse.Pipeline.Skills.Tests;
 with Synapse.Pipeline.Attributes.Tests;
 with Synapse.Pipeline.Validation.Tests;
 with Synapse.Pipeline.Harnesses.Tests;
@@ -359,7 +358,6 @@ package body Test_Suites is
      aliased Synapse.Pipeline.Id_Claims.Tests.Test_Case;
    Pipeline_Fake_Registry_Tests :
      aliased Synapse.Pipeline.Fake_Registry.Tests.Test_Case;
-   Pipeline_Skills_Tests : aliased Synapse.Pipeline.Skills.Tests.Test_Case;
    Pipeline_Attributes_Tests :
      aliased Synapse.Pipeline.Attributes.Tests.Test_Case;
    Pipeline_Validation_Tests :
@@ -557,7 +555,6 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Durations_Tests'Access);
       Result.Add_Test (Pipeline_Fake_Registry_Tests'Access);
       Result.Add_Test (Pipeline_Id_Claims_Tests'Access);
-      Result.Add_Test (Pipeline_Skills_Tests'Access);
       Result.Add_Test (Pipeline_Attributes_Tests'Access);
       Result.Add_Test (Pipeline_Validation_Tests'Access);
       Result.Add_Test (Pipeline_Harnesses_Tests'Access);

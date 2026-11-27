@@ -10,7 +10,6 @@ with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.File_System;
 with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Resolved;
-with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.States;
 
 package body Synapse.Pipeline.Commands.Next is
@@ -120,13 +119,12 @@ package body Synapse.Pipeline.Commands.Next is
       end if;
 
       declare
-         Settled     : constant Configs.Config_Results.Result :=
+         Settled : constant Configs.Config_Results.Result :=
            Configs.Resolve (Env.Vars.all, Env.Files.Current_Directory);
-         Ok          : Boolean;
-         Item        : Resolved.Pipeline;
-         File        : Unbounded_String;
-         Skill_Roots : Search_Paths.Root_Vectors.Vector;
-         Text        : Unbounded_String;
+         Ok      : Boolean;
+         Item    : Resolved.Pipeline;
+         File    : Unbounded_String;
+         Text    : Unbounded_String;
       begin
          if not Configs.Config_Results.Is_Success (Settled) then
             Complain
@@ -135,7 +133,7 @@ package body Synapse.Pipeline.Commands.Next is
                & LF);
             return 1;
          end if;
-         Loading.Load (Env, To_String (Name), Ok, Item, File, Skill_Roots);
+         Loading.Load (Env, To_String (Name), Ok, Item, File);
          if not Ok then
             return 1;
          end if;

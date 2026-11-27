@@ -1,10 +1,10 @@
-//! Definitions: the text of a pipeline, a system, an agent or a skill that is not saved yet, looked at
-//! by the program, and written to the folders definitions live in.
+//! Definitions: the text of a pipeline, a system, an agent or a prompt that is not saved yet, looked
+//! at by the program, and written to the folders definitions live in.
 
 use crate::cli::{CliRun, CliRunner};
 use crate::dispatch::HostError;
 use crate::environment::{
-    definition_dirs, existing_dirs, join_paths, pipeline_config_dir, resolve_inside, Environment,
+    definition_dirs, join_paths, pipeline_config_dir, resolve_inside, Environment,
 };
 use crate::messages::{
     AppConfig, CliBinary, CliResult, DefinitionDraftKind, DefinitionWriteParams, DraftDefinition,
@@ -22,7 +22,6 @@ pub struct SandboxInput<'a> {
     pub default_dir: &'a Path,
     /// The other folders definitions are looked for in.
     pub other_dirs: &'a [PathBuf],
-    pub skills_dir: Option<&'a Path>,
     /// The name of the draft: the file is `<name>.synapse`.
     pub draft: (&'a str, &'a str),
     /// A file that is there for the program to be asked about, when the draft is not itself something
@@ -74,29 +73,6 @@ fn copy_definitions(from: &Path, to: &Path, skip: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
-fn link_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::os::unix::fs::symlink(from, to)
-}
-
-/// A link needs a privilege on Windows that a person may not have, so the skills are copied there.
-#[cfg(windows)]
-fn link_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    fn copy(from: &Path, to: &Path) -> std::io::Result<()> {
-        fs::create_dir_all(to)?;
-        for entry in fs::read_dir(from)?.flatten() {
-            let target = to.join(entry.file_name());
-            if entry.path().is_dir() {
-                copy(&entry.path(), &target)?;
-            } else {
-                fs::copy(entry.path(), target)?;
-            }
-        }
-        Ok(())
-    }
-    copy(from, to)
-}
-
 /// The copy, and the folders of the others that were copied beside it.
 pub fn build_sandbox(input: &SandboxInput) -> std::io::Result<(Sandbox, Vec<PathBuf>)> {
     let root = tempfile::Builder::new()
@@ -120,10 +96,6 @@ pub fn build_sandbox(input: &SandboxInput) -> std::io::Result<(Sandbox, Vec<Path
         others.push(copy);
     }
 
-    // The skills are read, never changed, so they are linked and not copied.
-    if let Some(skills) = input.skills_dir {
-        link_dir(skills, &default_copy.join("skills"))?;
-    }
     Ok((Sandbox { root }, others))
 }
 
@@ -133,8 +105,8 @@ fn random_hex(bytes: usize) -> String {
     buffer.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// A pipeline is described. A system or an agent cannot be, so the program is asked to check a
-/// pipeline that uses neither: it loads every definition, and says in a warning what is wrong with one
+/// A pipeline is described. A system, an agent or a prompt cannot be, so the program is asked to
+/// check a pipeline that uses none of them: it loads every definition, and says in a warning what is wrong with one
 /// that does not load.
 pub async fn preview_draft(
     draft: &DraftDefinition,
@@ -148,10 +120,6 @@ pub async fn preview_draft(
         .into_iter()
         .filter(|d| *d != default_dir)
         .collect();
-    let skills = existing_dirs(&[default_dir.join("skills")])
-        .into_iter()
-        .next()
-        .map(PathBuf::from);
 
     let probe = (draft.kind != DefinitionDraftKind::Pipeline)
         .then(|| format!("Draft_Probe_{}", random_hex(3)));
@@ -161,7 +129,6 @@ pub async fn preview_draft(
     let input = SandboxInput {
         default_dir: &default_dir,
         other_dirs: &other_dirs,
-        skills_dir: skills.as_deref(),
         draft: (&draft.name, &draft.text),
         extra: probe.as_deref().zip(probe_text.as_deref()),
     };
@@ -178,18 +145,16 @@ pub async fn preview_draft(
     runner.run(run).await.map_err(HostError::unavailable)
 }
 
-/// The real path of a definition file or a skill's SKILL.md, only where definitions live: not the
-/// records of runs.
+/// The real path of a definition file, only where definitions live: not the records of runs.
 fn definition_file(
     path: &str,
     config: &AppConfig,
     environment: &Environment,
     what: &str,
 ) -> Result<PathBuf, HostError> {
-    let is_skill = Path::new(path).file_name().is_some_and(|n| n == "SKILL.md");
-    if !path.ends_with(".synapse") && !is_skill {
+    if !path.ends_with(".synapse") {
         return Err(HostError::bad_request(format!(
-            "only a definition or a SKILL.md can be {what}"
+            "only a definition can be {what}"
         )));
     }
     let roots = definition_dirs(&config.definition_paths, environment);
@@ -221,37 +186,14 @@ pub fn write_definition(
         }
         DefinitionWriteParams::Delete { path } => {
             let real = definition_file(&path, config, environment, "removed")?;
-            if real.file_name().is_some_and(|n| n == "SKILL.md") {
-                // A skill is its directory, which sits directly in a `skills` directory.
-                let skill = real.parent().unwrap_or(Path::new(""));
-                let in_skills = skill
-                    .parent()
-                    .and_then(Path::file_name)
-                    .is_some_and(|n| n == "skills");
-                if !in_skills {
-                    return Err(HostError::bad_request(
-                        "a SKILL.md is removed only from a skills directory",
-                    ));
-                }
-                fs::remove_dir_all(skill).map_err(io)?;
-            } else {
-                fs::remove_file(&real).map_err(io)?;
-            }
+            fs::remove_file(&real).map_err(io)?;
             Ok(WrittenPath { path })
         }
         DefinitionWriteParams::Create { item } => {
             let default_dir = pipeline_config_dir(environment);
-            let (name, text, path) = match item {
-                NewDefinition::Definition { name, text } => {
-                    let path = default_dir.join(format!("{name}.synapse"));
-                    (name, text, path)
-                }
-                NewDefinition::Skill { name, text } => {
-                    let path = default_dir.join("skills").join(&name).join("SKILL.md");
-                    (name, text, path)
-                }
-            };
-            fs::create_dir_all(path.parent().unwrap_or(Path::new(""))).map_err(io)?;
+            let NewDefinition::Definition { name, text } = item;
+            let path = default_dir.join(format!("{name}.synapse"));
+            fs::create_dir_all(&default_dir).map_err(io)?;
             // `create_new` fails when the file is there: a definition is never replaced.
             match fs::OpenOptions::new()
                 .write(true)

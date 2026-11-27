@@ -4,7 +4,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.JSON;
 
 --  What a definition file says, as the parser reads it and before anything
---  checks that it makes sense: the three kinds of definition, a pipeline's
+--  checks that it makes sense: the four kinds of definition, a pipeline's
 --  steps and edges in the order they were written, and attribute lists whose
 --  names are not yet known to be real. Every part carries the line and column
 --  it came from, so that whatever is wrong with it later can be pointed at.
@@ -73,19 +73,23 @@ package Synapse.Pipeline.Syntax is
    package Edge_Vectors is new Ada.Containers.Vectors (Positive, Edge);
 
    type Definition_Kind is
-     (Pipeline_Definition, System_Definition, Agent_Definition);
+     (Pipeline_Definition, System_Definition, Agent_Definition,
+      Prompt_Definition);
 
-   --  The one definition a file holds.
+   --  The one definition a file holds. Every kind has an attribute list; a
+   --  pipeline's is written before its body and may be left out, so it may
+   --  be empty.
    type Definition (Kind : Definition_Kind := Pipeline_Definition) is record
-      Name : Reference;
+      Name       : Reference;
+      Attributes : Attribute_Vectors.Vector;
 
       case Kind is
          when Pipeline_Definition =>
             Steps : Step_Vectors.Vector;
             Edges : Edge_Vectors.Vector;
 
-         when System_Definition | Agent_Definition =>
-            Attributes : Attribute_Vectors.Vector;
+         when System_Definition | Agent_Definition | Prompt_Definition =>
+            null;
       end case;
    end record;
 
@@ -94,7 +98,8 @@ package Synapse.Pipeline.Syntax is
      (case Kind is
         when Pipeline_Definition => "Pipeline",
         when System_Definition   => "System",
-        when Agent_Definition    => "Agent");
+        when Agent_Definition    => "Agent",
+        when Prompt_Definition   => "Prompt");
 
    --  Where an edge leads to end the run. It is not a step: an edge to it
    --  completes the run, and nothing can leave it.
@@ -103,6 +108,6 @@ package Synapse.Pipeline.Syntax is
    --  Whether a name is one of the keywords, or the end of a run, which no
    --  step may be called.
    function Is_Reserved (Name : String) return Boolean is
-     (Name in "Pipeline" | "System" | "Agent" | End_Name);
+     (Name in "Pipeline" | "System" | "Agent" | "Prompt" | End_Name);
 
 end Synapse.Pipeline.Syntax;

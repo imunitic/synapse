@@ -133,25 +133,22 @@ describe('writeDefinition', () => {
     )
   })
 
-  it('makes a skill as a directory with a SKILL.md, in a skills directory that did not exist', async () => {
-    const text = '---\nname: do-it\ndescription: Does it.\n---\n'
+  it('makes a Prompt definition as a .synapse file like any other', async () => {
+    const text = 'Prompt Review_Code [Prompt => "Review the change."];'
     const result = await handleMessage(
       'definition.write',
-      { mode: 'create', kind: 'skill', name: 'do-it', text },
+      { mode: 'create', kind: 'definition', name: 'Review_Code', text },
       context,
     )
-    expect(result).toEqual({ path: join(defaults, 'skills', 'do-it', 'SKILL.md') })
-    expect(await readFile(join(defaults, 'skills', 'do-it', 'SKILL.md'), 'utf8')).toBe(text)
+    expect(result).toEqual({ path: join(defaults, 'Review_Code.synapse') })
+    expect(await readFile(join(defaults, 'Review_Code.synapse'), 'utf8')).toBe(text)
   })
 
-  it('refuses names that are not the form of a definition or a skill, so that none can name a path', async () => {
+  it('refuses names that are not the form of a definition, and a skill, so that none can name a path', async () => {
     const bad = [
       { kind: 'definition', name: '../escape', text: 'x' },
       { kind: 'definition', name: 'has space', text: 'x' },
-      { kind: 'skill', name: 'Upper', text: 'x' },
-      { kind: 'skill', name: '../x', text: 'x' },
-      { kind: 'skill', name: 'a--b', text: 'x' },
-      { kind: 'skill', name: '-a', text: 'x' },
+      { kind: 'skill', name: 'do-it', text: 'x' },
     ]
     for (const item of bad) {
       await expect(
@@ -198,20 +195,11 @@ describe('saveDefinition', () => {
     expect(await readFile(path, 'utf8')).toBe('changed elsewhere')
   })
 
-  it('saves the SKILL.md of a skill', async () => {
-    const path = await fileIn('xdg/synapse-pipeline/skills/a-skill', 'SKILL.md', 'one')
-    await handleMessage(
-      'definition.write',
-      { mode: 'replace', path, previous: 'one', text: 'two' },
-      context,
-    )
-    expect(await readFile(path, 'utf8')).toBe('two')
-  })
-
-  it('refuses any other file, and a file outside the definition directories', async () => {
+  it('refuses any other file, a SKILL.md included, and a file outside the definition directories', async () => {
     const other = await fileIn('xdg/synapse-pipeline', 'notes.txt', 'x')
+    const skill = await fileIn('xdg/synapse-pipeline/skills/a-skill', 'SKILL.md', 'x')
     const outside = await fileIn('elsewhere', 'Out.synapse', 'x')
-    for (const path of [other, outside]) {
+    for (const path of [other, skill, outside]) {
       await expect(
         handleMessage(
           'definition.write',
@@ -256,18 +244,8 @@ describe('deleting a definition', () => {
     expect(await readFile(kept, 'utf8')).toBe('y')
   })
 
-  it('removes the whole directory of a skill, and not the skills beside it', async () => {
-    const skills = 'xdg/synapse-pipeline/skills'
-    const path = await fileIn(`${skills}/a-skill`, 'SKILL.md', 'one')
-    await fileIn(`${skills}/a-skill/references`, 'extra.md', 'more')
-    const kept = await fileIn(`${skills}/b-skill`, 'SKILL.md', 'two')
-    await remove(path)
-    expect(await readdir(join(dir, skills))).toEqual(['b-skill'])
-    expect(await readFile(kept, 'utf8')).toBe('two')
-  })
-
-  it('refuses a SKILL.md that is not directly in a skills directory', async () => {
-    const path = await fileIn('xdg/synapse-pipeline/not-skills/a-skill', 'SKILL.md', 'one')
+  it('refuses a SKILL.md, and removes no folder', async () => {
+    const path = await fileIn('xdg/synapse-pipeline/skills/a-skill', 'SKILL.md', 'one')
     await expect(remove(path)).rejects.toMatchObject({ code: 'bad_request' })
     expect(await readFile(path, 'utf8')).toBe('one')
   })

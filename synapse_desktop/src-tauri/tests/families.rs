@@ -267,8 +267,7 @@ async fn a_tilde_in_a_setting_that_holds_a_folder_is_expanded_and_the_folder_is_
 async fn only_the_directories_that_exist_are_listed_as_paths() {
     let world = World::new();
     let definitions = world.path("xdg/synapse-pipeline");
-    let skills = world.path("xdg/synapse-pipeline/skills");
-    fs::create_dir_all(&skills).unwrap();
+    fs::create_dir_all(&definitions).unwrap();
     let mut host = world.host(&[]).await;
     host.ask(
         "config.set",
@@ -281,7 +280,6 @@ async fn only_the_directories_that_exist_are_listed_as_paths() {
         paths,
         json!({
             "definitionDirs": [definitions],
-            "skillsDir": skills,
             "recordsDir": null,
         })
     );
@@ -326,7 +324,7 @@ async fn a_definition_file_is_read_and_any_other_file_and_a_folder_listing_outsi
 async fn a_folder_is_listed_with_what_each_entry_is_sorted_by_name() {
     let world = World::new();
     let definitions = world.path("xdg/synapse-pipeline");
-    fs::create_dir_all(format!("{definitions}/skills")).unwrap();
+    fs::create_dir_all(format!("{definitions}/sub")).unwrap();
     fs::write(format!("{definitions}/b.synapse"), "x").unwrap();
     fs::write(format!("{definitions}/A.synapse"), "x").unwrap();
     let mut host = world.host(&[]).await;
@@ -339,7 +337,7 @@ async fn a_folder_is_listed_with_what_each_entry_is_sorted_by_name() {
         .iter()
         .map(|e| e["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, vec!["A.synapse", "b.synapse", "skills"]);
+    assert_eq!(names, vec!["A.synapse", "b.synapse", "sub"]);
     assert_eq!(entries[2]["isDir"], json!(true));
     assert_eq!(entries[0]["isDir"], json!(false));
     assert!(entries[0]["mtimeMs"].as_f64().unwrap() > 1.0e12);

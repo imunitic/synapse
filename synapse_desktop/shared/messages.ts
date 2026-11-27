@@ -25,7 +25,6 @@ import {
   modelSchema,
   namespaceSchema,
   runRequestSchema,
-  skillNameSchema,
 } from './calls.ts'
 
 const text = z.string()
@@ -64,7 +63,6 @@ export const cliResultSchema = z.object({
 
 export const appPathsSchema = z.object({
   definitionDirs: z.array(z.string()),
-  skillsDir: z.string().nullable(),
   recordsDir: z.string().nullable(),
 })
 
@@ -298,7 +296,7 @@ export const messages = {
     params: z.discriminatedUnion('kind', [
       z.object({
         kind: z.literal('definition'),
-        what: z.enum(['pipeline', 'system', 'agent', 'skill']),
+        what: z.enum(['pipeline', 'system', 'agent', 'prompt']),
         prompt: z.string().min(1).max(20_000),
         ...agentChoice,
         current: draftText.optional(),
@@ -306,11 +304,10 @@ export const messages = {
           .array(
             z.object({
               name: definitionNameSchema,
-              kind: z.enum(['pipeline', 'system', 'agent']),
+              kind: z.enum(['pipeline', 'system', 'agent', 'prompt']),
             }),
           )
           .max(1000),
-        skills: z.array(skillNameSchema).max(1000),
         run: runIdSchema.optional(),
       }),
       z.object({
@@ -356,7 +353,7 @@ export const messages = {
   'definition.preview': {
     params: z.object({
       draft: z.object({
-        kind: z.enum(['pipeline', 'system', 'agent']),
+        kind: z.enum(['pipeline', 'system', 'agent', 'prompt']),
         name: definitionNameSchema,
         text: draftText,
       }),
@@ -371,12 +368,6 @@ export const messages = {
         name: definitionNameSchema,
         text: draftText,
       }),
-      z.object({
-        mode: z.literal('create'),
-        kind: z.literal('skill'),
-        name: skillNameSchema,
-        text: draftText,
-      }),
       // Refused when the file is not what the caller read.
       z.object({
         mode: z.literal('replace'),
@@ -384,7 +375,7 @@ export const messages = {
         previous: draftText,
         text: draftText,
       }),
-      // A definition file is removed; a skill's SKILL.md removes the skill's whole directory.
+      // A definition file is removed.
       z.object({ mode: z.literal('delete'), path: z.string() }),
     ]),
     result: z.object({ path: z.string() }),

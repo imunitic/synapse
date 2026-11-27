@@ -13,10 +13,12 @@ function withCode(text: string): ReactNode[] {
 }
 
 const ON: Record<DslWhere, string> = {
+  pipeline: 'pipeline',
   step: 'step',
   edge: 'edge',
   system: 'system',
   agent: 'agent',
+  prompt: 'prompt',
 }
 
 // What to know to write a definition by hand, kept closed until it is wanted: its shape, the

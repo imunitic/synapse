@@ -1,7 +1,7 @@
 // A throwaway copy of the definitions with a draft among them, so that the
 // program, which reads files, can be asked about text that is not saved yet.
 
-import { copyFile, mkdir, mkdtemp, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
@@ -16,7 +16,6 @@ export interface SandboxInput {
   defaultDir: string
   // The other directories definitions are looked for in.
   otherDirs: readonly string[]
-  skillsDir: string | null
   draft: SandboxFile
   // A file that is there for the program to be asked about, when the draft is
   // not itself something the program can be asked about.
@@ -61,11 +60,6 @@ export async function buildSandbox(input: SandboxInput): Promise<Sandbox> {
       const copy = join(root, `dir${i}`)
       await copyDefinitions(dir, copy, '')
       others.push(copy)
-    }
-
-    // The skills are read, never changed, so they are linked and not copied.
-    if (input.skillsDir !== null) {
-      await symlink(input.skillsDir, join(defaultCopy, 'skills'), 'dir')
     }
 
     return {

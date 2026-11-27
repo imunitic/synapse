@@ -15,10 +15,10 @@ package Synapse.Pipeline.Commands.Usage is
      & "  show <name> [--format json|text] [--step <step> [--input <file>|-] "
      & "[--interactive]]" & LF
      & "         describe a pipeline (its steps, settings, edges and limits), "
-     & "a system or an agent" & LF
+     & "a system, an agent or a prompt" & LF
      & "  definitions [--format json|text]" & LF
-     & "         every pipeline, system and agent there is, and what is wrong "
-     & "with a file" & LF
+     & "         every pipeline, system, agent and prompt there is, and what "
+     & "is wrong with a file" & LF
      & "  next <pipeline> [--input <file>|-] | --state <file>|- --result "
      & "<file>|-" & LF
      & "         the state a run starts in, or the state after a step's "
@@ -49,14 +49,14 @@ package Synapse.Pipeline.Commands.Usage is
      & "Loads every definition, validates the pipeline and everything it "
      & "refers to," & LF
      & "and prints its file and each step with its harness, and the files its "
-     & "system" & LF
-     & "and agent came from and the directory its skill was found in. Nothing "
-     & "is run and" & LF
-     & "no harness is needed. Every problem is reported on standard error "
-     & "with its file," & LF
-     & "line and column, and the exit code is 1. A definition that is "
-     & "broken but not" & LF
-     & "used by this pipeline is only a warning." & LF & LF
+     & "system," & LF
+     & "agent and prompt came from. Nothing is run and no harness is needed. "
+     & "Every" & LF
+     & "problem is reported on standard error with its file, line and "
+     & "column, and the" & LF
+     & "exit code is 1. A definition that is broken but not used by this "
+     & "pipeline is" & LF
+     & "only a warning." & LF & LF
      & "  --interactive   also check that every step's harness can run a step "
      & "interactively," & LF
      & "                  as 'run --interactive' needs" & LF & LF
@@ -79,9 +79,10 @@ package Synapse.Pipeline.Commands.Usage is
      & "the limits that apply. The pipeline is found and validated as "
      & "'check' does, and" & LF
      & "nothing is printed on standard output when it cannot be run." & LF & LF
-     & "A system or an agent is described by its attributes as written, its "
-     & "file and the" & LF
-     & "definitions that use it, a pipeline with the steps that name it." & LF
+     & "A system, an agent or a prompt is described by its attributes as "
+     & "written, its" & LF
+     & "file and the definitions that use it, a pipeline with the steps that "
+     & "name it." & LF
      & LF
      & "  --format text   for a person (the default)" & LF
      & "  --format json   for a pipeline the document a running pipeline "
@@ -89,14 +90,14 @@ package Synapse.Pipeline.Commands.Usage is
      & "                  'pipeline' command with, format "
      & "synapse-pipeline-description/v1," & LF
      & "                  plus its kind, file and an empty used_by; for a "
-     & "system or an" & LF
-     & "                  agent format synapse-pipeline-definition/v1" & LF
+     & "system, an" & LF
+     & "                  agent or a prompt format "
+     & "synapse-pipeline-definition/v1" & LF
      & "  --step <step>   print the prompt the step is started with: its "
      & "role, its" & LF
-     & "                  assignment (a skill's SKILL.md in full), what the "
-     & "run was" & LF
-     & "                  started with and how it is to report. After the "
-     & "first step" & LF
+     & "                  assignment, what the run was started with and how "
+     & "it is to" & LF
+     & "                  report. After the first step" & LF
      & "                  what the step before reported is marked as a slot. "
      & "With" & LF
      & "                  --format json: format "
@@ -221,18 +222,21 @@ package Synapse.Pipeline.Commands.Usage is
      "usage: synapse-pipeline definitions [--format json|text]" & LF & LF
      & "Lists every definition the search directories hold, in alphabetical "
      & "order of name:" & LF
-     & "its kind (pipeline, system or agent), name and file. A file that "
-     & "does not load" & LF
-     & "is not a definition; it is a problem, with its file, line, column "
-     & "and message." & LF
+     & "its kind (pipeline, system, agent or prompt), name and file. A file "
+     & "that does not" & LF
+     & "load is not a definition; it is a problem, with its file, line, "
+     & "column and" & LF
+     & "message." & LF
      & "Nothing is validated beyond loading, and the exit code is 0 "
      & "whatever is found." & LF & LF
      & "  --format text   for a person (the default)" & LF
      & "  --format json   format synapse-pipeline-definitions/v1: "
      & "`definitions`, each with" & LF
-     & "                  kind, name and file, and `problems`, each with "
-     & "file, line, column" & LF
-     & "                  and message" & LF & LF
+     & "                  kind, name, file and description (the text of "
+     & "its Description," & LF
+     & "                  or null when it has none), and `problems`, each "
+     & "with file, line," & LF
+     & "                  column and message" & LF & LF
      & "Environment:" & LF
      & "  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides "
      & "the default" & LF;

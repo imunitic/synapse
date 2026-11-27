@@ -3,7 +3,7 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openSection, sidePanel, world } from './helpers.ts'
 
-type Kind = 'Pipelines' | 'Systems' | 'Agents' | 'Skills'
+type Kind = 'Pipelines' | 'Systems' | 'Agents' | 'Prompts'
 
 // The row of a definition in the side panel.
 async function rowOf(page: Page, kind: Kind, name: string) {
@@ -58,10 +58,28 @@ test('a system a pipeline uses is not deleted, and the pipeline is named', async
   await expect(refusal).toContainText('step Review')
 })
 
-test('a skill a step, an agent or a system names is not deleted', async ({ page }) => {
-  const row = await rowOf(page, 'Skills', 'review-code')
-  await row.getByRole('button', { name: 'Delete this skill' }).click()
+test('a prompt a system names is not deleted, and the system is named', async ({ page }) => {
+  const row = await rowOf(page, 'Prompts', 'Review_Code')
+  await row.getByRole('button', { name: 'Delete this prompt' }).click()
   const refusal = row.getByRole('alert')
+  await expect(refusal).toContainText('cannot be deleted yet')
   await expect(refusal).toContainText('Strict_Reviewer')
-  expect(existsSync(join(world().definitions, 'skills', 'review-code', 'SKILL.md'))).toBe(true)
+  expect(existsSync(join(world().definitions, 'Review_Code.synapse'))).toBe(true)
+})
+
+test('a prompt nothing uses is deleted, and its file is removed', async ({ page }) => {
+  const idle = join(world().definitions, 'Idle_Prompt.synapse')
+  writeFileSync(idle, 'Prompt Idle_Prompt [Prompt => "Wait."];\n')
+  try {
+    const row = await rowOf(page, 'Prompts', 'Idle_Prompt')
+    await row.getByRole('button', { name: 'Delete this prompt' }).click()
+    await row
+      .getByRole('alertdialog', { name: 'Are you sure?' })
+      .getByRole('button', { name: 'Yes, delete' })
+      .click()
+    await expect(sidePanel(page).locator('.list-entry', { hasText: 'Idle_Prompt' })).toHaveCount(0)
+    expect(existsSync(idle)).toBe(false)
+  } finally {
+    rmSync(idle, { force: true })
+  }
 })

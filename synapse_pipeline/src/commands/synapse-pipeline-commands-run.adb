@@ -20,7 +20,6 @@ with Synapse.Pipeline.Recording_Runners;
 with Synapse.Pipeline.Registry_Store;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Scripted_Runners;
-with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.Session_Runner;
 with Synapse.Pipeline.States;
 with Synapse.Pipeline.Commands.Loading;
@@ -394,16 +393,15 @@ package body Synapse.Pipeline.Commands.Run is
                Loaded   : Boolean;
                Pipeline : Resolved.Pipeline;
                File     : Unbounded_String;
-               Roots    : Search_Paths.Root_Vectors.Vector;
             begin
-               Loading.Load (Env, Wanted, Loaded, Pipeline, File, Roots);
+               Loading.Load (Env, Wanted, Loaded, Pipeline, File);
                if not Loaded then
                   return 1;
                end if;
                declare
                   Copies : constant Definition_Copies.Copy_Vectors.Vector :=
                     Definition_Copies.Collect
-                      (Env.Files.all, Pipeline, To_String (File), Roots);
+                      (Env.Files.all, Pipeline, To_String (File));
                begin
                   if Interactive then
                      if Settings.Runner /= Configs.Process_Runner then
@@ -430,7 +428,6 @@ package body Synapse.Pipeline.Commands.Run is
                           (Env.Sessions, Env.Terminal, Env.Files,
                            Env.Registry);
                      begin
-                        Runner.Skill_Roots := Roots;
                         Runner.Home :=
                           Interactive_Runners.Home_Of (Env.Vars.all);
                         return Run_To_The_End
@@ -445,7 +442,6 @@ package body Synapse.Pipeline.Commands.Run is
                         Runner : Process_Runners.Process_Runner
                           (Env.Sessions, Env.Files, Env.Registry);
                      begin
-                        Runner.Skill_Roots := Roots;
                         return Run_To_The_End
                           (Env, Pipeline, Settings, Input, Copies,
                              To_String (Wanted_Id), To_String (Run_Name),

@@ -65,15 +65,13 @@ package Synapse.Pipeline.Interactive_Harnesses is
    type Interactive is interface;
 
    --  The command that starts Step as an interactive session, with Prompt as
-   --  its first message. Skill_Directory is the directory of the step's skill,
-   --  empty when it has none. The harness inherits the terminal, so the
-   --  command has no standard input.
+   --  its first message. The harness inherits the terminal, so the command
+   --  has no standard input.
    function Build
-     (Item            : Interactive;
-      Step            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String;
-      Session         : Session_Handle)
+     (Item    : Interactive;
+      Step    : Resolved.Step;
+      Prompt  : String;
+      Session : Session_Handle)
       return Harness_Commands.Command_Results.Result is abstract;
 
    --  Where the transcript of Session is read from, or `Not_Yet` when that

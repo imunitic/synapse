@@ -1,21 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { listDefinitions, listSkills } from '../domain/definitions.ts'
+import { listDefinitions } from '../domain/definitions.ts'
 import {
   declaredOf,
   isDefinitionName,
-  isSkillName,
   marksFor,
   previewDraft,
   renameDeclared,
-  renameSkill,
-  skillProblems,
   templateFor,
   type Declared,
   type Preview,
 } from '../domain/drafts.ts'
 import { layoutGraph } from '../domain/graph.ts'
 import type { PipelineDescription, Problem } from '../domain/pipelines.ts'
-import { parseSkillMeta } from '../domain/skills.ts'
 import { transport } from '../transport/index.ts'
 import { AgentCard } from '../components/AgentCard.tsx'
 import { DslReference } from '../components/DslReference.tsx'
@@ -27,19 +23,13 @@ import { useLoad } from '../state/useLoad.ts'
 
 const DEBOUNCE_MS = 300
 
-// The names that are taken: definitions share one namespace, and skills have
-// their own.
+// The names that are taken: every kind of definition shares one namespace.
 async function loadTaken() {
-  const [definitions, skills] = await Promise.all([
-    listDefinitions(transport),
-    listSkills(transport),
-  ])
+  const definitions = await listDefinitions(transport)
   return {
     definitions: new Set(definitions.map((d) => d.name)),
-    skills: new Set(skills.map((s) => s.name)),
     existing: {
       definitions: definitions.map((d) => ({ name: d.name, kind: d.kind })),
-      skills: skills.map((s) => s.name),
     },
   }
 }
@@ -119,7 +109,6 @@ export function DefinitionEditorPage({
   onSaved: () => void
   onCancel: () => void
 }) {
-  const isSkill = definition === 'skill'
   const initial = useMemo(() => existing?.text ?? templateFor(definition), [definition, existing])
   const [text, setText] = useState(initial)
   const [saving, setSaving] = useState(false)
@@ -131,24 +120,18 @@ export function DefinitionEditorPage({
   const [nameDraft, setNameDraft] = useState<string | null>(null)
   const { state: taken } = useLoad(loadTaken)
 
-  const declared = isSkill ? null : declaredOf(text)
-  const name = isSkill ? parseSkillMeta(text).name : (declared?.name ?? null)
+  const declared = declaredOf(text)
+  const name = declared?.name ?? null
   // What the program is asked about: the file's own name and kind when it exists,
   // so that a text that says otherwise shows up as a problem.
-  const target =
-    definition === 'skill' ? null : existing ? { kind: definition, name: existing.name } : declared
+  const target = existing ? { kind: definition, name: existing.name } : declared
   const { answer, failure, lastGood } = usePreview(text, target)
   const current = answer !== null && answer.text === text ? answer : null
   const checking = target !== null && current === null && failure === null
 
   const problems: Problem[] = []
-  if (isSkill) {
-    problems.push(...skillProblems(text))
-    if (existing && name !== null && name !== existing.name) {
-      problems.push(problem(`The name of this skill is ${existing.name} and cannot change.`))
-    }
-  } else if (declared === null) {
-    problems.push(problem('The text must start with Pipeline, System or Agent and a name.'))
+  if (declared === null) {
+    problems.push(problem('The text must start with Pipeline, System, Agent or Prompt and a name.'))
   } else if (existing && declared.name !== existing.name) {
     problems.push(
       problem(`The name of this file is ${existing.name}, and the text names it ${declared.name}.`),
@@ -162,10 +145,7 @@ export function DefinitionEditorPage({
   } else if (current !== null) problems.push(...current.preview.problems)
 
   const takenNow =
-    !existing &&
-    taken.status === 'ready' &&
-    name !== null &&
-    (isSkill ? taken.data.skills : taken.data.definitions).has(name)
+    !existing && taken.status === 'ready' && name !== null && taken.data.definitions.has(name)
   if (takenNow) {
     problems.push({
       severity: 'error',
@@ -200,13 +180,12 @@ export function DefinitionEditorPage({
 
   // The name field changes the name in the text, a name at a time that fits.
   function rename(next: string) {
-    const fits = isSkill ? isSkillName(next) : isDefinitionName(next)
-    if (!fits) {
+    if (!isDefinitionName(next)) {
       setNameDraft(next)
       return
     }
     setNameDraft(null)
-    const renamed = isSkill ? renameSkill(text, next) : renameDeclared(text, next)
+    const renamed = renameDeclared(text, next)
     if (renamed !== text) setReplacement((r) => ({ id: (r?.id ?? 0) + 1, text: renamed }))
   }
 
@@ -220,12 +199,10 @@ export function DefinitionEditorPage({
         onSaved()
         return
       }
-      const { path } = await transport.writeDefinition(
-        isSkill ? { kind: 'skill', name, text } : { kind: 'definition', name, text },
-      )
+      const { path } = await transport.writeDefinition({ kind: 'definition', name, text })
       onCreated({
         kind: 'definition',
-        definition: isSkill ? 'skill' : (declared?.kind ?? definition),
+        definition: declared?.kind ?? definition,
         name,
         path,
       })
@@ -255,7 +232,7 @@ export function DefinitionEditorPage({
             className="mono name-input"
             aria-label="Name"
             value={nameDraft ?? name ?? ''}
-            placeholder={isSkill ? 'name-of-the-skill' : 'Name_Of_The_Definition'}
+            placeholder="Name_Of_The_Definition"
             onChange={(event) => rename(event.target.value)}
           />
         )}
@@ -263,14 +240,10 @@ export function DefinitionEditorPage({
           {existing
             ? 'The name cannot change: it is the name of the file.'
             : nameDraft !== null
-              ? isSkill
-                ? 'A skill name is 1 to 64 lowercase letters, digits and single hyphens.'
-                : 'A name has letters, digits and underscores and starts with a letter.'
+              ? 'A name has letters, digits and underscores and starts with a letter.'
               : name === null
                 ? 'The name is in the text: type it here or write it there.'
-                : isSkill
-                  ? `The name is in the frontmatter: skills/${name}/SKILL.md.`
-                  : `The name is the file name: ${name}.synapse.`}
+                : `The name is the file name: ${name}.synapse.`}
         </p>
       </section>
 
@@ -300,7 +273,7 @@ export function DefinitionEditorPage({
         />
       )}
 
-      {!isSkill && declared?.kind === 'pipeline' && (
+      {declared?.kind === 'pipeline' && (
         <section className="card graph-card" aria-label="Diagram">
           {graph === null ? (
             <p className="muted diagram-note">
@@ -330,13 +303,12 @@ export function DefinitionEditorPage({
           onChange={onChange}
           marks={marks}
           label={`Text of the new ${DEFINITION_LABELS[definition].singular}`}
-          highlight={!isSkill}
           replacement={replacement}
         />
         {checking && <p className="muted small">Checking…</p>}
       </section>
 
-      {definition !== 'skill' && <DslReference kind={definition} />}
+      <DslReference kind={definition} />
 
       <section
         className={problems.length > 0 ? 'alert' : 'card'}
