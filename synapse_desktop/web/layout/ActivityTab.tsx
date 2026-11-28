@@ -15,7 +15,6 @@ export function ActivityTab({
   onKinds,
   file,
   onFile,
-  onShowChange,
 }: {
   session: string
   // The kinds of action shown; none is all.
@@ -24,8 +23,6 @@ export function ActivityTab({
   // The file whose actions alone are shown, and choosing one or none.
   file: string | null
   onFile: (file: string | null) => void
-  // A file the conversation changed is shown in the Changes tab.
-  onShowChange: (path: string) => void
 }) {
   const [, setTick] = useState(0)
   useEffect(() => onConversationsChange(() => setTick((n) => n + 1)), [])
@@ -101,7 +98,6 @@ export function ActivityTab({
         <ActivityBody
           activity={activity}
           expanded={expanded}
-          onShowChange={onShowChange}
           kinds={shown}
           file={file}
           onFile={(path) => onFile(file !== null && samePath(file, path) ? null : path)}

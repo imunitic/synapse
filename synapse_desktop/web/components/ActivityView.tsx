@@ -163,7 +163,8 @@ const FILES_OPEN = 3
 const MARKS: Record<FileChange['change'], string> = { add: '+', update: '~', delete: '−' }
 
 // The files the conversation changed: one line each, its name and then its folder, cut short to fit,
-// with the whole path when pointed at. A file is a button that shows its diff, where there is one.
+// with the whole path when pointed at. A file is a button: it shows its diff where there is one, or,
+// where files can be chosen, it chooses that file.
 function ChangedFiles({
   changes,
   folder,
@@ -175,7 +176,7 @@ function ChangedFiles({
   folder: string
   onShowChange?: (path: string) => void
   // The file whose actions alone are shown, and choosing one: given, a file's name chooses it, and
-  // its diff is a button of its own.
+  // is its only action.
   file: string | null
   onFile?: (path: string) => void
 }) {
@@ -185,57 +186,51 @@ function ChangedFiles({
       <button className="link small" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? '▾' : '▸'} {changes.length} {changes.length === 1 ? 'file' : 'files'} changed
       </button>
-      {open &&
-        changes.map((c) => {
-          const shown = shownPath(c.path, folder)
-          const cut = shown.lastIndexOf('/')
-          const content = (
-            <>
-              <span className="activity-file-mark">{MARKS[c.change]} </span>
-              <span className="activity-file-name">
-                {cut === -1 ? shown : shown.slice(cut + 1)}
-              </span>
-              {cut !== -1 && <span className="activity-file-folder"> {shown.slice(0, cut)}</span>}
-            </>
-          )
-          if (onFile !== undefined) {
-            return (
-              <span key={c.path} className="activity-file-row">
-                <button
-                  className="activity-file mono small"
-                  aria-pressed={file !== null && samePath(file, c.path)}
-                  title={`Show what this conversation did to ${c.path}`}
-                  onClick={() => onFile(c.path)}
-                >
-                  {content}
-                </button>
-                {onShowChange !== undefined && (
-                  <button
-                    className="link small"
-                    title={`Show the diff of ${c.path}`}
-                    onClick={() => onShowChange(c.path)}
-                  >
-                    Diff
-                  </button>
-                )}
-              </span>
+      {open && (
+        <div className="activity-files-list">
+          {changes.map((c) => {
+            const shown = shownPath(c.path, folder)
+            const cut = shown.lastIndexOf('/')
+            const content = (
+              <>
+                <span className="activity-file-mark">{MARKS[c.change]} </span>
+                <span className="activity-file-name">
+                  {cut === -1 ? shown : shown.slice(cut + 1)}
+                </span>
+                {cut !== -1 && <span className="activity-file-folder"> {shown.slice(0, cut)}</span>}
+              </>
             )
-          }
-          return onShowChange === undefined ? (
-            <span key={c.path} className="activity-file mono small" title={c.path}>
-              {content}
-            </span>
-          ) : (
-            <button
-              key={c.path}
-              className="activity-file mono small"
-              title={`Show what changed in ${c.path}`}
-              onClick={() => onShowChange(c.path)}
-            >
-              {content}
-            </button>
-          )
-        })}
+            if (onFile !== undefined) {
+              return (
+                <span key={c.path} className="activity-file-row">
+                  <button
+                    className="activity-file mono small"
+                    aria-pressed={file !== null && samePath(file, c.path)}
+                    title={`Show what this conversation did to ${c.path}`}
+                    onClick={() => onFile(c.path)}
+                  >
+                    {content}
+                  </button>
+                </span>
+              )
+            }
+            return onShowChange === undefined ? (
+              <span key={c.path} className="activity-file mono small" title={c.path}>
+                {content}
+              </span>
+            ) : (
+              <button
+                key={c.path}
+                className="activity-file mono small"
+                title={`Show what changed in ${c.path}`}
+                onClick={() => onShowChange(c.path)}
+              >
+                {content}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </section>
   )
 }

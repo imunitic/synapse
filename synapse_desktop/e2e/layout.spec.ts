@@ -83,6 +83,59 @@ test('the side panel is a width that leaves the page room', async ({ page }) => 
   expect(panel!.width).toBeLessThanOrEqual(330)
 })
 
+test('the side panel is widened by dragging its handle, and keeps the width after a reload', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  const before = (await sidePanel(page).boundingBox())!.width
+  const handle = (await page
+    .getByRole('separator', { name: 'Resize the side panel' })
+    .boundingBox())!
+  const x = handle.x + handle.width / 2
+  const y = handle.y + handle.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + 60, y)
+  await page.mouse.move(x + 120, y)
+  await page.mouse.up()
+  const after = (await sidePanel(page).boundingBox())!.width
+  expect(Math.abs(after - before - 120)).toBeLessThanOrEqual(2)
+
+  // One width serves every section.
+  await openSection(page, 'Executions')
+  expect((await sidePanel(page).boundingBox())!.width).toBeCloseTo(after, 0)
+
+  await page.reload()
+  await openSection(page, 'Definitions')
+  expect((await sidePanel(page).boundingBox())!.width).toBeCloseTo(after, 0)
+})
+
+test("the side panel's handle moves with the arrow keys and stops at its limits", async ({
+  page,
+}) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  const handle = page.getByRole('separator', { name: 'Resize the side panel' })
+  const width = async () => (await sidePanel(page).boundingBox())!.width
+  await handle.focus()
+  const start = await width()
+
+  await page.keyboard.press('ArrowRight')
+  expect(await width()).toBeCloseTo(start + 16, 0)
+  await page.keyboard.press('Shift+ArrowRight')
+  expect(await width()).toBeCloseTo(start + 80, 0)
+
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowLeft')
+  const min = Number(await handle.getAttribute('aria-valuemin'))
+  const rem = (await page.evaluate(
+    'parseFloat(getComputedStyle(document.documentElement).fontSize)',
+  )) as number
+  expect(min).toBeCloseTo(16.5 * rem, 5)
+  expect(await width()).toBeCloseTo(min, 0)
+  await expect(handle).toHaveAttribute('aria-valuenow', String(Math.round(min)))
+})
+
 test('the texts name what is there: the Terminals page, not a panel that is gone', async ({
   page,
 }) => {

@@ -88,6 +88,51 @@ test('the Changes sidebar is shut until it is opened, and shows what changed in 
   }
 })
 
+test.describe('with room to widen the sidebar', () => {
+  test.use({ viewport: { width: 1600, height: 900 } })
+
+  test("the Changes sidebar's handle widens and narrows it with the arrow keys, and a double click puts it back", async ({
+    page,
+  }) => {
+    const dir = repository()
+    try {
+      await startShellIn(page, dir)
+      await toggle(page).click()
+      const handle = sidebar(page).getByRole('separator', { name: 'Resize the Changes sidebar' })
+      const width = async () => Math.round((await sidebar(page).boundingBox())!.width)
+      await expect.poll(width).toBe(460)
+      await expect(handle).toHaveAttribute('aria-valuenow', '460')
+
+      // The sidebar is on the right of the window, so ArrowLeft widens it.
+      await handle.focus()
+      await page.keyboard.press('ArrowLeft')
+      await expect.poll(width).toBe(476)
+      await page.keyboard.press('Shift+ArrowLeft')
+      await expect.poll(width).toBe(540)
+      await page.keyboard.press('ArrowRight')
+      await expect.poll(width).toBe(524)
+      await expect(handle).toHaveAttribute('aria-valuenow', '524')
+
+      await handle.dblclick()
+      await expect.poll(width).toBe(460)
+      await expect(handle).toHaveAttribute('aria-valuenow', '460')
+
+      // The width is kept: after a reload the sidebar opens as wide as it was.
+      await handle.focus()
+      await page.keyboard.press('Shift+ArrowLeft')
+      await expect.poll(width).toBe(524)
+      await page.reload()
+      await page.getByRole('tab', { name: 'Terminals' }).click()
+      await expect(page.getByRole('tab', { name: 'Shell 1' })).toBeVisible()
+      await toggle(page).click()
+      await expect.poll(width).toBe(524)
+      await expect(handle).toHaveAttribute('aria-valuenow', '524')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 test("a long line's colour reaches its end, and every row is as wide as the longest", async ({
   page,
 }) => {
@@ -554,7 +599,7 @@ test('a review is pasted into a shell in which a harness was started, for the pe
   }
 })
 
-test('a file in the Activity tab shows what the conversation did to it, and its diff since the session started', async ({
+test('a file in the Activity tab shows what the conversation did to it, and has no Diff link', async ({
   page,
 }) => {
   const dir = repository()
@@ -584,28 +629,57 @@ test('a file in the Activity tab shows what the conversation did to it, and its 
     await expect(rows).toHaveCount(1)
     await expect(rows.nth(0)).toContainText('TWO')
 
-    // Its diff is in the Changes tab, compared with where the session started.
-    await files.getByRole('button', { name: 'Diff' }).click()
-    await expect(sidebar(page).getByRole('tab', { name: 'Changes' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
-    await expect(
-      sidebar(page).getByRole('button', { name: 'Since the session started' }),
-    ).toHaveAttribute('aria-pressed', 'true')
-    await expect(sidebar(page).getByRole('region', { name: 'Changes in a.txt' })).toContainText(
-      'TWO',
-    )
+    // The file's name is its only action: there is no Diff link, and the name is marked as chosen.
+    const file = files.getByRole('button', { name: /a\.txt/ })
+    await expect(files.getByRole('button', { name: 'Diff' })).toHaveCount(0)
+    await expect(file).toHaveAttribute('aria-pressed', 'true')
+    await expect(file).toHaveAttribute('title', /^Show what this conversation did to .*a\.txt$/)
 
-    // Back in the Activity tab the file is still chosen, and the chip lets go of it.
-    await sidebar(page).getByRole('tab', { name: 'Activity' }).click()
-    await expect(rows).toHaveCount(1)
-    await sidebar(page).getByRole('button', { name: 'Show every file, not only a.txt' }).click()
+    // Clicking the file again shows everything.
+    await file.click()
     await expect(rows).toHaveCount(4)
   } finally {
     rmSync(dir, { recursive: true, force: true })
     rmSync(plain, { recursive: true, force: true })
   }
+})
+
+test.describe('with a short window', () => {
+  test.use({ viewport: { width: 1280, height: 500 } })
+
+  test('the files a conversation changed stay at the top of the Activity tab when it is scrolled down', async ({
+    page,
+  }) => {
+    const dir = repository()
+    try {
+      await startShellIn(page, dir)
+      await toggle(page).click()
+      const terminal = page.locator('.terminal-view:not([hidden]) .terminal-host')
+      await terminal.click()
+      await page.keyboard.type('claude edit it')
+      await page.keyboard.press('Enter')
+      await sidebar(page).getByRole('tab', { name: 'Activity' }).click()
+      const files = sidebar(page).getByRole('region', { name: 'Files changed' })
+      await expect(files).toContainText('a.txt')
+
+      // Every action opened, so the transcript is taller than its box, then scrolled to the bottom.
+      await sidebar(page).getByRole('button', { name: 'Expand all' }).click()
+      const body = sidebar(page).locator('.activity-tab-body')
+      await expect.poll(() => body.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true)
+      await body.evaluate((e) => {
+        e.scrollTop = e.scrollHeight
+      })
+      await expect.poll(() => body.evaluate((e) => e.scrollTop)).toBeGreaterThan(0)
+
+      // The list of files is still in sight, at the top of the scrolled box.
+      await expect(files).toBeInViewport()
+      const filesBox = await files.boundingBox()
+      const bodyBox = await body.boundingBox()
+      expect(Math.abs((filesBox?.y ?? 0) - (bodyBox?.y ?? 0))).toBeLessThanOrEqual(2)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 test('what is not committed can be shown, whatever was changed before the session started', async ({

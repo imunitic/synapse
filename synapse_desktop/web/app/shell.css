@@ -49,15 +49,35 @@
 }
 
 /* Side panel */
+/* The width before the script sets the one the person chose. */
 .panel {
+  position: relative;
   width: clamp(16.5rem, 21vw, 18rem);
   flex: none;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
   background: var(--panel);
   border-right: 1px solid var(--border);
+}
+
+/* The panel's sections scroll here, so the handle on the panel's edge does not scroll with them. */
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.panel-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 3;
 }
 
 .panel-header {
@@ -1646,13 +1666,29 @@ div.activity-row {
   font-size: 0.6875rem;
 }
 
-/* The files a conversation changed: one line each, the name and then the folder, cut to fit */
+/* The files a conversation changed: one line each, the name and then the folder, cut to fit. The
+   section stays at the top while the transcript under it scrolls, and its rows scroll in their own
+   box. */
 .activity-files {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
   margin-bottom: 8px;
+  padding-bottom: 6px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-files-list {
+  width: 100%;
+  max-height: 33vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .activity-file {
@@ -1675,6 +1711,14 @@ div.activity-row {
 .activity-file-row .activity-file {
   flex: 1;
   min-width: 0;
+}
+
+.activity-file-row button.activity-file {
+  color: var(--accent-text);
+}
+
+.activity-file-row button.activity-file:hover {
+  text-decoration: underline;
 }
 
 button.activity-file[aria-pressed='true'] {
@@ -3059,6 +3103,12 @@ button.activity-file:hover {
   width: 6px;
   cursor: col-resize;
   z-index: 3;
+}
+
+.changes-resize:focus-visible,
+.panel-resize:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 
 .changes-summary {

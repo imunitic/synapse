@@ -32,7 +32,7 @@ Open the Changes sidebar with the icon at the top right. For a harness session i
 
 - Changes: what changed in the session's folder. The bar at the top shows the folder; click + and type another repository to show its changes next to it, as a second group. The cross next to it hides it again.
 - Git: the commits of the session.
-- Activity: the conversation of the harness, in full: your prompts, its messages and the commands it ran. Click a kind of action, such as Commands, to show only those. "Expand all" opens the output of every command.
+- Activity: the conversation of the harness, in full: your prompts, its messages and the commands it ran. Click a kind of action, such as Commands, to show only those. "Expand all" opens the output of every command. The files the conversation changed stay at the top while you scroll. Click a file to show only what the conversation did to it; click it again to show everything. The file's current state is in the Changes tab.
 
 The Activity tab follows a harness you start from a card, and one you type in a shell. See [Executions](executions.md) for the Changes sidebar in more detail.
 
