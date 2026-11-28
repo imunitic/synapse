@@ -59,6 +59,34 @@ pub fn join_paths<S: AsRef<str>>(parts: &[S]) -> String {
         .join(&SEPARATOR.to_string())
 }
 
+/// What to start for the program `name` in the environment `env`: its full path on that `PATH`. The
+/// standard library starts a program that is named without a folder, in an environment made for it,
+/// with `fork`, and on macOS a child made that way can crash before the program starts. A program
+/// named by its full path is started with `posix_spawn`.
+///
+/// The name comes back as it is when it holds a folder, when it is not found, when a relative entry
+/// of `PATH` comes before it, and on Windows.
+pub fn program_path(name: &str, env: &BTreeMap<String, String>) -> PathBuf {
+    #[cfg(unix)]
+    if !name.contains('/') {
+        use std::os::unix::fs::PermissionsExt;
+        for dir in env.get("PATH").map_or("", String::as_str).split(SEPARATOR) {
+            let candidate = Path::new(dir).join(name);
+            if !candidate.is_absolute() {
+                break;
+            }
+            let runs = std::fs::metadata(&candidate)
+                .is_ok_and(|file| file.is_file() && file.permissions().mode() & 0o111 != 0);
+            if runs {
+                return candidate;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = env;
+    PathBuf::from(name)
+}
+
 /// `~` and `~/rest` (`~\rest` too) are the home folder and a path in it; anything else, including
 /// `~name`, is left as it was typed.
 pub fn expand_home(path: &str, home: &Path) -> String {

@@ -4,7 +4,7 @@
 //! between runs, since reading one takes seconds for some.
 
 use crate::config::is_model_name;
-use crate::environment::Environment;
+use crate::environment::{program_path, Environment};
 use crate::messages::{Harness, ModelCatalog, ModelOption};
 use crate::status::{combined_path, LoginPath};
 use crate::time::iso_millis;
@@ -64,7 +64,7 @@ impl ProgramRunner {
                 code: 1,
                 stdout: String::new(),
             };
-            let mut command = tokio::process::Command::new(program);
+            let mut command = tokio::process::Command::new(program_path(&program, &env));
             command
                 .args(args)
                 .env_clear()

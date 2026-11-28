@@ -7,7 +7,7 @@
 use crate::cli::{CliRun, CliRunner};
 use crate::dispatch::HostError;
 use crate::efforts::model_args;
-use crate::environment::{split_paths, Environment};
+use crate::environment::{program_path, split_paths, Environment};
 use crate::inject::{plan_session, InjectDeps, SessionPlan};
 use crate::messages::{
     AppConfig, CliBinary, CliResult, DefinitionKind, DefinitionName, Harness, NoteEdit, NoteKind,
@@ -97,7 +97,7 @@ async fn run_command(
     on_line: Option<OnLine>,
 ) -> Result<CliResult, String> {
     let failed = |why: String| format!("{} could not be run: {why}", command.program);
-    let mut child = tokio::process::Command::new(&command.program);
+    let mut child = tokio::process::Command::new(program_path(&command.program, &env));
     child
         .args(&command.args)
         .env_clear()

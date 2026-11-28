@@ -3,6 +3,7 @@
 //! the start: its record folder, named by the id, is made as the run begins.
 
 use crate::cli::cli_environment;
+use crate::environment::program_path;
 use crate::messages::{AppConfig, RunAnswer, RunRequest};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -121,13 +122,14 @@ impl RunStarter {
         let id = draw_id();
         let record = Path::new(work_dir).join("pipelines").join(&id);
 
-        let mut command = tokio::process::Command::new(&self.binary);
+        let env = cli_environment(&self.base_env, config);
+        let mut command = tokio::process::Command::new(program_path(&self.binary, &env));
         command
             .args(["run", pipeline, "--input", "-", "--id", &id])
             .args(run_name.map(|name| ["--name", name]).into_iter().flatten())
             .current_dir(&folder)
             .env_clear()
-            .envs(cli_environment(&self.base_env, config))
+            .envs(env)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())

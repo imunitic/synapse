@@ -1,7 +1,7 @@
 //! Running the Synapse programs: only the subcommands listed here, never a shell.
 
 use crate::config::is_namespace;
-use crate::environment::{join_paths, split_paths};
+use crate::environment::{join_paths, program_path, split_paths};
 use crate::messages::{AppConfig, CliBinary, CliResult};
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -355,7 +355,7 @@ async fn run_program(base: BTreeMap<String, String>, request: CliRun) -> Result<
     let name = name_of(request.binary);
     let mut env = cli_environment(&base, &request.config);
     env.extend(request.env.clone());
-    let mut command = tokio::process::Command::new(name);
+    let mut command = tokio::process::Command::new(program_path(name, &env));
     command
         .args(&request.args)
         .env_clear()
