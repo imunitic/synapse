@@ -85,7 +85,7 @@ function ProjectChoice({
 // Describe a note and have an agent write it into the vault the way the vault's
 // own commands do; the note opens when it is written.
 export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) {
-  const { harness, model, chooseHarness, chooseModel } = useRunChoice()
+  const { harness, model, effort, chooseHarness, chooseModel, chooseEffort } = useRunChoice()
   const [kind, setKind] = useState<NoteKind>('note')
   const [project, setProject] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -105,6 +105,7 @@ export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) 
         prompt,
         harness,
         ...(model === null ? {} : { model }),
+        ...(effort === null ? {} : { effort }),
         ...(kind !== 'note' && project !== '' ? { project } : {}),
       })
       onCreated({ kind: 'note', path })
@@ -149,8 +150,10 @@ export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) 
         <RunChoice
           harness={harness}
           model={model}
+          effort={effort}
           onHarness={chooseHarness}
           onModel={chooseModel}
+          onEffort={chooseEffort}
           disabled={working}
         />
         <p className="muted small">

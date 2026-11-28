@@ -111,7 +111,7 @@ export function EditNote({
   // Other tools of the page, put ahead of these.
   tools?: ReactNode
 }) {
-  const { harness, model, chooseHarness, chooseModel } = useRunChoice()
+  const { harness, model, effort, chooseHarness, chooseModel, chooseEffort } = useRunChoice()
   const [open, setOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const {
@@ -128,12 +128,22 @@ export function EditNote({
 
   // Nothing starts while a run on this note is in progress; the button is disabled then.
   function change() {
-    startNoteEdit(path, { path, prompt, harness, ...(model === null ? {} : { model }) }, (ok) => {
-      if (!ok) return
-      setPrompt('')
-      setOpen(false)
-      onChanged()
-    })
+    startNoteEdit(
+      path,
+      {
+        path,
+        prompt,
+        harness,
+        ...(model === null ? {} : { model }),
+        ...(effort === null ? {} : { effort }),
+      },
+      (ok) => {
+        if (!ok) return
+        setPrompt('')
+        setOpen(false)
+        onChanged()
+      },
+    )
   }
 
   function cancel() {
@@ -205,8 +215,10 @@ export function EditNote({
           <RunChoice
             harness={harness}
             model={model}
+            effort={effort}
             onHarness={chooseHarness}
             onModel={chooseModel}
+            onEffort={chooseEffort}
             disabled={working}
           />
           <p className="muted small">

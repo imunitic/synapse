@@ -66,6 +66,7 @@ describe('the messages of the host', () => {
       recentVaults: [],
       terminalFolder: null,
       defaultModels: {},
+      defaultEfforts: {},
       graphRepos: {},
     })
   })
@@ -159,8 +160,37 @@ describe('the messages of the host', () => {
       recentVaults: [],
       terminalFolder: null,
       defaultModels: {},
+      defaultEfforts: {},
       graphRepos: {},
     })
+  })
+
+  it('an effort the harness does not offer is refused', async () => {
+    const refused = await failure(
+      ask('agent.run', {
+        kind: 'run-input',
+        pipeline: 'P',
+        prompt: 'x',
+        harness: 'Claude',
+        effort: 'minimal',
+      }),
+    )
+    expect(refused.code).toBe('bad_request')
+    expect(refused.message).toBe("Claude does not offer effort 'minimal'")
+  })
+
+  it('an OpenCode variant without a model is refused', async () => {
+    const refused = await failure(
+      ask('agent.run', {
+        kind: 'run-input',
+        pipeline: 'P',
+        prompt: 'x',
+        harness: 'Opencode',
+        effort: 'high',
+      }),
+    )
+    expect(refused.code).toBe('bad_request')
+    expect(refused.message).toBe('an OpenCode variant needs a model')
   })
 
   it('refuses parameters that are not those of the message', async () => {

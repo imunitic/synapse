@@ -29,6 +29,8 @@ export interface AppConfig {
   defaultHarness: Harness | null
   // The model each harness is asked to use when nothing says another; none is its own default.
   defaultModels: Partial<Record<Harness, string>>
+  // The effort each harness is asked for when nothing says another; none is its own default.
+  defaultEfforts: Partial<Record<Harness, string>>
   // Variables set for every process the app starts, over those it was started
   // with.
   env: Record<string, string>
@@ -97,6 +99,8 @@ export interface GenerateRequest {
   harness?: Harness
   // The model it is asked to use; the default model of the harness when absent.
   model?: string
+  // The effort it is asked for; the default effort of the harness when absent.
+  effort?: string
   // The text to change, when the prompt asks for a change to a definition that
   // exists and not for a new one.
   current?: string
@@ -113,6 +117,8 @@ export interface RunInputRequest {
   harness?: Harness
   // The model it is asked to use; the default model of the harness when absent.
   model?: string
+  // The effort it is asked for; the default effort of the harness when absent.
+  effort?: string
   // The JSON in the editor now, which the description may add to.
   current?: string
   // The id the client made for this run, to watch and stop it by.
@@ -138,6 +144,8 @@ export interface EditNoteRequest {
   harness?: Harness
   // The model it is asked to use; the default model of the harness when absent.
   model?: string
+  // The effort it is asked for; the default effort of the harness when absent.
+  effort?: string
   // The id the client made for this run, to watch and stop it by.
   run?: string
 }
@@ -210,6 +218,8 @@ export interface NoteRequest {
   harness?: Harness
   // The model it is asked to use; the default model of the harness when absent.
   model?: string
+  // The effort it is asked for; the default effort of the harness when absent.
+  effort?: string
   // The id the client made for this run, to watch and stop it by.
   run?: string
 }

@@ -18,9 +18,10 @@ with Synapse.Pipeline.Resolved;
 --    data     the pipeline's `Data` declaration, the shapes its steps name,
 --             or null when it declares none: fields, in the shape of
 --             `input`'s
---    steps    in the order declared: name, harness, model, permissions (the
---             level in effect), timeout_seconds (the limit in
---             effect), retries, data, outcomes, role, assignment, origins
+--    steps    in the order declared: name, harness, model, effort (null
+--             when the step asks for none), permissions (the level in
+--             effect), timeout_seconds (the limit in effect), retries,
+--             data, outcomes, role, assignment, origins
 --    edges    in the order declared: index, from, to, guard, max_iterations
 --    limits   default_timeout_seconds, step_ceiling, runner
 --

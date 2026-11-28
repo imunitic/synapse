@@ -4,6 +4,7 @@ with Ada.Strings.Unbounded;
 with AUnit.Assertions;
 
 with Synapse.Core.JSON;
+with Synapse.Core.Optional_Text;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Failures;
 with Synapse.Pipeline.Fake_Files;
@@ -382,6 +383,62 @@ package body Synapse.Pipeline.Process_Runners.Tests is
          "the fence is taken off");
    end A_Result_Wrapped_In_A_Code_Fence_Is_Accepted;
 
+   --  What Claude prints when it refuses a session it was started for.
+   function Claude_Refused return Session_Process.Process_Outcome is
+     (Fake_Process.Exited
+        (J ("{'type':'result','is_error':true,"
+            & "'result':'invalid effort'}"),
+         Code => 1));
+
+   function Run_Failing (Step : Resolved.Step) return Sessions.Session_Result
+   is
+      Process  : aliased Fake_Process.Fake_Process;
+      Files    : aliased Fake_Files.Fake_Files;
+      Registry : aliased Fake_Registry.Fake_Registry;
+      Runner   : Process_Runner
+        (Process'Access, Files'Access, Registry'Access);
+   begin
+      Process.Outcomes.Append (Claude_Refused);
+      return Runner.Run_Session (Request_Of (Step));
+   end Run_Failing;
+
+   procedure A_Failed_Session_With_An_Effort_Names_The_Effort
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Step : Resolved.Step := Prompt_Step;
+   begin
+      Step.Effort :=
+        Synapse.Core.Optional_Text.Of_Value (To_Unbounded_String ("high"));
+      declare
+         Got : constant Sessions.Session_Result := Run_Failing (Step);
+      begin
+         Assert
+           (not Got.Succeeded
+            and then Got.Failure.Kind = Failures.Execution_Error,
+            "it is an execution error, which is retried as before");
+         Assert
+           (To_String (Got.Failure.Message) =
+            "invalid effort (effort: high)",
+            "the message names the effort asked for: "
+            & To_String (Got.Failure.Message));
+      end;
+   end A_Failed_Session_With_An_Effort_Names_The_Effort;
+
+   procedure A_Failed_Session_Without_An_Effort_Is_As_Before
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Got : constant Sessions.Session_Result := Run_Failing (Prompt_Step);
+   begin
+      Assert
+        (not Got.Succeeded
+         and then Got.Failure.Kind = Failures.Execution_Error
+         and then To_String (Got.Failure.Message) = "invalid effort",
+         "the message is the harness's own: "
+         & To_String (Got.Failure.Message));
+   end A_Failed_Session_Without_An_Effort_Is_As_Before;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -424,6 +481,13 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       Register_Routine
         (T, A_Result_Wrapped_In_A_Code_Fence_Is_Accepted'Access,
          "A result wrapped in a code fence is accepted");
+      Register_Routine
+        (T, A_Failed_Session_With_An_Effort_Names_The_Effort'Access,
+         "a failed session of a step with an effort names the effort");
+      Register_Routine
+        (T, A_Failed_Session_Without_An_Effort_Is_As_Before'Access,
+         "a failed session of a step without an effort is reported as "
+         & "before");
    end Register_Tests;
 
 end Synapse.Pipeline.Process_Runners.Tests;

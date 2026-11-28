@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { expect, test } from './fixtures.ts'
 import { openLaunch, openSection, resetWorldSettings, world } from './helpers.ts'
 
@@ -137,4 +138,34 @@ test('the environment page lists the variables Synapse reads with their defaults
   await card.getByRole('textbox', { name: 'Variable value' }).fill('9')
   await card.getByRole('button', { name: 'Set' }).click()
   await expect(row).toContainText('now from the environment: 9')
+})
+
+// What the app has kept as the default effort of each harness, from its configuration file.
+const keptEfforts = (): Record<string, string> =>
+  (
+    JSON.parse(readFileSync(join(world().xdg, 'synapse-desktop', 'config.json'), 'utf8')) as {
+      defaultEfforts?: Record<string, string>
+    }
+  ).defaultEfforts ?? {}
+
+test('a default effort is kept in defaultEfforts of the config file', async ({ page }) => {
+  await openSettings(page, 'General')
+  const codex = page.getByLabel('Default effort of Codex')
+  await expect(codex).toHaveValue('')
+  await codex.selectOption('xhigh')
+  await expect.poll(() => keptEfforts()).toEqual({ Codex: 'xhigh' })
+
+  await codex.selectOption('')
+  await expect.poll(() => keptEfforts()).toEqual({})
+})
+
+test('the Default efforts card says it applies to runs started from the app', async ({ page }) => {
+  await openSettings(page, 'General')
+  const card = page.getByRole('region', { name: 'Default efforts' })
+  await expect(card.getByRole('heading', { name: 'Default efforts' })).toBeVisible()
+  await expect(card).toContainText(
+    'Applies to agent runs started from the app. A pipeline step takes its effort from the pipeline.',
+  )
+  await expect(card.getByLabel('Default effort of OpenCode')).toBeDisabled()
+  await expect(card).toContainText('Choose a model first')
 })

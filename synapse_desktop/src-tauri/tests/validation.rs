@@ -5,8 +5,11 @@
 mod support;
 
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
+use std::path::Path;
 use support::examples;
-use synapse_desktop_host::messages::check_params;
+use synapse_desktop_host::config::{load_stored, merged};
+use synapse_desktop_host::messages::{check_params, AppConfigPatch, Harness};
 use synapse_desktop_host::protocol::Topic;
 
 fn example(name: &str) -> Value {
@@ -97,6 +100,39 @@ fn a_model_that_a_command_line_could_take_for_a_flag_is_refused() {
         assert!(check_params("agent.run", &note(model)).is_err(), "{model}");
     }
     assert!(check_params("agent.run", &note("sonnet[1m]")).is_ok());
+}
+
+#[test]
+fn a_codex_default_of_extreme_is_refused() {
+    let stored = load_stored(Path::new("/no/such/config.json")).unwrap();
+    let patch = |harness: Harness, effort: &str| AppConfigPatch {
+        default_efforts: Some(BTreeMap::from([(harness, effort.to_string())])),
+        ..AppConfigPatch::default()
+    };
+    let refused = merged(
+        stored.clone(),
+        patch(Harness::Codex, "extreme"),
+        Path::new("/h"),
+    );
+    assert!(refused
+        .unwrap_err()
+        .message
+        .contains("Codex does not offer effort 'extreme'"));
+    let kept = merged(stored, patch(Harness::Codex, "minimal"), Path::new("/h")).unwrap();
+    assert_eq!(kept.default_efforts[&Harness::Codex], "minimal");
+}
+
+#[test]
+fn a_request_effort_that_is_not_a_variant_name_is_refused() {
+    let note =
+        |effort: &str| json!({ "kind": "note", "what": "note", "prompt": "x", "effort": effort });
+    for effort in ["--effort", "-high", "a#b", "a b", ""] {
+        assert!(
+            check_params("agent.run", &note(effort)).is_err(),
+            "{effort:?}"
+        );
+    }
+    assert!(check_params("agent.run", &note("high")).is_ok());
 }
 
 #[test]

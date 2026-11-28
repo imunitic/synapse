@@ -43,12 +43,16 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
    end Joined;
 
    function Step_Of
-     (Permissions : String := ""; Model : String := "")
+     (Permissions : String := "";
+      Model       : String := "";
+      Effort      : String := "";
+      Harness     : Harnesses.Harness_Kind := Harnesses.Claude)
       return Resolved.Step
    is
       Result : Resolved.Step;
    begin
       Result.Name := To_Unbounded_String ("S");
+      Result.Harness := Harness;
       if Permissions /= "" then
          Result.Permissions :=
            Synapse.Core.Optional_Text.Of_Value
@@ -57,6 +61,10 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
       if Model /= "" then
          Result.Model :=
            Synapse.Core.Optional_Text.Of_Value (To_Unbounded_String (Model));
+      end if;
+      if Effort /= "" then
+         Result.Effort :=
+           Synapse.Core.Optional_Text.Of_Value (To_Unbounded_String (Effort));
       end if;
       return Result;
    end Step_Of;
@@ -362,19 +370,22 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
 
    function Codex_Args
      (Permissions : String := ""; Model : String := "";
-      Prompt      : String := "PROMPT") return String is
+      Prompt      : String := "PROMPT"; Effort : String := "") return String is
      (Joined
         (Arguments_Of
            (Codex.Build
-              (Step_Of (Permissions => Permissions, Model => Model), Prompt,
-               Session_Of (Id => "u-1")))));
+              (Step_Of
+                 (Permissions => Permissions, Model => Model,
+                  Effort => Effort, Harness => Harnesses.Codex),
+               Prompt, Session_Of (Id => "u-1")))));
 
    procedure Codex_Is_Started_Interactive_In_The_Sandbox_Of_The_Level
      (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
       Made : constant Commands_Result :=
-        Codex.Build (Step_Of, "PROMPT", Session_Of);
+        Codex.Build
+          (Step_Of (Harness => Harnesses.Codex), "PROMPT", Session_Of);
    begin
       Assert
         (To_String (Command_Of (Made).Program) = "codex", "the program");
@@ -519,11 +530,14 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
 
    function Opencode_Command_Of
      (Permissions : String := ""; Model : String := "";
-      Prompt      : String := "PROMPT") return Commands.Command is
+      Prompt      : String := "PROMPT"; Effort : String := "")
+      return Commands.Command is
      (Command_Of
         (Opencode.Build
-           (Step_Of (Permissions => Permissions, Model => Model), Prompt,
-            Session_Of (Id => "ab-12-cd"))));
+           (Step_Of
+              (Permissions => Permissions, Model => Model, Effort => Effort,
+               Harness => Harnesses.Opencode),
+            Prompt, Session_Of (Id => "ab-12-cd"))));
 
    function Environment_Of (Made : Commands.Command) return String is
      (Joined (Made.Environment));
@@ -750,6 +764,66 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
          "and the default is the support there is");
    end Nothing_Is_Reported_When_Every_Harness_Can;
 
+   ---------------------------------------------------------------------------
+   --  Effort
+   ---------------------------------------------------------------------------
+
+   procedure The_Interactive_Claude_Session_Gets_Effort
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Args : constant String :=
+        Joined
+          (Arguments_Of
+             (Claude.Build
+                (Step_Of (Model => "m1", Effort => "high"), "PROMPT",
+                 Session_Of)));
+   begin
+      Assert
+        (Has (Args, "--model m1 --effort high ")
+         and then Has (Args, "--effort high -- PROMPT"),
+         "the effort follows the model, before the prompt: " & Args);
+   end The_Interactive_Claude_Session_Gets_Effort;
+
+   procedure The_Interactive_Codex_Session_Gets_Model_Reasoning_Effort
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Args : constant String := Codex_Args (Model => "m1", Effort => "xhigh");
+   begin
+      Assert
+        (Has (Args, "-m m1 -c model_reasoning_effort=""xhigh"" -- "),
+         "the effort as a setting, before the prompt: " & Args);
+   end The_Interactive_Codex_Session_Gets_Model_Reasoning_Effort;
+
+   procedure The_Interactive_OpenCode_Session_Gets_Model_With_Variant
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Made : constant Commands.Command :=
+        Opencode_Command_Of (Model => "provider/model", Effort => "high");
+      Args : constant String := Joined (Made.Arguments);
+   begin
+      Assert
+        (Has (Args, "--model provider/model#high --prompt=PROMPT"),
+         "the variant is given with the model, before the prompt: " & Args);
+      Assert
+        (not Has (Environment_Of (Made), "#"),
+         "the configuration keeps no variant: " & Environment_Of (Made));
+   end The_Interactive_OpenCode_Session_Gets_Model_With_Variant;
+
+   procedure An_Interactive_OpenCode_Step_Without_Effort_Gets_No_Model
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Args : constant String :=
+        Joined (Opencode_Command_Of (Model => "provider/model").Arguments);
+   begin
+      Assert
+        (not Has (Args, "--model"),
+         "the model stays in the configuration alone: " & Args);
+   end An_Interactive_OpenCode_Step_Without_Effort_Gets_No_Model;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -845,6 +919,20 @@ package body Synapse.Pipeline.Interactive_Harnesses.Tests is
       Register_Routine
         (T, An_Export_That_Is_Not_Whole_Is_Not_Read'Access,
          "An export that is not whole is not read");
+      Register_Routine
+        (T, The_Interactive_Claude_Session_Gets_Effort'Access,
+         "the interactive Claude session gets --effort");
+      Register_Routine
+        (T, The_Interactive_Codex_Session_Gets_Model_Reasoning_Effort'Access,
+         "the interactive Codex session gets model_reasoning_effort");
+      Register_Routine
+        (T, The_Interactive_OpenCode_Session_Gets_Model_With_Variant'Access,
+         "the interactive OpenCode session gets --model "
+         & "provider/model#variant");
+      Register_Routine
+        (T, An_Interactive_OpenCode_Step_Without_Effort_Gets_No_Model'Access,
+         "an interactive OpenCode step without an effort gets no --model "
+         & "argument");
    end Register_Tests;
 
 end Synapse.Pipeline.Interactive_Harnesses.Tests;

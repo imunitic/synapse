@@ -43,6 +43,7 @@ package body Synapse.Pipeline.Descriptions.Tests is
         (Name => U ("B"), Harness => Harnesses.Codex,
          Assignment => (Present => True, Text => U ("Test the feature.")),
          Model => (Found => True, Value => U ("m-1")),
+         Effort => (Found => True, Value => U ("xhigh")),
          Permissions => (Found => True, Value => U ("Read_Only")),
          Timeout_Seconds => 90, Retries => 2,
          others => <>);
@@ -124,6 +125,36 @@ package body Synapse.Pipeline.Descriptions.Tests is
             "where the step came from");
       end;
    end A_Step_Shows_The_Settings_It_Will_Run_With;
+
+   procedure A_Steps_Effort_Is_In_The_Description
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Settings : Configs.Config;
+      Document : constant JSON.Value := Describe (Sample, Settings);
+      B        : constant JSON.Value :=
+        JSON.Element (JSON.Member_Value (Document, "steps"), 2);
+   begin
+      Assert
+        (JSON.As_String (JSON.Member_Value (B, "effort")) = "xhigh",
+         "the effort the step asks for");
+   end A_Steps_Effort_Is_In_The_Description;
+
+   procedure A_Step_Without_Effort_Has_A_Null_Effort
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Settings : Configs.Config;
+      Document : constant JSON.Value := Describe (Sample, Settings);
+      A        : constant JSON.Value :=
+        JSON.Element (JSON.Member_Value (Document, "steps"), 1);
+   begin
+      Assert
+        (JSON.Has_Member (A, "effort")
+         and then JSON.Kind_Of (JSON.Member_Value (A, "effort")) =
+                  JSON.JSON_Null,
+         "the member is there, and null");
+   end A_Step_Without_Effort_Has_A_Null_Effort;
 
    procedure A_Named_Prompt_Is_Described_By_Its_Text_And_Listed_As_Origin
      (T : in out Test_Cases_Class)
@@ -562,6 +593,12 @@ package body Synapse.Pipeline.Descriptions.Tests is
       Register_Routine
         (T, A_Step_Shows_The_Settings_It_Will_Run_With'Access,
          "A step shows the settings it will run with");
+      Register_Routine
+        (T, A_Steps_Effort_Is_In_The_Description'Access,
+         "A step's effort is in the description");
+      Register_Routine
+        (T, A_Step_Without_Effort_Has_A_Null_Effort'Access,
+         "A step without effort has a null effort");
       Register_Routine
         (T,
          A_Named_Prompt_Is_Described_By_Its_Text_And_Listed_As_Origin'Access,

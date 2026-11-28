@@ -277,6 +277,10 @@ package body Synapse.Pipeline.Descriptions is
              (if Item.Model.Found then Text (Item.Model.Value)
               else JSON.Null_Value)),
           Member
+            ("effort",
+             (if Item.Effort.Found then Text (Item.Effort.Value)
+              else JSON.Null_Value)),
+          Member
             ("permissions",
              (if Item.Permissions.Found then Text (Item.Permissions.Value)
               else JSON.Make_String

@@ -21,7 +21,7 @@ export function AgentCard({
   onWritten: (text: string) => void
 }) {
   const [prompt, setPrompt] = useState('')
-  const { harness, model, chooseHarness, chooseModel } = useRunChoice()
+  const { harness, model, effort, chooseHarness, chooseModel, chooseEffort } = useRunChoice()
   const [working, setWorking] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const run = useRun()
@@ -39,6 +39,7 @@ export function AgentCard({
         prompt,
         harness,
         ...(model === null ? {} : { model }),
+        ...(effort === null ? {} : { effort }),
         current,
         definitions: existing.definitions.map((d) => ({ name: d.name, kind: d.kind })),
       })
@@ -76,8 +77,10 @@ export function AgentCard({
         <RunChoice
           harness={harness}
           model={model}
+          effort={effort}
           onHarness={chooseHarness}
           onModel={chooseModel}
+          onEffort={chooseEffort}
           disabled={working}
         />
         <button

@@ -6,6 +6,7 @@
 
 use crate::cli::{CliRun, CliRunner};
 use crate::dispatch::HostError;
+use crate::efforts::model_args;
 use crate::environment::{split_paths, Environment};
 use crate::inject::{plan_session, InjectDeps, SessionPlan};
 use crate::messages::{
@@ -191,6 +192,8 @@ pub struct AgentRun {
     pub harness: Harness,
     /// The model the session is asked to use; the harness's own when absent.
     pub model: Option<String>,
+    /// The effort the session is asked for; the harness's own when absent.
+    pub effort: Option<String>,
     /// Added to the session's own instructions.
     pub system: String,
     pub prompt: String,
@@ -246,12 +249,7 @@ impl AgentRunner {
 /// prompt.
 pub fn agent_command(run: &AgentRun) -> Command {
     let together = format!("{}\n\n{}", run.system, run.prompt);
-    let model = |flag: &str| -> Vec<String> {
-        run.model
-            .iter()
-            .flat_map(|m| [flag.to_string(), m.clone()])
-            .collect()
-    };
+    let model_and_effort = || model_args(run.harness, run.model.as_deref(), run.effort.as_deref());
     let strings = |items: &[&str]| -> Vec<String> { items.iter().map(|s| s.to_string()).collect() };
     match run.harness {
         Harness::Claude => Command {
@@ -269,7 +267,7 @@ pub fn agent_command(run: &AgentRun) -> Command {
                     "--append-system-prompt",
                     &run.system,
                 ]),
-                model("--model"),
+                model_and_effort(),
             ]
             .concat(),
             env: BTreeMap::new(),
@@ -279,7 +277,7 @@ pub fn agent_command(run: &AgentRun) -> Command {
             program: "codex".into(),
             args: [
                 strings(&["exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only"]),
-                model("-m"),
+                model_and_effort(),
             ]
             .concat(),
             env: BTreeMap::new(),
@@ -287,7 +285,7 @@ pub fn agent_command(run: &AgentRun) -> Command {
         },
         Harness::Opencode => Command {
             program: "opencode".into(),
-            args: [strings(&["run", "--standalone", "--auto"]), model("-m"), vec![together]].concat(),
+            args: [strings(&["run", "--standalone", "--auto"]), model_and_effort(), vec![together]].concat(),
             env: BTreeMap::from([(
                 "OPENCODE_CONFIG_CONTENT".to_string(),
                 json!({ "permission": {
@@ -436,11 +434,12 @@ pub fn text_of(answer: &str) -> String {
     format!("{}\n", inner.trim())
 }
 
-/// Which agent answers a generation: the harness, the model it is asked to use (its own when
-/// absent) and the variables set in the app.
+/// Which agent answers a generation: the harness, the model and the effort it is asked to use (its
+/// own when absent) and the variables set in the app.
 pub struct AgentChoice {
     pub harness: Harness,
     pub model: Option<String>,
+    pub effort: Option<String>,
     pub env: BTreeMap<String, String>,
 }
 
@@ -457,6 +456,7 @@ pub async fn generate_text(
     let AgentChoice {
         harness,
         model,
+        effort,
         env,
     } = choice;
     let skill = find_pipeline_skill(environment, bundled)?;
@@ -465,6 +465,7 @@ pub async fn generate_text(
             env,
             harness,
             model,
+            effort,
             system: system_for(request, &skill)?,
             prompt: prompt_for(request),
             stop,
@@ -726,23 +727,21 @@ pub fn session_prompt(prompt: &str, folder: &Path) -> String {
 /// and has no network. With `stream` Claude Code prints each event as a line; the other two ignore it.
 /// A read session is held to the commands that read and search the vault, and Codex to its read-only
 /// sandbox.
+// Each argument is a separate choice of the caller; the server's noteCommand takes the same list.
+#[allow(clippy::too_many_arguments)]
 pub fn note_command(
     harness: Harness,
     plan: &SessionPlan,
     prompt: &str,
     writable: &[String],
     model: Option<&str>,
+    effort: Option<&str>,
     stream: bool,
     access: Access,
 ) -> Command {
     let reading = access == Access::Read;
     let strings = |items: &[&str]| -> Vec<String> { items.iter().map(|s| s.to_string()).collect() };
-    let model_args = |flag: &str| -> Vec<String> {
-        model
-            .iter()
-            .flat_map(|m| [flag.to_string(), m.to_string()])
-            .collect()
-    };
+    let model_and_effort = || model_args(harness, model, effort);
     match harness {
         Harness::Claude => {
             // The folder of the Synapse package, when it is loaded for the session, is there to be
@@ -771,7 +770,7 @@ pub fn note_command(
                     ]),
                     vec![tools],
                     plan.args.clone(),
-                    model_args("--model"),
+                    model_and_effort(),
                 ]
                 .concat(),
                 env: BTreeMap::new(),
@@ -803,7 +802,7 @@ pub fn note_command(
                         .collect()
                 },
                 plan.args.clone(),
-                model_args("-m"),
+                model_and_effort(),
                 strings(&["-"]),
             ]
             .concat(),
@@ -815,7 +814,7 @@ pub fn note_command(
             args: [
                 strings(&["run", "--standalone", "--auto"]),
                 plan.args.clone(),
-                model_args("-m"),
+                model_and_effort(),
                 vec![prompt.to_string()],
             ]
             .concat(),
@@ -840,6 +839,8 @@ pub struct NoteSessionRun {
     pub prompt: String,
     /// The model the session is asked to use; the harness's own when absent.
     pub model: Option<String>,
+    /// The effort the session is asked for; the harness's own when absent.
+    pub effort: Option<String>,
     /// The environment the session runs in.
     pub env: BTreeMap<String, String>,
     /// The folders the session writes in besides its own: the vault, and where the skills keep their
@@ -900,6 +901,7 @@ impl NoteSession {
                     &session_prompt(&run.prompt, &path),
                     &run.writable,
                     run.model.as_deref(),
+                    run.effort.as_deref(),
                     run.stream,
                     run.access,
                 );

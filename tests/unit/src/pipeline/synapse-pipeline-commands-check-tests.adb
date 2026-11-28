@@ -198,6 +198,26 @@ package body Synapse.Pipeline.Commands.Check.Tests is
       Assert (Run (Env (F), Args ("Nope")) = 1, "and an unknown pipeline");
    end Every_Problem_Is_Reported;
 
+   procedure Check_Reports_An_Effort_The_Harness_Does_Not_Offer
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Strained.synapse",
+         "Pipeline Strained { A [Harness => Claude, Prompt => ""x"", "
+         & "Effort => minimal]; }");
+      Assert (Run (Env (F), Args ("Strained")) = 1, "it cannot run");
+      Assert
+        (Has
+           (F.Base.Console.Err_Text,
+            "step 'A' asks Claude for effort 'minimal'; Claude offers "
+            & "low, medium, high, xhigh, max"),
+         "saying what Claude offers: " & F.Base.Console.Err_Text);
+   end Check_Reports_An_Effort_The_Harness_Does_Not_Offer;
+
    procedure The_Default_Harness_Comes_From_The_Environment
      (T : in out Test_Cases_Class)
    is
@@ -450,6 +470,9 @@ package body Synapse.Pipeline.Commands.Check.Tests is
       Register_Routine
         (T, The_Default_Harness_Comes_From_The_Environment'Access,
          "The default harness comes from the environment");
+      Register_Routine
+        (T, Check_Reports_An_Effort_The_Harness_Does_Not_Offer'Access,
+         "check reports an effort the step's harness does not offer");
       Register_Routine
         (T, Check_Is_In_The_Usage'Access, "Check is in the usage");
       Register_Routine

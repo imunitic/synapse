@@ -454,7 +454,7 @@ fixed names, and a change to them is a new format.
 | `name` | the pipeline's name |
 | `input` | the pipeline's `Input`, or null when it has none: `fields` in the order declared, each with `name`, `type`, `required`, `description`, and `min_length`, `const`, `pattern`, `enum` and `items` when written (`items` is a type name or `{"fields": [...]}` in the same shape); `checks` as written; and `single_text_field`, the field a plain string fills, or null |
 | `data` | the pipeline's `Data`, or null when it has none: `fields` in the order declared, in the shape of `input`'s fields |
-| `steps` | in the order declared: `name`, `harness`, `model`, `permissions` (the level in effect), `timeout_seconds` (the limit in effect), `retries`, `data`, `outcomes`, `role`, `assignment`, `origins` |
+| `steps` | in the order declared: `name`, `harness`, `model`, `effort`, `permissions` (the level in effect), `timeout_seconds` (the limit in effect), `retries`, `data`, `outcomes`, `role`, `assignment`, `origins` |
 | `edges` | in the order declared: `index`, `from`, `to`, `guard` (a JsonLogic rule; null when unconditional), `max_iterations` (null when unbounded) |
 | `limits` | `default_timeout_seconds`, `step_ceiling`, `runner` |
 

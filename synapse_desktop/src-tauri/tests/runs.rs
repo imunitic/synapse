@@ -25,6 +25,7 @@ fn config(work: Option<&Path>) -> AppConfig {
         definition_paths: vec![],
         default_harness: None,
         default_models: BTreeMap::new(),
+        default_efforts: BTreeMap::new(),
         env: BTreeMap::new(),
         recent_vaults: vec![],
         terminal_folder: None,

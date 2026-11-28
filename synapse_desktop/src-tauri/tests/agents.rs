@@ -144,10 +144,15 @@ fn the_headings_are_in_the_skill_that_ships_with_the_program() {
 }
 
 fn run(harness: Harness, model: Option<&str>) -> AgentRun {
+    run_with(harness, model, None)
+}
+
+fn run_with(harness: Harness, model: Option<&str>, effort: Option<&str>) -> AgentRun {
     AgentRun {
         env: BTreeMap::new(),
         harness,
         model: model.map(String::from),
+        effort: effort.map(String::from),
         system: "RULES".into(),
         prompt: "ASK".into(),
         stop: None,
@@ -214,6 +219,48 @@ fn the_model_of_a_headless_session_is_given_by_the_flag_of_each_harness_and_else
     for harness in [Harness::Claude, Harness::Codex, Harness::Opencode] {
         let args = agent_command(&run(harness, None)).args;
         assert!(!args.contains(&"--model".to_string()) && !args.contains(&"-m".to_string()));
+    }
+}
+
+#[test]
+fn claude_is_given_effort() {
+    let args = agent_command(&run_with(Harness::Claude, Some("opus"), Some("high"))).args;
+    assert_eq!(
+        &args[args.len() - 4..],
+        ["--model", "opus", "--effort", "high"]
+    );
+}
+
+#[test]
+fn codex_is_given_model_reasoning_effort() {
+    let args = agent_command(&run_with(Harness::Codex, Some("gpt-x"), Some("xhigh"))).args;
+    assert_eq!(
+        &args[args.len() - 4..],
+        ["-m", "gpt-x", "-c", "model_reasoning_effort=\"xhigh\""]
+    );
+}
+
+#[test]
+fn opencode_is_given_model_hash_variant() {
+    let args = agent_command(&run_with(
+        Harness::Opencode,
+        Some("prov/model"),
+        Some("high"),
+    ))
+    .args;
+    assert_eq!(
+        &args[..5],
+        ["run", "--standalone", "--auto", "-m", "prov/model#high"]
+    );
+}
+
+#[test]
+fn no_effort_adds_no_argument() {
+    for harness in [Harness::Claude, Harness::Codex, Harness::Opencode] {
+        let args = agent_command(&run_with(harness, Some("m"), None)).args;
+        assert!(!args
+            .iter()
+            .any(|a| a == "--effort" || a.contains('#') || a.contains("model_reasoning_effort")));
     }
 }
 
@@ -455,6 +502,7 @@ fn claude_reads_the_prompt_from_standard_input_refuses_what_is_not_allowed_and_l
         "the prompt",
         &["/vault".into()],
         None,
+        None,
         false,
         Access::Write,
     );
@@ -483,6 +531,7 @@ fn it_may_also_read_the_synapse_package_folder_when_it_is_loaded_for_the_session
         &loaded,
         "p",
         &[],
+        None,
         None,
         false,
         Access::Write,
@@ -553,6 +602,7 @@ fn codex_gets_the_prompt_on_standard_input_its_sandbox_and_the_folders_it_may_wr
         "the prompt",
         &["/vault".into(), "/cfg".into()],
         None,
+        None,
         false,
         Access::Write,
     );
@@ -588,6 +638,7 @@ fn opencode_gets_the_prompt_as_its_message_and_is_held_to_the_commands_that_are_
         "the prompt",
         &["/vault".into()],
         None,
+        None,
         false,
         Access::Write,
     );
@@ -614,6 +665,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         "p",
         &["/v".into()],
         Some("sonnet"),
+        None,
         false,
         Access::Write,
     )
@@ -625,6 +677,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         "p",
         &["/v".into()],
         Some("gpt-x"),
+        None,
         false,
         Access::Write,
     )
@@ -636,6 +689,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         "the prompt",
         &["/v".into()],
         Some("prov/model"),
+        None,
         false,
         Access::Write,
     )
@@ -651,6 +705,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
             "p",
             &["/v".into()],
             None,
+            None,
             false,
             Access::Write,
         )
@@ -663,6 +718,62 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
 // A read session, and the input of a run
 // ---------------------------------------------------------------------------------------------
 
+fn note_args(harness: Harness, model: Option<&str>, effort: Option<&str>) -> Vec<String> {
+    note_command(
+        harness,
+        &plan("x", &[], &[]),
+        "the prompt",
+        &["/v".into()],
+        model,
+        effort,
+        false,
+        Access::Write,
+    )
+    .args
+}
+
+#[test]
+fn claude_note_session_is_given_effort() {
+    let args = note_args(Harness::Claude, Some("sonnet"), Some("max"));
+    assert_eq!(
+        &args[args.len() - 4..],
+        ["--model", "sonnet", "--effort", "max"]
+    );
+}
+
+#[test]
+fn codex_note_session_is_given_model_reasoning_effort() {
+    let args = note_args(Harness::Codex, Some("gpt-x"), Some("minimal"));
+    assert_eq!(
+        &args[args.len() - 5..],
+        [
+            "-m",
+            "gpt-x",
+            "-c",
+            "model_reasoning_effort=\"minimal\"",
+            "-"
+        ]
+    );
+}
+
+#[test]
+fn opencode_note_session_is_given_model_hash_variant() {
+    let args = note_args(Harness::Opencode, Some("prov/model"), Some("high"));
+    assert_eq!(
+        &args[args.len() - 3..],
+        ["-m", "prov/model#high", "the prompt"]
+    );
+}
+
+#[test]
+fn no_effort_adds_no_argument_to_a_note_session() {
+    for harness in [Harness::Claude, Harness::Codex, Harness::Opencode] {
+        let args = note_args(harness, Some("m"), None);
+        assert!(!args
+            .iter()
+            .any(|a| a == "--effort" || a.contains('#') || a.contains("model_reasoning_effort")));
+    }
+}
 #[test]
 fn a_read_session_of_claude_may_only_read_and_search_the_vault() {
     let loaded = plan("claude", &[], &[("SYNAPSE_CONTENT_ROOT", "/pkg/synapse")]);
@@ -671,6 +782,7 @@ fn a_read_session_of_claude_may_only_read_and_search_the_vault() {
         &loaded,
         "p",
         &[],
+        None,
         None,
         false,
         Access::Read,
@@ -704,6 +816,7 @@ fn a_read_session_of_codex_is_read_only_with_no_added_folders() {
         "p",
         &["/vault".into()],
         None,
+        None,
         false,
         Access::Read,
     );
@@ -719,6 +832,7 @@ fn a_read_session_of_opencode_denies_edits_and_all_other_commands() {
         &plan("opencode", &[], &[]),
         "p",
         &[],
+        None,
         None,
         false,
         Access::Read,
@@ -746,6 +860,7 @@ fn a_write_session_is_the_note_session_it_always_was() {
         "p",
         &["/v".into()],
         Some("m"),
+        None,
         false,
         Access::Write,
     );
@@ -756,6 +871,7 @@ fn a_write_session_is_the_note_session_it_always_was() {
         "p",
         &["/v".into()],
         Some("m"),
+        None,
         false,
         Access::Write,
     );
@@ -770,6 +886,7 @@ fn a_write_session_is_the_note_session_it_always_was() {
         "p",
         &["/v".into()],
         Some("m"),
+        None,
         false,
         Access::Write,
     );
@@ -1461,6 +1578,84 @@ async fn it_answers_with_the_text_the_agent_wrote_and_names_what_it_was_given() 
 }
 
 #[tokio::test]
+async fn the_default_effort_is_used() {
+    let dir = tempdir().unwrap();
+    let path = pipeline_path(dir.path());
+    let mut rig = Rig::with_path(Vault::default(), &path).await;
+    rig.ask(
+        "config.set",
+        json!({ "patch": { "defaultEfforts": { "Claude": "high" } } }),
+    )
+    .await
+    .unwrap();
+    rig.ask("agent.run", define(json!({}))).await.unwrap();
+    rig.ask("agent.run", define(json!({ "effort": "max" })))
+        .await
+        .unwrap();
+    // A Codex run does not take Claude's default effort.
+    rig.ask("agent.run", define(json!({ "harness": "Codex" })))
+        .await
+        .unwrap();
+    let seen: Vec<Option<String>> = rig
+        .agent_runs
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| r.effort.clone())
+        .collect();
+    assert_eq!(seen, vec![Some("high".into()), Some("max".into()), None]);
+}
+
+#[tokio::test]
+async fn an_opencode_variant_without_a_model_is_refused() {
+    let dir = tempdir().unwrap();
+    let mut rig = Rig::with_path(Vault::default(), &pipeline_path(dir.path())).await;
+    let error = rig
+        .ask(
+            "agent.run",
+            define(json!({ "harness": "Opencode", "effort": "high" })),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.0, ErrorCode::BadRequest);
+    assert!(
+        error.1.contains("an OpenCode variant needs a model"),
+        "{}",
+        error.1
+    );
+    // A default variant is dropped while OpenCode has no model.
+    rig.ask(
+        "config.set",
+        json!({ "patch": { "defaultEfforts": { "Opencode": "high" } } }),
+    )
+    .await
+    .unwrap();
+    rig.ask("agent.run", define(json!({ "harness": "Opencode" })))
+        .await
+        .unwrap();
+    assert_eq!(rig.agent_runs.lock().unwrap()[0].effort, None);
+}
+
+#[tokio::test]
+async fn an_effort_the_harness_does_not_offer_is_refused() {
+    let dir = tempdir().unwrap();
+    let mut rig = Rig::with_path(Vault::default(), &pipeline_path(dir.path())).await;
+    let error = rig
+        .ask(
+            "agent.run",
+            define(json!({ "harness": "Claude", "effort": "minimal" })),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.0, ErrorCode::BadRequest);
+    assert!(
+        error.1.contains("Claude does not offer effort 'minimal'"),
+        "{}",
+        error.1
+    );
+}
+
+#[tokio::test]
 async fn it_answers_unavailable_when_the_agent_fails_or_says_nothing() {
     let dir = tempdir().unwrap();
     let mut rig = Rig::with_path(Vault::default(), &pipeline_path(dir.path())).await;
@@ -1883,6 +2078,7 @@ async fn a_note_is_put_back_with_the_program_told_where_the_schemas_are() {
         definition_paths: vec![],
         default_harness: None,
         default_models: BTreeMap::new(),
+        default_efforts: BTreeMap::new(),
         env: BTreeMap::new(),
         recent_vaults: vec![],
         terminal_folder: None,
@@ -2007,6 +2203,7 @@ fn claude_streams_events_in_place_of_text_and_keeps_every_other_flag() {
         "p",
         &["/v".into()],
         None,
+        None,
         false,
         Access::Write,
     );
@@ -2015,6 +2212,7 @@ fn claude_streams_events_in_place_of_text_and_keeps_every_other_flag() {
         &claude_plan(),
         "p",
         &["/v".into()],
+        None,
         None,
         true,
         Access::Write,
@@ -2046,8 +2244,26 @@ fn claude_streams_events_in_place_of_text_and_keeps_every_other_flag() {
 fn codex_and_opencode_ignore_the_stream_flag() {
     for (harness, program) in [(Harness::Codex, "codex"), (Harness::Opencode, "opencode")] {
         let p = plan(program, &[], &[]);
-        let a = note_command(harness, &p, "p", &["/v".into()], None, false, Access::Write);
-        let b = note_command(harness, &p, "p", &["/v".into()], None, true, Access::Write);
+        let a = note_command(
+            harness,
+            &p,
+            "p",
+            &["/v".into()],
+            None,
+            None,
+            false,
+            Access::Write,
+        );
+        let b = note_command(
+            harness,
+            &p,
+            "p",
+            &["/v".into()],
+            None,
+            None,
+            true,
+            Access::Write,
+        );
         assert_eq!(a, b);
     }
 }
@@ -2075,6 +2291,7 @@ fn plain_config() -> AppConfig {
         definition_paths: vec![],
         default_harness: None,
         default_models: BTreeMap::new(),
+        default_efforts: BTreeMap::new(),
         env: BTreeMap::new(),
         recent_vaults: vec![],
         terminal_folder: None,
@@ -2211,6 +2428,7 @@ async fn a_definition_run_that_was_stopped_says_the_run_was_stopped() {
                 AgentChoice {
                     harness: Harness::Claude,
                     model: None,
+                    effort: None,
                     env: BTreeMap::new(),
                 },
                 None,

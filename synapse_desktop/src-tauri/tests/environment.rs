@@ -116,6 +116,7 @@ fn the_settings_that_hold_a_folder_have_the_tilde_expanded_and_the_others_stay()
         definition_paths: vec!["~/defs".into(), "/abs/defs".into()],
         default_harness: None,
         default_models: BTreeMap::new(),
+        default_efforts: BTreeMap::new(),
         env: BTreeMap::from([("KEEP".into(), "~/not-a-path".into())]),
         recent_vaults: vec![],
         terminal_folder: Some("~".into()),

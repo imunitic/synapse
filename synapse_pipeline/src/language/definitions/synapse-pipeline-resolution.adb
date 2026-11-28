@@ -5,6 +5,7 @@ with Synapse.Core.Optional_Text;
 with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Data_Shapes;
 with Synapse.Pipeline.Durations;
+with Synapse.Pipeline.Efforts;
 with Synapse.Pipeline.Limits;
 with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Syntax;
@@ -12,6 +13,7 @@ with Synapse.Pipeline.Syntax;
 package body Synapse.Pipeline.Resolution is
 
    use Ada.Strings.Unbounded;
+   use type Harnesses.Harness_Kind;
    use type Resolved.Origin_Kind;
    use type Synapse.Core.JSON.Kind;
    use type Syntax.Definition_Kind;
@@ -287,6 +289,36 @@ package body Synapse.Pipeline.Resolution is
               Synapse.Core.Optional_Text.Of_Value
                 (To_Unbounded_String (Text_Of (Picked ("Model"))));
          end if;
+         if Given ("Effort") then
+            declare
+               Value   : constant String := Text_Of (Picked ("Effort"));
+               Harness : constant String := Harnesses.Name_Of (Made.Harness);
+            begin
+               if not Efforts.Is_Offered (Made.Harness, Value) then
+                  return Failure
+                    (File, S.Name,
+                     "step '" & To_String (S.Name.Name) & "' asks " & Harness
+                     & " for effort '" & Value & "'; "
+                     & (if Efforts.Names (Made.Harness) = ""
+                        then "that is not the name of a variant"
+                        else Harness & " offers "
+                             & Efforts.Names (Made.Harness)));
+               end if;
+               if Made.Harness = Harnesses.Opencode
+                 and then not Made.Model.Found
+               then
+                  return Failure
+                    (File, S.Name,
+                     "step '" & To_String (S.Name.Name)
+                     & "' names an OpenCode variant but no Model; OpenCode "
+                     & "takes the variant as part of the model");
+               end if;
+               Made.Effort :=
+                 Synapse.Core.Optional_Text.Of_Value
+                   (To_Unbounded_String
+                      (Efforts.Normalized (Made.Harness, Value)));
+            end;
+         end if;
          if Given ("Permissions") then
             Made.Permissions :=
               Synapse.Core.Optional_Text.Of_Value
@@ -384,7 +416,8 @@ package body Synapse.Pipeline.Resolution is
             declare
                Made   : Resolved.Step :=
                  (Name => <>, Harness => Harnesses.Claude, Role => <>,
-                  Assignment => <>, Model => <>, Permissions => <>,
+                  Assignment => <>, Model => <>, Effort => <>,
+                  Permissions => <>,
                   Timeout_Seconds => 0, Retries => 0, Outcomes => <>,
                   Data => <>, Named_Fields => <>, Origins => <>);
                Merged : constant Resolve_Results.Result :=

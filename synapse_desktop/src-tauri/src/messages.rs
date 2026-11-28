@@ -4,6 +4,7 @@
 //! is `()` here.
 
 use crate::config::{is_definition_name, is_execution_id, is_model_name, is_namespace};
+use crate::efforts::is_variant_name;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -228,6 +229,8 @@ pub struct AppConfig {
     pub definition_paths: Vec<String>,
     pub default_harness: Option<Harness>,
     pub default_models: BTreeMap<Harness, String>,
+    /// The effort each harness is asked for when nothing says another; none is its own default.
+    pub default_efforts: BTreeMap<Harness, String>,
     pub env: BTreeMap<String, String>,
     pub recent_vaults: Vec<String>,
     pub terminal_folder: Option<String>,
@@ -254,6 +257,8 @@ pub struct AppConfigPatch {
     pub default_harness: Option<Option<Harness>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_models: Option<BTreeMap<Harness, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_efforts: Option<BTreeMap<Harness, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -499,6 +504,9 @@ pub enum AgentRunParams {
         harness: Option<Harness>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// The effort it is asked for; the default effort of the harness when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         current: Option<String>,
         definitions: Vec<DefinitionName>,
@@ -512,6 +520,9 @@ pub enum AgentRunParams {
         harness: Option<Harness>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// The effort it is asked for; the default effort of the harness when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         project: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -524,6 +535,9 @@ pub enum AgentRunParams {
         harness: Option<Harness>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// The effort it is asked for; the default effort of the harness when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         run: Option<String>,
     },
@@ -534,6 +548,9 @@ pub enum AgentRunParams {
         harness: Option<Harness>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// The effort it is asked for; the default effort of the harness when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
         /// The JSON in the editor now, which the description may add to.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         current: Option<String>,
@@ -1012,9 +1029,12 @@ impl Validate for RegistryRemoveParams {
     }
 }
 
-fn agent_choice(model: &Option<String>) -> Result<(), String> {
-    match model {
-        Some(model) => named("model", is_model_name(model), model),
+fn agent_choice(model: &Option<String>, effort: &Option<String>) -> Result<(), String> {
+    if let Some(model) = model {
+        named("model", is_model_name(model), model)?;
+    }
+    match effort {
+        Some(effort) => named("effort", is_variant_name(effort), effort),
         None => Ok(()),
     }
 }
@@ -1032,13 +1052,14 @@ impl Validate for AgentRunParams {
             AgentRunParams::Definition {
                 prompt,
                 model,
+                effort,
                 current,
                 definitions,
                 run,
                 ..
             } => {
                 within("the prompt", prompt, 1, 20_000)?;
-                agent_choice(model)?;
+                agent_choice(model, effort)?;
                 run_choice(run)?;
                 if let Some(current) = current {
                     at_most("the text", current, DRAFT)?;
@@ -1058,12 +1079,13 @@ impl Validate for AgentRunParams {
             AgentRunParams::Note {
                 prompt,
                 model,
+                effort,
                 project,
                 run,
                 ..
             } => {
                 within("the prompt", prompt, 1, 20_000)?;
-                agent_choice(model)?;
+                agent_choice(model, effort)?;
                 run_choice(run)?;
                 match project {
                     Some(project) => within("the project", project, 1, 64),
@@ -1074,18 +1096,20 @@ impl Validate for AgentRunParams {
                 path,
                 prompt,
                 model,
+                effort,
                 run,
                 ..
             } => {
                 within("the path", path, 1, 1024)?;
                 within("the prompt", prompt, 1, 20_000)?;
                 run_choice(run)?;
-                agent_choice(model)
+                agent_choice(model, effort)
             }
             AgentRunParams::RunInput {
                 pipeline,
                 prompt,
                 model,
+                effort,
                 current,
                 run,
                 ..
@@ -1095,7 +1119,7 @@ impl Validate for AgentRunParams {
                 if let Some(current) = current {
                     at_most("the text", current, DRAFT)?;
                 }
-                agent_choice(model)?;
+                agent_choice(model, effort)?;
                 run_choice(run)
             }
         }

@@ -434,6 +434,13 @@ describe('the run of a note edit', () => {
     }
   })
 
+  it('a note edit is given the default effort', async () => {
+    const { context, sessions } = editContext(false)
+    await handleMessage('config.set', { patch: { defaultEfforts: { Claude: 'high' } } }, context)
+    await failure(edit(context, { harness: 'Claude' }))
+    expect(sessions[0]?.effort).toBe('high')
+  })
+
   it('answers that the run was stopped when it was stopped and the note did not change', async () => {
     const { context, sessions } = editContext(false)
     waitingSession(context, sessions)

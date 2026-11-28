@@ -295,7 +295,7 @@ describe('what the session left', () => {
 describe('a read session', () => {
   it('a read session of Claude may only read and search the vault', () => {
     const loaded: SessionPlan = { ...plan, env: { SYNAPSE_CONTENT_ROOT: '/pkg/synapse' } }
-    const command = noteCommand('Claude', loaded, 'p', [], undefined, false, 'read')
+    const command = noteCommand('Claude', loaded, 'p', [], undefined, undefined, false, 'read')
     const at = command.args.indexOf('--allowedTools')
     expect(command.args[at + 1]).toBe(READ_TOOLS)
     expect(READ_TOOLS.split(',')).toEqual([
@@ -310,7 +310,16 @@ describe('a read session', () => {
 
   it('a read session of Codex is read-only with no added folders', () => {
     const codexPlan: SessionPlan = { ...plan, command: 'codex', args: [] }
-    const command = noteCommand('Codex', codexPlan, 'p', ['/vault'], undefined, false, 'read')
+    const command = noteCommand(
+      'Codex',
+      codexPlan,
+      'p',
+      ['/vault'],
+      undefined,
+      undefined,
+      false,
+      'read',
+    )
     expect(command.args).toEqual(expect.arrayContaining(['-s', 'read-only']))
     expect(command.args).not.toContain('workspace-write')
     expect(command.args).not.toContain('--add-dir')
@@ -318,7 +327,16 @@ describe('a read session', () => {
 
   it('a read session of OpenCode denies edits and all other commands', () => {
     const opencodePlan: SessionPlan = { ...plan, command: 'opencode', args: [] }
-    const command = noteCommand('Opencode', opencodePlan, 'p', [], undefined, false, 'read')
+    const command = noteCommand(
+      'Opencode',
+      opencodePlan,
+      'p',
+      [],
+      undefined,
+      undefined,
+      false,
+      'read',
+    )
     const given = JSON.parse(command.env.OPENCODE_CONFIG_CONTENT ?? '{}') as {
       permission: typeof OPENCODE_READ_PERMISSION
     }
@@ -335,7 +353,7 @@ describe('a read session', () => {
 
   it('leaves the write session args unchanged', () => {
     for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
-      expect(noteCommand(harness, plan, 'p', ['/v'], 'm', false, 'write')).toEqual(
+      expect(noteCommand(harness, plan, 'p', ['/v'], 'm', undefined, false, 'write')).toEqual(
         noteCommand(harness, plan, 'p', ['/v'], 'm'),
       )
     }
@@ -361,10 +379,39 @@ describe('the model of a note session', () => {
   })
 })
 
+describe('the effort of a note session', () => {
+  it('Claude is given --effort', () => {
+    const args = noteCommand('Claude', plan, 'p', ['/v'], 'sonnet', 'high').args
+    expect(args.slice(-4)).toEqual(['--model', 'sonnet', '--effort', 'high'])
+  })
+
+  it('Codex is given model_reasoning_effort', () => {
+    const args = noteCommand('Codex', plan, 'p', ['/v'], 'gpt-x', 'xhigh').args
+    expect(args.slice(-5)).toEqual(['-m', 'gpt-x', '-c', 'model_reasoning_effort="xhigh"', '-'])
+  })
+
+  it('OpenCode is given model#variant', () => {
+    const args = noteCommand('Opencode', plan, 'the prompt', ['/v'], 'prov/model', 'high').args
+    expect(args.slice(-3)).toEqual(['-m', 'prov/model#high', 'the prompt'])
+  })
+
+  it('no effort adds no argument', () => {
+    for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
+      expect(noteCommand(harness, plan, 'p', ['/v'], 'm', undefined)).toEqual(
+        noteCommand(harness, plan, 'p', ['/v'], 'm'),
+      )
+      const args = noteCommand(harness, plan, 'p', ['/v'], 'm').args
+      expect(args).not.toContain('--effort')
+      expect(args.join(' ')).not.toContain('model_reasoning_effort')
+      expect(args.join(' ')).not.toContain('#')
+    }
+  })
+})
+
 describe('the stream of a Claude note session', () => {
   it('prints stream-json events and keeps every other flag', () => {
     const plain = noteCommand('Claude', plan, 'p', ['/v']).args
-    const streamed = noteCommand('Claude', plan, 'p', ['/v'], undefined, true).args
+    const streamed = noteCommand('Claude', plan, 'p', ['/v'], undefined, undefined, true).args
     const at = streamed.indexOf('--output-format')
     expect(streamed.slice(at, at + 3)).toEqual(['--output-format', 'stream-json', '--verbose'])
     expect(streamed).not.toContain('text')
@@ -378,7 +425,7 @@ describe('the stream of a Claude note session', () => {
 
   it('leaves the Codex and OpenCode commands as they are', () => {
     for (const harness of ['Codex', 'Opencode'] as const) {
-      expect(noteCommand(harness, plan, 'p', ['/v'], undefined, true)).toEqual(
+      expect(noteCommand(harness, plan, 'p', ['/v'], undefined, undefined, true)).toEqual(
         noteCommand(harness, plan, 'p', ['/v']),
       )
     }

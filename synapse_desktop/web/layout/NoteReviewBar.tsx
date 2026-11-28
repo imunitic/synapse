@@ -97,7 +97,7 @@ export function NoteReviewBar({
   // The note's headings as the doc-map gives them, or null while they are not read.
   outline: readonly OutlineHeading[] | null
 }) {
-  const { harness, model, chooseHarness, chooseModel } = useRunChoice()
+  const { harness, model, effort, chooseHarness, chooseModel, chooseEffort } = useRunChoice()
   const { working, failure, startedAt, harness: runHarness, stopping, lines } = useNoteEdit(path)
   const [open, setOpen] = useState(false)
   const gone = outline === null ? new Set<string>() : orphaned(comments, outline)
@@ -106,11 +106,21 @@ export function NoteReviewBar({
     if (outline === null) return
     const prompt = composeNoteReview(path, comments, outline)
     const sent = new Set(comments.map((c) => c.id))
-    startNoteEdit(path, { path, prompt, harness, ...(model === null ? {} : { model }) }, (ok) => {
-      if (!ok) return
-      removeNoteComments(path, sent)
-      setOpen(false)
-    })
+    startNoteEdit(
+      path,
+      {
+        path,
+        prompt,
+        harness,
+        ...(model === null ? {} : { model }),
+        ...(effort === null ? {} : { effort }),
+      },
+      (ok) => {
+        if (!ok) return
+        removeNoteComments(path, sent)
+        setOpen(false)
+      },
+    )
   }
 
   if (comments.length === 0) return null
@@ -159,8 +169,10 @@ export function NoteReviewBar({
           <RunChoice
             harness={harness}
             model={model}
+            effort={effort}
             onHarness={chooseHarness}
             onModel={chooseModel}
+            onEffort={chooseEffort}
             disabled={working}
           />
         </>

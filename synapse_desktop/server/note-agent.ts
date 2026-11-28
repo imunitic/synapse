@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CliResult, Harness, NoteKind, Project } from '../shared/transport.ts'
 import type { SessionPlan } from './inject.ts'
+import { modelArgs } from './harness-args.ts'
 import { HostError } from '../shared/dispatch.ts'
 import type { ErrorCode } from '../shared/protocol.ts'
 
@@ -212,6 +213,7 @@ export function noteCommand(
   prompt: string,
   writable: readonly string[],
   model?: string,
+  effort?: string,
   stream = false,
   access: Access = 'write',
 ): NoteCommand {
@@ -235,7 +237,7 @@ export function noteCommand(
               ? NOTE_TOOLS
               : `${NOTE_TOOLS},Read(${plan.env.SYNAPSE_CONTENT_ROOT}/**)`,
           ...plan.args,
-          ...(model === undefined ? [] : ['--model', model]),
+          ...modelArgs(harness, model, effort),
         ],
         env: {},
         stdin: prompt,
@@ -252,7 +254,7 @@ export function noteCommand(
           'approval_policy="never"',
           ...(reading ? [] : writable.flatMap((dir) => ['--add-dir', dir])),
           ...plan.args,
-          ...(model === undefined ? [] : ['-m', model]),
+          ...modelArgs(harness, model, effort),
           '-',
         ],
         env: {},
@@ -265,7 +267,7 @@ export function noteCommand(
           '--standalone',
           '--auto',
           ...plan.args,
-          ...(model === undefined ? [] : ['-m', model]),
+          ...modelArgs(harness, model, effort),
           prompt,
         ],
         env: {
@@ -283,6 +285,8 @@ export interface NoteSessionRun {
   prompt: string
   // The model the session is asked to use; the harness's own when absent.
   model?: string
+  // The effort the session is asked for; the harness's own when absent.
+  effort?: string
   // The environment the session runs in.
   env: Record<string, string>
   // The folders the session writes in besides its own: the vault, and where the
@@ -361,6 +365,7 @@ export function createNoteSession(plan: (harness: Harness) => Promise<SessionPla
       sessionPrompt(run.prompt, folder),
       run.writable,
       run.model,
+      run.effort,
       run.onLine !== undefined && run.harness === 'Claude',
       run.access,
     )

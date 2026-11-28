@@ -8,8 +8,9 @@ with Synapse.Pipeline.Source_Errors;
 --  into the one thing a run works from.
 --
 --  A step is merged with its system:
---    * each of Harness, Model, Permissions, Timeout, Retries, Outcomes and
---      Agent is the step's own when it has one, else the system's;
+--    * each of Harness, Model, Effort, Permissions, Timeout, Retries,
+--      Outcomes and Agent is the step's own when it has one, else the
+--      system's;
 --    * the assignment is the step's `Prompt` when it has one, and then the
 --      system's is dropped whole; otherwise it is the system's;
 --    * the role is the `Prompt` of the agent that results.

@@ -15,6 +15,7 @@ The settings and what each one means are described in [synapse-config](../synaps
 - Text size: how big the text is in the whole app. It is kept in this app only.
 - Default harness: the harness (Claude Code, Codex or OpenCode) that writes a definition or a note when you ask an agent to.
 - Default models: the model each harness is asked to use when an agent writes a definition or a note for you. Without one, the harness uses its own. A step of a pipeline names its own model in its definition.
+- Default efforts: how much effort each harness's model is asked to put in when an agent runs from the app. Claude and Codex offer a list; for OpenCode it is a variant of the model, typed by name, and needs a default model. A pipeline step takes its effort from the pipeline.
 - Definition folders: folders of pipeline definitions besides the default one. Their definitions show in the [Definitions](definitions.md) panel.
 
 ## Vault

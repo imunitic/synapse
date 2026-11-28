@@ -232,6 +232,44 @@ package body Synapse.Pipeline.Harness_Commands is
       end case;
    end Add_Claude_Permissions;
 
+   function Opencode_Model (Step : Resolved.Step) return String is
+     (To_String (Step.Model.Value)
+      & (if Step.Effort.Found then "#" & To_String (Step.Effort.Value)
+         else ""));
+
+   procedure Add_Model_And_Effort
+     (Into : in out Synapse.Core.Text_Lists.Vector; Step : Resolved.Step) is
+   begin
+      case Step.Harness is
+         when Harnesses.Claude =>
+            if Step.Model.Found then
+               Add (Into, "--model");
+               Add (Into, To_String (Step.Model.Value));
+            end if;
+            if Step.Effort.Found then
+               Add (Into, "--effort");
+               Add (Into, To_String (Step.Effort.Value));
+            end if;
+         when Harnesses.Codex =>
+            if Step.Model.Found then
+               Add (Into, "-m");
+               Add (Into, To_String (Step.Model.Value));
+            end if;
+            if Step.Effort.Found then
+               Add (Into, "-c");
+               Add
+                 (Into,
+                  "model_reasoning_effort=""" & To_String (Step.Effort.Value)
+                  & """");
+            end if;
+         when Harnesses.Opencode =>
+            if Step.Model.Found then
+               Add (Into, "-m");
+               Add (Into, Opencode_Model (Step));
+            end if;
+      end case;
+   end Add_Model_And_Effort;
+
    function Claude_Command
      (Item : Resolved.Step; Prompt : String) return Command_Results.Result
    is
@@ -246,10 +284,7 @@ package body Synapse.Pipeline.Harness_Commands is
       Add (Made.Arguments, JSON.To_String (Envelopes.Schema));
       Add (Made.Arguments, "--no-session-persistence");
       Add_Claude_Permissions (Made.Arguments, Item);
-      if Item.Model.Found then
-         Add (Made.Arguments, "--model");
-         Add (Made.Arguments, To_String (Item.Model.Value));
-      end if;
+      Add_Model_And_Effort (Made.Arguments, Item);
       Made.Standard_Input := To_Unbounded_String (Prompt);
       return Command_Results.Success (Made);
    end Claude_Command;
@@ -272,10 +307,7 @@ package body Synapse.Pipeline.Harness_Commands is
       Add (Made.Arguments, "--skip-git-repo-check");
       Add (Made.Arguments, "-s");
       Add (Made.Arguments, Codex_Sandbox (Item));
-      if Item.Model.Found then
-         Add (Made.Arguments, "-m");
-         Add (Made.Arguments, To_String (Item.Model.Value));
-      end if;
+      Add_Model_And_Effort (Made.Arguments, Item);
       Made.Standard_Input := To_Unbounded_String (Prompt);
       return Command_Results.Success (Made);
    end Codex_Command;
@@ -337,10 +369,7 @@ package body Synapse.Pipeline.Harness_Commands is
       Add (Made.Arguments, "--format");
       Add (Made.Arguments, "json");
       Add (Made.Arguments, "--auto");
-      if Item.Model.Found then
-         Add (Made.Arguments, "-m");
-         Add (Made.Arguments, To_String (Item.Model.Value));
-      end if;
+      Add_Model_And_Effort (Made.Arguments, Item);
       Add (Made.Arguments, Prompt);
       if Settings /= "" then
          Add (Made.Environment, "OPENCODE_CONFIG_CONTENT=" & Settings);

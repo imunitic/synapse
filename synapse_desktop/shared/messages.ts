@@ -26,6 +26,7 @@ import {
   namespaceSchema,
   runRequestSchema,
 } from './calls.ts'
+import { effortSchema } from './efforts.ts'
 
 const text = z.string()
 const path = z.string().min(1).max(4096)
@@ -43,6 +44,7 @@ export type NoteStatus = z.infer<typeof noteStatusSchema>
 const agentChoice = {
   harness: harnessSchema.optional(),
   model: modelSchema.optional(),
+  effort: effortSchema.optional(),
 }
 
 // ---------------------------------------------------------------------------------------------

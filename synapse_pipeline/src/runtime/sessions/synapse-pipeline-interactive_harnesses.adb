@@ -69,10 +69,7 @@ package body Synapse.Pipeline.Interactive_Harnesses is
       Add ("--session-id");
       Add (To_String (Session.Id));
       Commands.Add_Claude_Permissions (Made.Arguments, Step);
-      if Step.Model.Found then
-         Add ("--model");
-         Add (To_String (Step.Model.Value));
-      end if;
+      Commands.Add_Model_And_Effort (Made.Arguments, Step);
       --  `--tools` takes any number of values, so the prompt is set apart
       --  from them.
       Add ("--");
@@ -211,10 +208,7 @@ package body Synapse.Pipeline.Interactive_Harnesses is
       Made.Program := To_Unbounded_String ("codex");
       Add ("-s");
       Add (Commands.Codex_Sandbox (Step));
-      if Step.Model.Found then
-         Add ("-m");
-         Add (To_String (Step.Model.Value));
-      end if;
+      Commands.Add_Model_And_Effort (Made.Arguments, Step);
       --  A prompt that begins with a dash is read as an option unless it
       --  follows `--`.
       Add ("--");
@@ -389,6 +383,12 @@ package body Synapse.Pipeline.Interactive_Harnesses is
       Add ("--standalone");
       Add ("--session");
       Add (Opencode_Id (Session));
+      --  The root `model` of the configuration keeps no variant, so a step
+      --  that names one is given its model as an argument as well.
+      if Step.Effort.Found and then Step.Model.Found then
+         Add ("--model");
+         Add (Commands.Opencode_Model (Step));
+      end if;
       Add ("--prompt=" & Prompt);
       if Config /= "" then
          Made.Environment.Append
