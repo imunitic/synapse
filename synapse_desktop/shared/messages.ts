@@ -33,8 +33,11 @@ const path = z.string().min(1).max(4096)
 const draftText = z.string().max(200_000)
 const nullResult = z.null()
 
-// Where a run's snapshot is pinned, under `refs/synapse/`: its start or its end.
-export const pinRefSchema = z.string().regex(/^runs\/[A-Za-z0-9_-]{1,64}\/(start|end)$/)
+// Where the app pins a snapshot of a folder it shows for a run, under `refs/synapse/`:
+// `desktop/<execution-id>/<folder-key>/start` or `end`.
+export const pinRefSchema = z
+  .string()
+  .regex(/^desktop\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(start|end)$/)
 
 // What a task note's `status` may be.
 export const noteStatusSchema = z.enum(['TODO', 'IN-PROGRESS', 'REVIEW', 'DONE', 'CANCELED'])

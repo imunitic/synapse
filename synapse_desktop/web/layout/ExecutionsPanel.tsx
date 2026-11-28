@@ -26,9 +26,9 @@ function deleteMany(count: number): string {
   return `Delete the records of ${count} runs? Their transcripts, patches and outcomes are removed. The changes they made in the repository stay.`
 }
 
-// The pins of the repositories added to a run whose record is gone are deleted with it. With no
-// work directory nothing is listed, and nothing is taken for gone; nor when the work directory
-// changed while the list was read.
+// For a run whose record is gone, the app deletes its pins in every folder kept for the run, added
+// or moved to, and forgets the folder its view was in. With no work directory nothing is listed, and
+// nothing is taken for gone; nor when the work directory changed while the list was read.
 async function loadExecutions() {
   const { recordsDir } = await transport.getPaths()
   const listed = await listExecutions(transport)

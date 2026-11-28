@@ -209,14 +209,37 @@ describe('the name of a run', () => {
 describe('the ref a snapshot is pinned as', () => {
   const tree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
-  it('is the start or the end of a run', () => {
-    const pin = messages['changes.pin'].params
-    expect(pin.safeParse({ folder: '/w', ref: 'runs/exec-1/start', tree }).success).toBe(true)
-    expect(pin.safeParse({ folder: '/w', ref: 'runs/exec-1/end', tree }).success).toBe(true)
+  it('is the start or the end the app keeps for a folder of a run', () => {
+    for (const ref of [
+      'desktop/exec-1/key-1/start',
+      'desktop/exec-1/key-1/end',
+      `desktop/${'a'.repeat(64)}/${'b_B-9'.repeat(12)}/end`,
+    ]) {
+      expect(
+        messages['changes.pin'].params.safeParse({ folder: '/w', ref, tree }).success,
+        ref,
+      ).toBe(true)
+      expect(messages['changes.unpin'].params.safeParse({ folder: '/w', ref }).success, ref).toBe(
+        true,
+      )
+    }
   })
 
-  it('is refused anywhere else', () => {
-    for (const ref of ['heads/main', 'runs/x/other', 'runs/../start', 'runs//start']) {
+  it('is refused anywhere else, the refs of the run itself included', () => {
+    for (const ref of [
+      'runs/exec-1/start',
+      'runs/exec-1/end',
+      'heads/main',
+      'desktop/exec-1/start',
+      'desktop//key-1/start',
+      'desktop/exec-1//start',
+      'desktop/../key-1/start',
+      'desktop/exec-1/../start',
+      'desktop/exec-1/key-1/other',
+      'desktop/exec-1/key-1/start/x',
+      `desktop/${'a'.repeat(65)}/key-1/start`,
+      `desktop/exec-1/${'a'.repeat(65)}/start`,
+    ]) {
       expect(
         messages['changes.pin'].params.safeParse({ folder: '/w', ref, tree }).success,
         ref,

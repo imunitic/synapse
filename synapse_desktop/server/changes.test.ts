@@ -271,7 +271,7 @@ describe('changesSince between two snapshots', () => {
 })
 
 describe('pinSnapshot and unpinSnapshot', () => {
-  const ref = 'runs/exec-1/start'
+  const ref = 'desktop/exec-1/key-1/start'
 
   it('keep a snapshot through git gc under refs/synapse, which is not a branch or a tag', async () => {
     await put('pinned.txt', 'only in the snapshot\n')
@@ -293,17 +293,50 @@ describe('pinSnapshot and unpinSnapshot', () => {
     await expect(unpinSnapshot(dir, ref)).resolves.toBeUndefined()
   })
 
-  it('refuses a ref that is not a run snapshot, and a tree that is not in the repository', async () => {
+  it('refuses a ref that is not one of the app’s, and a tree that is not in the repository', async () => {
     const tree = (await snapshotTree(dir))!
     await expect(pinSnapshot(dir, 'heads/main', tree)).rejects.toMatchObject({
       code: 'bad_request',
     })
-    await expect(unpinSnapshot(dir, 'runs/../start')).rejects.toMatchObject({
+    await expect(unpinSnapshot(dir, 'desktop/exec-1/../start')).rejects.toMatchObject({
       code: 'bad_request',
     })
     await expect(pinSnapshot(dir, ref, 'c'.repeat(40))).rejects.toMatchObject({
       code: 'not_found',
     })
+  })
+
+  it('leave the refs of the run itself unchanged from a linked worktree, and refuse its names', async () => {
+    const tree = (await snapshotTree(dir))!
+    git('update-ref', 'refs/synapse/runs/exec-1/start', tree)
+    git('update-ref', 'refs/synapse/runs/exec-1/end', tree)
+    const runRefs = () =>
+      git('for-each-ref', '--format=%(refname) %(objectname)', 'refs/synapse/runs/')
+    const before = runRefs()
+    const parent = await mkdtemp(join(tmpdir(), 'synapse-worktree-'))
+    try {
+      const linked = join(parent, 'linked')
+      git('worktree', 'add', '-q', '--detach', linked)
+      await writeFile(join(linked, 'a.txt'), 'changed in the worktree\n')
+      const other = (await snapshotTree(linked))!
+      expect(other).not.toBe(tree)
+      for (const end of ['start', 'end']) {
+        const own = `desktop/exec-1/key-1/${end}`
+        await pinSnapshot(linked, own, other)
+        expect(git('rev-parse', `refs/synapse/${own}`).trim()).toBe(other)
+        await unpinSnapshot(linked, own)
+        await expect(pinSnapshot(linked, `runs/exec-1/${end}`, other)).rejects.toMatchObject({
+          code: 'bad_request',
+        })
+        await expect(unpinSnapshot(linked, `runs/exec-1/${end}`)).rejects.toMatchObject({
+          code: 'bad_request',
+        })
+      }
+      expect(runRefs()).toBe(before)
+      expect(git('for-each-ref', 'refs/synapse/desktop/').trim()).toBe('')
+    } finally {
+      await rm(parent, { recursive: true, force: true })
+    }
   })
 
   it('refuses a folder inside a repository that is not its root, and pins nothing', async () => {

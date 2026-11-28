@@ -3624,10 +3624,6 @@ button.activity-file:hover {
   cursor: default;
 }
 
-span.folder-current {
-  cursor: default;
-}
-
 .folder-current {
   display: flex;
   align-items: baseline;

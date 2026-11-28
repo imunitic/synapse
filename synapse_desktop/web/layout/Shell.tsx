@@ -24,8 +24,10 @@ import {
 } from '../state/change-baselines.ts'
 import {
   addRunRepository,
+  moveRunFolder,
   onRunRepositoriesChange,
   removeRunRepository,
+  runFolderOf,
   runRepositoriesOf,
 } from '../state/run-repositories.ts'
 import { readRunChanges } from '../domain/run-changes.ts'
@@ -123,7 +125,7 @@ export function Shell() {
   // A terminal session also has the Git tab: the commits of the branch its harness is on.
   const gitSession =
     active?.page.kind === 'terminals' && activeSession !== undefined ? activeSession.id : null
-  // The folder bar is drawn again when a session's folders or a run's repositories change.
+  // The folder bar is drawn again when the folders of a session or of a run change.
   const [, setFoldersTick] = useState(0)
   useEffect(() => onBaselineChange(() => setFoldersTick((n) => n + 1)), [])
   useEffect(() => onRunRepositoriesChange(() => setFoldersTick((n) => n + 1)), [])
@@ -144,8 +146,8 @@ export function Shell() {
   }, [runId])
   const baseline = gitSession === null ? null : baselineOf(gitSession)
   const runDirectory = runFolder !== null && runFolder.id === runId ? runFolder.folder : null
-  // A session's folder can be moved and others shown next to it; a run's folder stays, and other
-  // repositories can be added to it.
+  // The folder of a session or of a run can be moved to another one, and other repositories shown
+  // next to it. Moving a run's folder changes only what is shown, not where the run works.
   const folders: FolderBarProps | null =
     gitSession !== null && baseline !== null
       ? {
@@ -159,11 +161,11 @@ export function Shell() {
         }
       : runId !== null && runDirectory !== null
         ? {
-            folder: runDirectory,
+            folder: runFolderOf(runId) ?? runDirectory,
             head: null,
             known: [],
             added: runRepositoriesOf(runId).map((one) => one.folder),
-            onChange: null,
+            onChange: (typed) => moveRunFolder(transport, runId, runDirectory, typed),
             onAdd: (typed) => addRunRepository(transport, runId, runDirectory, typed),
             onRemove: (folder) => void removeRunRepository(transport, runId, folder),
           }

@@ -1,10 +1,10 @@
 // What the thing being looked at has changed, one group for each repository it is shown in. A
 // terminal session: its working folder, and each folder shown next to it, against the snapshot taken
-// of it (see change-baselines.ts). A run: the folder it works in, from the snapshot pinned when it
-// started to the one pinned when it ended (or the working tree while it runs), and the same for each
-// repository added to it (see run-repositories.ts). Asked for again now and then while the window is
-// in use. Each answer of a session says where HEAD is, and a session that has switched branches is
-// compared with the snapshot of the branch it is on.
+// of it (see change-baselines.ts). A run: the folder it works in, or the folder its view was moved to
+// in place of that one, and each repository added to it, each from its start snapshot to its end
+// snapshot, or to the working tree while the run goes on (see run-repositories.ts). Asked for again
+// now and then while the window is in use. Each answer of a session says where HEAD is, and a session
+// that has switched branches is compared with the snapshot of the branch it is on.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { baseName, changeSet, type ChangeSet, type ChangesBase } from '../domain/changes.ts'
@@ -20,7 +20,8 @@ import {
 import {
   endRunRepositories,
   onRunRepositoriesChange,
-  runRepositoriesOf,
+  runFolderOf,
+  runFoldersShown,
 } from './run-repositories.ts'
 
 // What is being looked at.
@@ -62,6 +63,8 @@ export type ChangesState =
       live: boolean
       // A snapshot the run pinned is no longer in its repository.
       gone: boolean
+      // A run's view was moved to a folder, which is shown in place of the run's own.
+      moved: boolean
     }
 
 type ReadyState = Extract<ChangesState, { status: 'ready' }>
@@ -161,23 +164,21 @@ async function readSession(
     position: positionOf(baseline),
     live: false,
     gone: false,
+    moved: false,
   }
 }
 
 async function readRun(executionId: string): Promise<ReadyState> {
   const run = await readRunChanges(transport, executionId)
   const running = run.status === 'running'
-  // An ended run pins the end of each repository added to it, once.
+  // An ended run pins the end of each folder kept for it, once.
   if (!running) await endRunRepositories(transport, executionId)
-  const wanted: { folder: string; start: string; end: string | null }[] = []
-  if (run.directory !== null && run.snapshots.start !== null)
-    wanted.push({ folder: run.directory, start: run.snapshots.start, end: run.snapshots.end })
-  for (const added of runRepositoriesOf(executionId))
-    if (!wanted.some((one) => one.folder === added.folder)) wanted.push(added)
+  const shown = runFoldersShown(executionId, { directory: run.directory, ...run.snapshots })
+  const moved = runFolderOf(executionId) !== null
   const groups: ChangeGroup[] = []
   let live = false
   let gone = false
-  for (const { folder, start, end } of wanted) {
+  for (const { folder, start, end } of shown) {
     // A run that ended without an end snapshot is shown against the working tree now.
     const after = running ? null : end
     try {
@@ -193,7 +194,7 @@ async function readRun(executionId: string): Promise<ReadyState> {
       gone = true
     }
   }
-  return { status: 'ready', kind: 'run', base: null, groups, position: null, live, gone }
+  return { status: 'ready', kind: 'run', base: null, groups, position: null, live, gone, moved }
 }
 
 // `liveCalls` goes up when a tool call of the run that can change files has finished, which is when
@@ -260,7 +261,7 @@ export function useChanges(
     }
   }, [])
 
-  // A repository added to a run, or the end pinned in one, is read again; quietly, as the clock does.
+  // A change of a run's folders, or an end pinned in one, is read again; quietly, as the clock does.
   useEffect(() => onRunRepositoriesChange(() => void ask(latest.current, false)), [ask])
 
   // Another thing, or a session's snapshot arriving, is looked at from the start.
