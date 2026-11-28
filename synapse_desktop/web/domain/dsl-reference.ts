@@ -48,6 +48,13 @@ export const DSL_ATTRIBUTES: readonly DslAttribute[] = [
     meaning: 'The model the harness is asked to use. Without one, the harness uses its own.',
   },
   {
+    name: 'Effort',
+    on: ['step', 'system'],
+    value: 'name or string',
+    meaning:
+      'How much effort the model is asked to put in. Claude: low, medium, high, xhigh, max. Codex: none, minimal, low, medium, high, xhigh, max, ultra, persistent. OpenCode: a variant of the model, which needs a Model.',
+  },
+  {
     name: 'Permissions',
     on: ['step', 'system'],
     value: 'Read_Only, Workspace_Write or Full_Access',

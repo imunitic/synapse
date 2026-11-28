@@ -15,6 +15,7 @@ with Synapse.Pipeline.Syntax;
 --    Description      pipeline, system, agent, prompt   a string
 --    Harness          step, system   a name
 --    Model            step, system   a name or a string
+--    Effort           step, system   a name or a string, not empty
 --    Permissions      step, system   a name
 --    Timeout          step, system   a string such as "30m", at most 30 days
 --    Retries          step, system   an integer, at most 100

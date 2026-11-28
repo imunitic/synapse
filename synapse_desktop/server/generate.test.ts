@@ -237,6 +237,49 @@ describe('generateDefinition', () => {
     expect(models).toEqual([undefined, 'sonnet', 'opus', 'gpt-x', undefined])
   })
 
+  it('the default effort of the harness is used', async () => {
+    const efforts: (string | undefined)[] = []
+    const context = contextWith(
+      (run) => {
+        efforts.push(run.effort)
+        return Promise.resolve({ code: 0, stdout: 'Agent A [Prompt => "x"];', stderr: '' })
+      },
+      await pathWithSkill(),
+    )
+    await define(request, context)
+    await handleMessage('config.set', { patch: { defaultEfforts: { Claude: 'high' } } }, context)
+    await define(request, context)
+    expect(efforts).toEqual([undefined, 'high'])
+  })
+
+  it("a request's effort overrides the default", async () => {
+    const efforts: (string | undefined)[] = []
+    const context = contextWith(
+      (run) => {
+        efforts.push(run.effort)
+        return Promise.resolve({ code: 0, stdout: 'Agent A [Prompt => "x"];', stderr: '' })
+      },
+      await pathWithSkill(),
+    )
+    await handleMessage('config.set', { patch: { defaultEfforts: { Claude: 'high' } } }, context)
+    await define({ ...request, effort: 'max' }, context)
+    expect(efforts).toEqual(['max'])
+  })
+
+  it("a Codex run does not take Claude's default effort", async () => {
+    const efforts: (string | undefined)[] = []
+    const context = contextWith(
+      (run) => {
+        efforts.push(run.effort)
+        return Promise.resolve({ code: 0, stdout: 'Agent A [Prompt => "x"];', stderr: '' })
+      },
+      await pathWithSkill(),
+    )
+    await handleMessage('config.set', { patch: { defaultEfforts: { Claude: 'high' } } }, context)
+    await define({ ...request, harness: 'Codex' }, context)
+    expect(efforts).toEqual([undefined])
+  })
+
   it('refuses a model that could be taken for a flag', async () => {
     const context = contextWith(() => Promise.reject(new Error('not used')), await pathWithSkill())
     await expect(define({ ...request, model: '--dangerous' }, context)).rejects.toThrow()
@@ -355,6 +398,40 @@ describe('the model of a headless session', () => {
       const args = agentCommand({ ...run, harness }).args
       expect(args).not.toContain('--model')
       expect(args).not.toContain('-m')
+    }
+  })
+})
+
+describe('the effort of a headless session', () => {
+  const run = { system: 'sys', prompt: 'p' }
+
+  it('Claude is given --effort', () => {
+    const args = agentCommand({ ...run, harness: 'Claude', model: 'opus', effort: 'high' }).args
+    expect(args.slice(-4)).toEqual(['--model', 'opus', '--effort', 'high'])
+  })
+
+  it('Codex is given model_reasoning_effort', () => {
+    const args = agentCommand({ ...run, harness: 'Codex', model: 'gpt-x', effort: 'xhigh' }).args
+    expect(args.slice(-4)).toEqual(['-m', 'gpt-x', '-c', 'model_reasoning_effort="xhigh"'])
+  })
+
+  it('OpenCode is given model#variant', () => {
+    const args = agentCommand({
+      ...run,
+      harness: 'Opencode',
+      model: 'prov/model',
+      effort: 'high',
+    }).args
+    expect(args.slice(3, 5)).toEqual(['-m', 'prov/model#high'])
+    expect(args.at(-1)).toContain('p')
+  })
+
+  it('no effort adds no argument', () => {
+    for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
+      const args = agentCommand({ ...run, harness, model: 'm' }).args
+      expect(args).not.toContain('--effort')
+      expect(args.join(' ')).not.toContain('model_reasoning_effort')
+      expect(args).toContain('m')
     }
   })
 })

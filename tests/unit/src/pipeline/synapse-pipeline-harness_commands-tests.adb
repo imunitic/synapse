@@ -41,8 +41,9 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
    end Joined;
 
    function Step_Of
-     (Permissions : String := ""; Model : String := "")
-      return Resolved.Step
+     (Permissions : String := "";
+      Model       : String := "";
+      Effort      : String := "") return Resolved.Step
    is
       Result : Resolved.Step;
    begin
@@ -56,15 +57,23 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
          Result.Model :=
            Synapse.Core.Optional_Text.Of_Value (To_Unbounded_String (Model));
       end if;
+      if Effort /= "" then
+         Result.Effort :=
+           Synapse.Core.Optional_Text.Of_Value (To_Unbounded_String (Effort));
+      end if;
       return Result;
    end Step_Of;
 
+   --  The command Harness builds for Step, which resolution would have given
+   --  that harness.
    function Command_Of
      (Harness : Harnesses.Harness_Kind; Step : Resolved.Step) return Command
    is
-      Made : constant Command_Results.Result :=
-        For_Harness (Harness).Build (Step, "PROMPT");
+      On   : Resolved.Step := Step;
+      Made : Command_Results.Result;
    begin
+      On.Harness := Harness;
+      Made := For_Harness (Harness).Build (On, "PROMPT");
       Assert
         (Command_Results.Is_Success (Made),
          "the command is built: "
@@ -220,6 +229,116 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
          "or run commands or fetch");
       Assert (Full.Environment.Is_Empty, "full access adds no settings");
    end OpenCode_Is_Run_Alone_With_Its_Permissions_In_The_Environment;
+
+   ---------------------------------------------------------------------------
+   --  Model and effort
+   ---------------------------------------------------------------------------
+
+   function Arguments_Of
+     (Harness : Harnesses.Harness_Kind; Step : Resolved.Step) return String is
+     (Joined (Command_Of (Harness, Step).Arguments));
+
+   procedure Claude_Passes_Model_And_Effort (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Args : constant String :=
+        Arguments_Of
+          (Harnesses.Claude, Step_Of (Model => "m1", Effort => "high"));
+   begin
+      Assert
+        (Has (Args, "--model m1 --effort high "),
+         "the model, then the effort: " & Args);
+   end Claude_Passes_Model_And_Effort;
+
+   procedure Claude_Passes_Effort_Only (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Args : constant String :=
+        Arguments_Of (Harnesses.Claude, Step_Of (Effort => "max"));
+   begin
+      Assert
+        (Has (Args, "--effort max ") and then not Has (Args, "--model"),
+         "the effort and no model: " & Args);
+   end Claude_Passes_Effort_Only;
+
+   procedure Claude_Passes_Neither (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Args : constant String := Arguments_Of (Harnesses.Claude, Step_Of);
+   begin
+      Assert
+        (not Has (Args, "--model") and then not Has (Args, "--effort"),
+         "no model or effort argument: " & Args);
+   end Claude_Passes_Neither;
+
+   procedure Codex_Passes_Model_And_Effort (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Args : constant String :=
+        Arguments_Of
+          (Harnesses.Codex, Step_Of (Model => "gpt", Effort => "xhigh"));
+   begin
+      Assert
+        (Has (Args, "-m gpt -c model_reasoning_effort=""xhigh"" "),
+         "the model, then the effort as a setting: " & Args);
+   end Codex_Passes_Model_And_Effort;
+
+   procedure Codex_Passes_Effort_Only (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Args : constant String :=
+        Arguments_Of (Harnesses.Codex, Step_Of (Effort => "minimal"));
+   begin
+      Assert
+        (Has (Args, "-c model_reasoning_effort=""minimal"" ")
+         and then not Has (Args, "-m "),
+         "the effort and no model: " & Args);
+   end Codex_Passes_Effort_Only;
+
+   procedure Codex_Passes_Neither (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Args : constant String := Arguments_Of (Harnesses.Codex, Step_Of);
+   begin
+      Assert
+        (not Has (Args, "-m ") and then not Has (Args, "-c ")
+         and then not Has (Args, "model_reasoning_effort"),
+         "no model or effort argument: " & Args);
+   end Codex_Passes_Neither;
+
+   procedure Opencode_Passes_Model_And_Effort (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Args : constant String :=
+        Arguments_Of
+          (Harnesses.Opencode,
+           Step_Of (Model => "provider/model", Effort => "High"));
+   begin
+      Assert
+        (Has (Args, "-m provider/model#High PROMPT"),
+         "the variant is part of the model, as written: " & Args);
+   end Opencode_Passes_Model_And_Effort;
+
+   procedure Opencode_Passes_Neither (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Args : constant String := Arguments_Of (Harnesses.Opencode, Step_Of);
+   begin
+      Assert
+        (not Has (Args, "-m ") and then not Has (Args, "#"),
+         "no model or variant argument: " & Args);
+   end Opencode_Passes_Neither;
+
+   procedure Opencode_Config_Model_Holds_No_Variant
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Step   : Resolved.Step :=
+        Step_Of (Model => "provider/model", Effort => "high");
+   begin
+      Step.Harness := Harnesses.Opencode;
+      declare
+         Config : constant String :=
+           Opencode_Config (Step, With_Model => True);
+      begin
+         Assert
+           (Has (Config, """model"":""provider/model""")
+            and then not Has (Config, "#"),
+            "the root model keeps no variant: " & Config);
+      end;
+   end Opencode_Config_Model_Holds_No_Variant;
 
    ---------------------------------------------------------------------------
    --  Replies
@@ -503,6 +622,36 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
         (T,
          OpenCode_Is_Run_Alone_With_Its_Permissions_In_The_Environment'Access,
          "OpenCode is run alone with its permissions in the environment");
+      Register_Routine
+        (T, Claude_Passes_Model_And_Effort'Access,
+         "Claude: a step with a model and an effort passes both");
+      Register_Routine
+        (T, Claude_Passes_Effort_Only'Access,
+         "Claude: a step with an effort only passes the effort");
+      Register_Routine
+        (T, Claude_Passes_Neither'Access,
+         "Claude: a step with neither passes no model or effort argument "
+         & "at all");
+      Register_Routine
+        (T, Codex_Passes_Model_And_Effort'Access,
+         "Codex: a step with a model and an effort passes both");
+      Register_Routine
+        (T, Codex_Passes_Effort_Only'Access,
+         "Codex: a step with an effort only passes the effort");
+      Register_Routine
+        (T, Codex_Passes_Neither'Access,
+         "Codex: a step with neither passes no model or effort argument "
+         & "at all");
+      Register_Routine
+        (T, Opencode_Passes_Model_And_Effort'Access,
+         "OpenCode: a step with a model and an effort passes both");
+      Register_Routine
+        (T, Opencode_Passes_Neither'Access,
+         "OpenCode: a step with neither passes no model or effort argument "
+         & "at all");
+      Register_Routine
+        (T, Opencode_Config_Model_Holds_No_Variant'Access,
+         "OpenCode's config model holds no variant");
       Register_Routine
         (T, A_Claude_Answer_Is_Its_Structured_Output'Access,
          "A Claude answer is its structured output");

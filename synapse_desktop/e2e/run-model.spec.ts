@@ -235,3 +235,114 @@ test('the harness and the model are as high as each other, and each label is cen
     expect(Math.abs(textCentre - controlCentre), label).toBeLessThanOrEqual(1)
   }
 })
+
+const effort = (page: Page) => page.getByLabel('Effort for this run')
+
+test('has an effort to choose for each harness, and none chosen to begin with', async ({
+  page,
+}) => {
+  await openNewNote(page)
+  await expect(effort(page)).toHaveValue('')
+  await expect(effort(page).locator('option')).toHaveText([
+    'The harness chooses',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+  ])
+  await harness(page).selectOption('Codex')
+  await expect(effort(page)).toHaveValue('')
+  await expect(effort(page).locator('option')).toHaveText([
+    'The harness chooses',
+    'none',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+    'ultra',
+    'persistent',
+  ])
+  await harness(page).selectOption('Opencode')
+  await expect(effort(page)).toHaveValue('')
+  await expect(effort(page)).toHaveAttribute('placeholder', 'The harness chooses')
+})
+
+test('Claude is run with --effort high when high is chosen', async ({ page }) => {
+  await openNewNote(page)
+  await effort(page).selectOption('high')
+  await writeNote(page)
+  expect(runs()).toHaveLength(1)
+  expect(runs()[0]).toContain('--effort high')
+})
+
+test('Codex is run with -c model_reasoning_effort="xhigh"', async ({ page }) => {
+  await openNewNote(page)
+  await harness(page).selectOption('Codex')
+  await effort(page).selectOption('xhigh')
+  await writeNote(page)
+  expect(runs()).toHaveLength(1)
+  expect(runs()[0]).toMatch(/^codex exec /)
+  expect(runs()[0]).toContain('-c model_reasoning_effort="xhigh"')
+  expect(runs()[0]).not.toContain('--effort')
+})
+
+test('OpenCode is run with -m provider/model#high, and its variant waits for a model', async ({
+  page,
+}) => {
+  await openNewNote(page)
+  await harness(page).selectOption('Opencode')
+  await expect(effort(page)).toBeDisabled()
+  await expect(page.getByText('Choose a model first')).toBeVisible()
+
+  await choose(page, 'anthropic/claude-sonnet-5')
+  await expect(effort(page)).toBeEnabled()
+  await expect(page.getByText('Choose a model first')).toHaveCount(0)
+  await effort(page).fill('high')
+  await effort(page).press('Enter')
+  await writeNote(page)
+  expect(runs()).toHaveLength(1)
+  expect(runs()[0]).toMatch(/^opencode run /)
+  expect(runs()[0]).toContain('-m anthropic/claude-sonnet-5#high')
+})
+
+test('changing the harness drops the chosen effort', async ({ page }) => {
+  await openNewNote(page)
+  await effort(page).selectOption('max')
+  await harness(page).selectOption('Codex')
+  await expect(effort(page)).toHaveValue('')
+  await harness(page).selectOption('Claude')
+  await expect(effort(page)).toHaveValue('')
+  await writeNote(page)
+  expect(runs()[0]).not.toContain('--effort')
+})
+
+test('no effort adds no effort argument', async ({ page }) => {
+  await openNewNote(page)
+  await harness(page).selectOption('Codex')
+  await writeNote(page)
+  expect(runs()).toHaveLength(1)
+  expect(runs()[0]).not.toContain('model_reasoning_effort')
+  expect(runs()[0]).not.toContain('--effort')
+})
+
+test('the default effort of the harness is shown and used', async ({ page }) => {
+  await page.goto('/')
+  await openSection(page, 'Settings')
+  await sidePanel(page)
+    .getByRole('button', { name: /^General/ })
+    .click()
+  const saved = page.getByLabel('Default effort of Claude Code')
+  await saved.selectOption('high')
+  await expect(saved).toHaveValue('high')
+
+  await openSection(page, 'Vault')
+  await sidePanel(page).getByRole('button', { name: 'New note' }).click()
+  await expect(effort(page)).toHaveValue('high')
+  // The default is not a choice of this run, so there is nothing to go back from.
+  await expect(page.getByRole('button', { name: 'Back to the default' })).toHaveCount(0)
+  await writeNote(page)
+  expect(runs()[0]).toContain('--effort high')
+})

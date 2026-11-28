@@ -24,6 +24,7 @@ import { useConfig } from '../state/config.tsx'
 import { useDiagnosis, useHarnesses } from '../state/diagnosis.tsx'
 import { EnvCard } from '../components/EnvCard.tsx'
 import { ModelPicker } from '../components/ModelPicker.tsx'
+import { EffortPicker } from '../components/EffortPicker.tsx'
 import { Conventions } from './ConventionsPage.tsx'
 import { SettingsForm } from '../components/SettingsForm.tsx'
 import type { SettingsSection } from '../state/state.ts'
@@ -175,6 +176,55 @@ function DefaultModelsCard() {
             label={`Default model of ${label}`}
             value={models[value] ?? null}
             onChange={(model) => change(value, model)}
+            disabled={harnesses.isMissing(value)}
+          />
+        </div>
+      ))}
+      {failure !== null && (
+        <p className="error" role="alert">
+          {failure}
+        </p>
+      )}
+    </section>
+  )
+}
+
+// The effort each harness is asked for when an agent runs from the app and nothing chooses another.
+function DefaultEffortsCard() {
+  const { state, save } = useConfig()
+  const harnesses = useHarnesses()
+  const [failure, setFailure] = useState<string | null>(null)
+  if (state.status !== 'ready') return null
+  const efforts = state.config.defaultEfforts
+  const models = state.config.defaultModels
+
+  function change(harness: Harness, effort: string | null) {
+    const next = { ...efforts }
+    if (effort === null) delete next[harness]
+    else next[harness] = effort
+    save({ defaultEfforts: next }).then(
+      () => setFailure(null),
+      (error: unknown) => setFailure(String(error)),
+    )
+  }
+
+  return (
+    <section className="card" aria-label="Default efforts">
+      <h2 className="card-title">Default efforts</h2>
+      <p className="muted">
+        Applies to agent runs started from the app. A pipeline step takes its effort from the
+        pipeline.
+      </p>
+      {HARNESS_OPTIONS.map(({ value, label }) => (
+        <div key={value} className="model-row">
+          <span className="model-row-label">{label}</span>
+          <EffortPicker
+            key={efforts[value] ?? ''}
+            harness={value}
+            label={`Default effort of ${label}`}
+            value={efforts[value] ?? null}
+            onChange={(effort) => change(value, effort)}
+            hasModel={models[value] !== undefined}
             disabled={harnesses.isMissing(value)}
           />
         </div>
@@ -340,6 +390,7 @@ function General({ onChanged }: { onChanged: () => void }) {
       <TextSizeCard />
       <DefaultHarnessCard />
       <DefaultModelsCard />
+      <DefaultEffortsCard />
       <DefinitionFoldersCard onChanged={onChanged} />
     </>
   )

@@ -7,6 +7,7 @@ import { access, readFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import type { CliResult, GenerateRequest, Harness } from '../shared/transport.ts'
+import { modelArgs } from './harness-args.ts'
 
 const TIMEOUT_MS = 180_000
 const MAX_OUTPUT_BYTES = 1024 * 1024
@@ -17,6 +18,8 @@ export interface AgentRun {
   harness: Harness
   // The model the session is asked to use; the harness's own when absent.
   model?: string
+  // The effort the session is asked for; the harness's own when absent.
+  effort?: string
   // Added to the session's own instructions.
   system: string
   prompt: string
@@ -39,7 +42,7 @@ export interface AgentCommand {
 // The headless session of a harness that can read and answer but not change
 // anything or run anything. Codex and OpenCode have no flag for added
 // instructions, so those go in front of the prompt.
-export function agentCommand({ harness, model, system, prompt }: AgentRun): AgentCommand {
+export function agentCommand({ harness, model, effort, system, prompt }: AgentRun): AgentCommand {
   const together = `${system}\n\n${prompt}`
   switch (harness) {
     case 'Claude':
@@ -56,7 +59,7 @@ export function agentCommand({ harness, model, system, prompt }: AgentRun): Agen
           '',
           '--append-system-prompt',
           system,
-          ...(model === undefined ? [] : ['--model', model]),
+          ...modelArgs(harness, model, effort),
         ],
         env: {},
         stdin: prompt,
@@ -70,7 +73,7 @@ export function agentCommand({ harness, model, system, prompt }: AgentRun): Agen
           '--skip-git-repo-check',
           '-s',
           'read-only',
-          ...(model === undefined ? [] : ['-m', model]),
+          ...modelArgs(harness, model, effort),
         ],
         env: {},
         stdin: together,
@@ -78,13 +81,7 @@ export function agentCommand({ harness, model, system, prompt }: AgentRun): Agen
     case 'Opencode':
       return {
         program: 'opencode',
-        args: [
-          'run',
-          '--standalone',
-          '--auto',
-          ...(model === undefined ? [] : ['-m', model]),
-          together,
-        ],
+        args: ['run', '--standalone', '--auto', ...modelArgs(harness, model, effort), together],
         env: {
           OPENCODE_CONFIG_CONTENT: JSON.stringify({
             permission: {
@@ -210,6 +207,7 @@ export async function generateText(
     agent: AgentRunner
     harness: Harness
     model?: string
+    effort?: string
     env: Record<string, string>
     signal?: AbortSignal
   },
@@ -219,6 +217,7 @@ export async function generateText(
     env: deps.env,
     harness: deps.harness,
     ...(deps.model === undefined ? {} : { model: deps.model }),
+    ...(deps.effort === undefined ? {} : { effort: deps.effort }),
     system: systemFor(request, skill),
     prompt: promptFor(request),
     ...(deps.signal === undefined ? {} : { signal: deps.signal }),

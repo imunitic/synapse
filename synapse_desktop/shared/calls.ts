@@ -1,6 +1,7 @@
 // The values the parameters of the messages are made of, validated at the host's boundary.
 
 import { z } from 'zod'
+import { effortSchema, isEffortFor } from './efforts.ts'
 import { MODEL_NAME } from './models.ts'
 import type { RunRequest } from './transport.ts'
 
@@ -24,6 +25,19 @@ const configFields = {
   defaultHarness: harnessSchema.nullable(),
   // The model each harness is asked to use when nothing says another; none is its own default.
   defaultModels: z.partialRecord(harnessSchema, modelSchema),
+  // The effort each harness is asked for when nothing says another; none is its own default.
+  defaultEfforts: z.partialRecord(harnessSchema, effortSchema).superRefine((efforts, ctx) => {
+    for (const harness of harnessSchema.options) {
+      const effort = efforts[harness]
+      if (effort !== undefined && !isEffortFor(harness, effort)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [harness],
+          message: `${harness} does not offer effort '${effort}'`,
+        })
+      }
+    }
+  }),
   env: z
     .record(envNameSchema, z.string().max(4096))
     .refine((env) => Object.keys(env).length <= 64, 'at most 64 variables'),
@@ -43,6 +57,7 @@ export const storedConfigSchema = z.object({
   recentVaults: configFields.recentVaults.default([]),
   terminalFolder: configFields.terminalFolder.default(null),
   defaultModels: configFields.defaultModels.default({}),
+  defaultEfforts: configFields.defaultEfforts.default({}),
   graphRepos: configFields.graphRepos.default({}),
 })
 
@@ -51,6 +66,7 @@ export const defaultConfig: z.infer<typeof appConfigSchema> = {
   definitionPaths: [],
   defaultHarness: null,
   defaultModels: {},
+  defaultEfforts: {},
   env: {},
   recentVaults: [],
   terminalFolder: null,

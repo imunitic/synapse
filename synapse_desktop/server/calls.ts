@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { ZodError } from 'zod'
 import { appConfigSchema } from '../shared/calls.ts'
+import { isEffortFor } from '../shared/efforts.ts'
 import { HostError, type Handlers as DispatchHandlers } from '../shared/dispatch.ts'
 import { messages, type MessageName, type Params, type Result } from '../shared/messages.ts'
 import type { AppConfig, AppPaths, CliResult, DirEntry, Harness } from '../shared/transport.ts'
@@ -104,8 +105,7 @@ function modelsOf(context: Context): ModelStore {
 async function noteSessionOf(
   context: Context,
   config: AppConfig,
-  harness: Harness,
-  model: string | undefined,
+  { harness, model, effort }: AgentChoice,
 ): Promise<(prompt: string, extra?: NoteSessionExtra) => Promise<CliResult>> {
   const settings = await context.runCli({
     binary: 'synapse',
@@ -131,9 +131,47 @@ async function noteSessionOf(
       env,
       writable,
       ...(model === undefined ? {} : { model }),
+      ...(effort === undefined ? {} : { effort }),
       ...(extra?.signal === undefined ? {} : { signal: extra.signal }),
       ...(extra?.onLine === undefined ? {} : { onLine: extra.onLine }),
     })
+}
+
+// The harness, model and effort an agent run of the app uses.
+interface AgentChoice {
+  harness: Harness
+  model?: string
+  effort?: string
+}
+
+// The harness, model and effort of a request: what it names, else the defaults of the config.
+// An effort the harness does not offer is refused. OpenCode takes its variant only as part of a
+// model, so without one a request's own effort is refused and a default one is dropped.
+function choiceOf(
+  request: {
+    harness?: Harness | undefined
+    model?: string | undefined
+    effort?: string | undefined
+  },
+  config: AppConfig,
+): AgentChoice {
+  const harness = request.harness ?? config.defaultHarness ?? 'Claude'
+  const model = request.model ?? config.defaultModels[harness]
+  let effort = request.effort ?? config.defaultEfforts[harness]
+  if (effort !== undefined && !isEffortFor(harness, effort)) {
+    throw new HostError('bad_request', `${harness} does not offer effort '${effort}'`)
+  }
+  if (harness === 'Opencode' && model === undefined && effort !== undefined) {
+    if (request.effort !== undefined) {
+      throw new HostError('bad_request', 'an OpenCode variant needs a model')
+    }
+    effort = undefined
+  }
+  return {
+    harness,
+    ...(model === undefined ? {} : { model }),
+    ...(effort === undefined ? {} : { effort }),
+  }
 }
 
 // What a caller adds to a session: a way to stop it and where to send what it prints.
@@ -298,12 +336,8 @@ const handlers: Handlers = {
   async 'agent.run'(request, context) {
     switch (request.kind) {
       case 'definition': {
-        const { defaultHarness, defaultModels, env } = await loadConfig(
-          context.configFile,
-          context.environment,
-        )
-        const harness = request.harness ?? defaultHarness ?? 'Claude'
-        const model = request.model ?? defaultModels[harness]
+        const config = await loadConfig(context.configFile, context.environment)
+        const { harness, model, effort } = choiceOf(request, config)
         const handle = startRun(request, context)
         try {
           const text = await generateText(
@@ -316,7 +350,8 @@ const handlers: Handlers = {
             {
               harness,
               ...(model === undefined ? {} : { model }),
-              env,
+              ...(effort === undefined ? {} : { effort }),
+              env: config.env,
               pathVariable: context.environment.env.PATH ?? '',
               agent: context.agent,
               ...(handle === undefined ? {} : { signal: handle.signal }),
@@ -335,13 +370,9 @@ const handlers: Handlers = {
         return { kind: 'note', path: await createNoteFrom(request, context) }
       case 'note-edit': {
         const config = await loadConfig(context.configFile, context.environment)
-        const harness = request.harness ?? config.defaultHarness ?? 'Claude'
-        const session = await noteSessionOf(
-          context,
-          config,
-          harness,
-          request.model ?? config.defaultModels[harness],
-        )
+        const choice = choiceOf(request, config)
+        const { harness } = choice
+        const session = await noteSessionOf(context, config, choice)
         const handle = startRun(request, context)
         try {
           const edit = await editNote(
@@ -368,8 +399,7 @@ const handlers: Handlers = {
       }
       case 'run-input': {
         const config = await loadConfig(context.configFile, context.environment)
-        const harness = request.harness ?? config.defaultHarness ?? 'Claude'
-        const model = request.model ?? config.defaultModels[harness]
+        const { harness, model, effort } = choiceOf(request, config)
         // A read session needs no vault of its own: it reaches the vault only through the
         // synapse CLI, which finds it itself, and writes nowhere.
         const env = Object.fromEntries(
@@ -391,6 +421,7 @@ const handlers: Handlers = {
                 writable: [],
                 access: 'read',
                 ...(model === undefined ? {} : { model }),
+                ...(effort === undefined ? {} : { effort }),
                 ...(handle === undefined ? {} : { signal: handle.signal }),
               }),
             ...(handle === undefined ? {} : { stopped: handle.stopped }),
@@ -607,13 +638,9 @@ async function createNoteFrom(
   context: Context,
 ): Promise<string> {
   const config = await loadConfig(context.configFile, context.environment)
-  const harness = request.harness ?? config.defaultHarness ?? 'Claude'
-  const session = await noteSessionOf(
-    context,
-    config,
-    harness,
-    request.model ?? config.defaultModels[harness],
-  )
+  const choice = choiceOf(request, config)
+  const { harness } = choice
+  const session = await noteSessionOf(context, config, choice)
   // A task or design note belongs to a project, which a request names or the agent
   // matches from the ones there are.
   const projects = await listProjects(context.runCli, config)

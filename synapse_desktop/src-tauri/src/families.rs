@@ -10,6 +10,7 @@ use crate::cli::{refuse_cli, CliRun, CliRunner};
 use crate::config::{config_file, load_config, load_stored, merged, save_config};
 use crate::definitions::{preview_draft, write_definition};
 use crate::dispatch::{Handlers, HostError};
+use crate::efforts::{choice_of, RunChoice};
 use crate::environment::{
     allowed_roots, definition_dirs, existing_dirs, resolve_inside, Environment,
 };
@@ -385,6 +386,7 @@ pub fn next_families(handlers: &mut Handlers, context: Arc<Context>) {
                 definition_paths: vec![],
                 default_harness: None,
                 default_models: Default::default(),
+                default_efforts: Default::default(),
                 env: Default::default(),
                 recent_vaults: vec![],
                 terminal_folder: None,
@@ -425,8 +427,7 @@ pub fn next_families(handlers: &mut Handlers, context: Arc<Context>) {
 async fn note_session_of(
     context: &Context,
     config: &AppConfig,
-    harness: Harness,
-    model: Option<String>,
+    choice: RunChoice,
     stop: Option<oneshot::Receiver<()>>,
     on_line: Option<OnLine>,
     stream: bool,
@@ -461,6 +462,11 @@ async fn note_session_of(
         PathBuf::from(work),
     ]);
     let session = context.note_session.clone();
+    let RunChoice {
+        harness,
+        model,
+        effort,
+    } = choice;
     // The session is run once, and a stop signal can be taken only once.
     let stop = Mutex::new(stop);
     Ok(move |prompt: String| {
@@ -469,6 +475,7 @@ async fn note_session_of(
             harness,
             prompt,
             model: model.clone(),
+            effort: effort.clone(),
             env: env.clone(),
             writable: writable.clone(),
             stop: stop.lock().unwrap().take(),
@@ -496,19 +503,16 @@ async fn create_note(
         prompt,
         harness,
         model,
+        effort,
         project,
         ..
     } = request
     else {
         return Err(HostError::bad_request("not a note"));
     };
-    let harness = harness
-        .or(config.default_harness)
-        .unwrap_or(Harness::Claude);
-    let model = model
-        .clone()
-        .or_else(|| config.default_models.get(&harness).cloned());
-    let session = note_session_of(context, config, harness, model, stop, None, false).await?;
+    let choice = choice_of(*harness, model.as_ref(), effort.as_ref(), config)?;
+    let harness = choice.harness;
+    let session = note_session_of(context, config, choice, stop, None, false).await?;
     // A task or design note belongs to a project, which a request names or the agent matches from the
     // ones there are.
     let projects = load_projects(&context.cli, config).await?.projects;
@@ -582,16 +586,16 @@ async fn run_agent(
             prompt,
             harness,
             model,
+            effort,
             current,
             definitions,
             ..
         } => {
-            let harness = harness
-                .or(config.default_harness)
-                .unwrap_or(Harness::Claude);
-            let model = model
-                .clone()
-                .or_else(|| config.default_models.get(&harness).cloned());
+            let RunChoice {
+                harness,
+                model,
+                effort,
+            } = choice_of(*harness, model.as_ref(), effort.as_ref(), config)?;
             let generate = GenerateRequest {
                 kind: *what,
                 prompt,
@@ -606,6 +610,7 @@ async fn run_agent(
                 AgentChoice {
                     harness,
                     model,
+                    effort,
                     env: config.env.clone(),
                 },
                 stop,
@@ -622,14 +627,11 @@ async fn run_agent(
             prompt,
             harness,
             model,
+            effort,
             ..
         } => {
-            let harness = harness
-                .or(config.default_harness)
-                .unwrap_or(Harness::Claude);
-            let model = model
-                .clone()
-                .or_else(|| config.default_models.get(&harness).cloned());
+            let choice = choice_of(*harness, model.as_ref(), effort.as_ref(), config)?;
+            let harness = choice.harness;
             // Only a Claude edit prints its events, which the page reads as actions.
             let streaming = harness == Harness::Claude && handle.is_some();
             let on_line: Option<OnLine> = match handle {
@@ -639,8 +641,7 @@ async fn run_agent(
                 }
                 _ => None,
             };
-            let session =
-                note_session_of(c, config, harness, model, stop, on_line, streaming).await?;
+            let session = note_session_of(c, config, choice, stop, on_line, streaming).await?;
             let edit = edit_note(&c.cli, config, harness, session, path, prompt, stopped).await?;
             Ok(AgentRunAnswer::NoteEdit { edit })
         }

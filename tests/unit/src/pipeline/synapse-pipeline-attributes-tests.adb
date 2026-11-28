@@ -591,6 +591,64 @@ package body Synapse.Pipeline.Attributes.Tests is
          "the second problem, joined");
    end Data_That_Is_Not_A_Valid_Declaration_Lists_Every_Problem;
 
+   procedure Effort_Is_Accepted_On_A_Step_And_A_System
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      for Where of Context_List'[Step_Context, System_Context] loop
+         Assert_Fine (Where, Named ("Effort", A_Name ("High")), "a name");
+         Assert_Fine (Where, Named ("Effort", A_String ("xhigh")), "a string");
+      end loop;
+   end Effort_Is_Accepted_On_A_Step_And_A_System;
+
+   procedure Effort_Is_Not_An_Attribute_Of_A_Prompt
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Prompt_Context, Named ("Effort", A_Name ("High")), 1,
+         "'Effort' is not an attribute of a prompt", "a prompt");
+   end Effort_Is_Not_An_Attribute_Of_A_Prompt;
+
+   procedure Effort_Is_Not_An_Attribute_Of_An_Agent_A_Pipeline_Or_An_Edge
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Agent_Context, Named ("Effort", A_Name ("High")), 1,
+         "'Effort' is not an attribute of an agent", "an agent");
+      Assert_Wrong
+        (Pipeline_Context, Named ("Effort", A_Name ("High")), 1,
+         "'Effort' is not an attribute of a pipeline", "a pipeline");
+      Assert_Wrong
+        (Edge_Context, Named ("Effort", A_Name ("High")), 1,
+         "'Effort' is not an attribute of an edge", "an edge");
+   end Effort_Is_Not_An_Attribute_Of_An_Agent_A_Pipeline_Or_An_Edge;
+
+   procedure Effort_Takes_A_Name_Or_A_String_Not_An_Integer
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Step_Context, Named ("Effort", An_Integer (3)), 9,
+         "'Effort' takes a name or a string, not an integer", "an integer");
+   end Effort_Takes_A_Name_Or_A_String_Not_An_Integer;
+
+   procedure An_Empty_Effort_Is_An_Error (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert_Wrong
+        (Step_Context, Named ("Effort", A_String ("")), 9, "'Effort' is empty",
+         "an empty string on a step");
+      Assert_Wrong
+        (System_Context, Named ("Effort", A_String ("")), 9,
+         "'Effort' is empty", "an empty string on a system");
+   end An_Empty_Effort_Is_An_Error;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -690,6 +748,21 @@ package body Synapse.Pipeline.Attributes.Tests is
       Register_Routine
         (T, Data_That_Is_Not_A_Valid_Declaration_Lists_Every_Problem'Access,
          "Data that is not a valid declaration lists every problem");
+      Register_Routine
+        (T, Effort_Is_Accepted_On_A_Step_And_A_System'Access,
+         "Effort is accepted on a step and a system, as a name or a string");
+      Register_Routine
+        (T, Effort_Is_Not_An_Attribute_Of_A_Prompt'Access,
+         "Effort is not an attribute of a prompt");
+      Register_Routine
+        (T,
+         Effort_Is_Not_An_Attribute_Of_An_Agent_A_Pipeline_Or_An_Edge'Access,
+         "Effort is not an attribute of an agent, a pipeline or an edge");
+      Register_Routine
+        (T, Effort_Takes_A_Name_Or_A_String_Not_An_Integer'Access,
+         "Effort takes a name or a string, not an integer");
+      Register_Routine
+        (T, An_Empty_Effort_Is_An_Error'Access, "an empty Effort is an error");
    end Register_Tests;
 
 end Synapse.Pipeline.Attributes.Tests;

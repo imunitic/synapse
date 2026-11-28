@@ -208,6 +208,12 @@ describe('filling in the input of a run', () => {
     expect(() => context.noteRuns.start('r1')).not.toThrow()
   })
 
+  it('the run-input agent is given the effort asked for', async () => {
+    const { context, sessions } = contextFor(declaration, [ok('{}')])
+    await fill(context, { effort: 'max' })
+    expect(sessions[0]?.effort).toBe('max')
+  })
+
   it('the default harness and model are used when none is given', async () => {
     const { context, sessions } = contextFor(declaration, [ok('{}'), ok('{}')])
     await handleMessage(

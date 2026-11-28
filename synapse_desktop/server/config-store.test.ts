@@ -45,6 +45,7 @@ describe('the configuration file', () => {
       recentVaults: [],
       terminalFolder: null,
       defaultModels: {},
+      defaultEfforts: {},
       graphRepos: {},
     })
   })
@@ -75,6 +76,32 @@ describe('setConfig', () => {
     ).rejects.toMatchObject({
       code: 'bad_request',
     })
+  })
+
+  it('a config file without defaultEfforts reads as none', async () => {
+    await writeFile(file, JSON.stringify({ ...defaultConfig, defaultEfforts: undefined }))
+    expect((await loadStoredConfig(file)).defaultEfforts).toEqual({})
+  })
+
+  it('a default effort is saved and read back', async () => {
+    const context = contextFor()
+    await handleMessage(
+      'config.set',
+      { patch: { defaultEfforts: { Claude: 'high', Opencode: 'max' } } },
+      context,
+    )
+    expect((await loadStoredConfig(file)).defaultEfforts).toEqual({
+      Claude: 'high',
+      Opencode: 'max',
+    })
+  })
+
+  it('a Codex default of extreme is refused', async () => {
+    const context = contextFor()
+    await expect(
+      handleMessage('config.set', { patch: { defaultEfforts: { Codex: 'extreme' } } }, context),
+    ).rejects.toMatchObject({ code: 'bad_request' })
+    expect((await loadStoredConfig(file)).defaultEfforts).toEqual({})
   })
 
   it('keeps at most eight recent vaults', async () => {

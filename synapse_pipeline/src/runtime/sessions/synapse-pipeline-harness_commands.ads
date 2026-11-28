@@ -74,6 +74,17 @@ package Synapse.Pipeline.Harness_Commands is
    procedure Add_Claude_Permissions
      (Into : in out Synapse.Core.Text_Lists.Vector; Step : Resolved.Step);
 
+   --  Adds the arguments that ask Step's harness for Step's model and effort:
+   --  Claude `--model M --effort E`, Codex
+   --  `-m M -c model_reasoning_effort="E"`, OpenCode `-m M#E`.
+   --  Adds nothing for what the step does not name.
+   procedure Add_Model_And_Effort
+     (Into : in out Synapse.Core.Text_Lists.Vector; Step : Resolved.Step);
+
+   --  The model reference OpenCode is given: Step's model, then "#" and its
+   --  effort when it names one. Only called when Step names a model.
+   function Opencode_Model (Step : Resolved.Step) return String;
+
    --  The name of the sandbox Codex gives Step: the level of its permissions.
    function Codex_Sandbox (Step : Resolved.Step) return String;
 

@@ -106,6 +106,7 @@ with Synapse.Pipeline.Id_Claims.Tests;
 with Synapse.Pipeline.Attributes.Tests;
 with Synapse.Pipeline.Validation.Tests;
 with Synapse.Pipeline.Harnesses.Tests;
+with Synapse.Pipeline.Efforts.Tests;
 with Synapse.Pipeline.Recorders.Tests;
 with Synapse.Pipeline.Definition_Copies.Tests;
 with Synapse.Pipeline.Git_Working_Trees.Tests;
@@ -371,6 +372,8 @@ package body Test_Suites is
      aliased Synapse.Pipeline.Validation.Tests.Test_Case;
    Pipeline_Harnesses_Tests :
      aliased Synapse.Pipeline.Harnesses.Tests.Test_Case;
+   Pipeline_Efforts_Tests :
+     aliased Synapse.Pipeline.Efforts.Tests.Test_Case;
    Pipeline_Recorders_Tests :
      aliased Synapse.Pipeline.Recorders.Tests.Test_Case;
    Pipeline_Definition_Copies_Tests :
@@ -571,6 +574,7 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Attributes_Tests'Access);
       Result.Add_Test (Pipeline_Validation_Tests'Access);
       Result.Add_Test (Pipeline_Harnesses_Tests'Access);
+      Result.Add_Test (Pipeline_Efforts_Tests'Access);
       Result.Add_Test (Pipeline_Recorders_Tests'Access);
       Result.Add_Test (Pipeline_Definition_Copies_Tests'Access);
       Result.Add_Test (Pipeline_Git_Working_Trees_Tests'Access);

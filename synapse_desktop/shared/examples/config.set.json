@@ -13,6 +13,9 @@
       "defaultModels": {
         "Codex": "gpt-x"
       },
+      "defaultEfforts": {
+        "Claude": "high"
+      },
       "env": {
         "A": "1"
       },

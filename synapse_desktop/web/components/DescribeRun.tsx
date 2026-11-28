@@ -20,7 +20,7 @@ export function DescribeRun({
   onClose: () => void
 }) {
   const [prompt, setPrompt] = useState('')
-  const { harness, model, chooseHarness, chooseModel } = useRunChoice()
+  const { harness, model, effort, chooseHarness, chooseModel, chooseEffort } = useRunChoice()
   const [working, setWorking] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const run = useRun()
@@ -52,6 +52,7 @@ export function DescribeRun({
         prompt,
         harness,
         ...(model === null ? {} : { model }),
+        ...(effort === null ? {} : { effort }),
         current,
       })
       if (pending.current !== runId) return
@@ -93,8 +94,10 @@ export function DescribeRun({
         <RunChoice
           harness={harness}
           model={model}
+          effort={effort}
           onHarness={chooseHarness}
           onModel={chooseModel}
+          onEffort={chooseEffort}
           disabled={working}
         />
         <button

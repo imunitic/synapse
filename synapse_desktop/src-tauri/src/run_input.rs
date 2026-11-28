@@ -7,6 +7,7 @@
 use crate::agents::{reason_of, Access, NoteSessionRun};
 use crate::cli::{cli_environment, CliRun};
 use crate::dispatch::HostError;
+use crate::efforts::{choice_of, RunChoice};
 use crate::families::Context;
 use crate::messages::{AgentRunParams, AppConfig, CliBinary, CliResult, Harness};
 use regex::Regex;
@@ -183,18 +184,18 @@ pub async fn fill_run_input(
         prompt: description,
         harness,
         model,
+        effort,
         current,
         ..
     } = request
     else {
         return Err(HostError::bad_request("not the input of a run"));
     };
-    let harness = harness
-        .or(config.default_harness)
-        .unwrap_or(Harness::Claude);
-    let model = model
-        .clone()
-        .or_else(|| config.default_models.get(&harness).cloned());
+    let RunChoice {
+        harness,
+        model,
+        effort,
+    } = choice_of(*harness, model.as_ref(), effort.as_ref(), config)?;
     let declaration = declaration_of(context, config, pipeline)
         .await?
         .ok_or_else(|| HostError::conflict(format!("{pipeline} declares no input")))?;
@@ -214,6 +215,7 @@ pub async fn fill_run_input(
             harness,
             prompt,
             model: model.clone(),
+            effort: effort.clone(),
             env: env.clone(),
             writable: vec![],
             stop,

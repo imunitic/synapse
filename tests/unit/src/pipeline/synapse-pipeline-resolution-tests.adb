@@ -137,6 +137,33 @@ package body Synapse.Pipeline.Resolution.Tests is
       F.Add_File
         ("/defs/Misspelt.synapse",
          "Pipeline Misspelt { A [Harness => Cluade, Prompt => ""x""]; }");
+      F.Add_File
+        ("/defs/Effortful.synapse",
+         "System Effortful [Harness => Claude, Prompt => ""x"", "
+         & "Effort => Medium];");
+      F.Add_File
+        ("/defs/Efforted.synapse",
+         "Pipeline Efforted { A [System => Effortful, Effort => High];"
+         & " B [System => Effortful];"
+         & " C [Harness => Claude, Prompt => ""x""];"
+         & " D [Harness => Codex, Prompt => ""x"", Effort => ""xhigh""];"
+         & " E [Harness => Opencode, Prompt => ""x"", Model => ""p/m"", "
+         & "Effort => ""Deep-1""]; }");
+      F.Add_File
+        ("/defs/Too_Little.synapse",
+         "Pipeline Too_Little { A [Harness => Claude, Prompt => ""x"", "
+         & "Effort => minimal]; }");
+      F.Add_File
+        ("/defs/Too_Much.synapse",
+         "Pipeline Too_Much { A [Harness => Codex, Prompt => ""x"", "
+         & "Effort => extreme]; }");
+      F.Add_File
+        ("/defs/Modelless.synapse",
+         "Pipeline Modelless { A [Harness => Opencode, Prompt => ""x"", "
+         & "Effort => high]; }");
+      F.Add_File
+        ("/defs/Defaulted.synapse",
+         "Pipeline Defaulted { A [Prompt => ""x"", Effort => minimal]; }");
    end Add_Definitions;
 
    function Defs_Of (F : Fake_Files.Fake_Files) return Namespaces.Namespace is
@@ -671,6 +698,144 @@ package body Synapse.Pipeline.Resolution.Tests is
       Assert (Found, "a named required field is required");
    end A_Step_That_Names_Its_Data_Is_Checked_Like_Inline;
 
+   --  The message of the failure that resolving Name ends with; empty when
+   --  it resolves.
+   function Failure_Of
+     (Name : String; Default : Harnesses.Kind_Options.Option := No_Default)
+      return String
+   is
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Definitions (F);
+      declare
+         R : constant Resolve_Results.Result :=
+           Resolve (Defs_Of (F), Name, Default);
+      begin
+         return
+           (if Resolve_Results.Is_Success (R) then ""
+            else To_String (Resolve_Results.Error (R).Message));
+      end;
+   end Failure_Of;
+
+   procedure A_Steps_Effort_Overrides_Its_Systems
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Text_Of (Resolve_OK ("Efforted").Steps (1).Effort) = "high",
+         "the step's own effort, not its system's");
+   end A_Steps_Effort_Overrides_Its_Systems;
+
+   procedure A_Step_Takes_Its_Systems_Effort (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Text_Of (Resolve_OK ("Efforted").Steps (2).Effort) = "medium",
+         "the system's effort");
+   end A_Step_Takes_Its_Systems_Effort;
+
+   procedure A_Step_Without_Effort_Resolves_With_None
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (not Resolve_OK ("Efforted").Steps (3).Effort.Found,
+         "no effort");
+      Assert
+        (not Resolve_OK ("Plain").Steps (1).Effort.Found,
+         "no effort, in a pipeline that never names one");
+   end A_Step_Without_Effort_Resolves_With_None;
+
+   procedure Effort_High_Is_Stored_As_High_For_Claude
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      S : constant Resolved.Step := Resolve_OK ("Efforted").Steps (1);
+   begin
+      Assert
+        (S.Harness = Harnesses.Claude and then Text_Of (S.Effort) = "high",
+         "lower case, as Claude is given it");
+   end Effort_High_Is_Stored_As_High_For_Claude;
+
+   procedure Codex_Takes_Effort_Xhigh (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      S : constant Resolved.Step := Resolve_OK ("Efforted").Steps (4);
+   begin
+      Assert
+        (S.Harness = Harnesses.Codex and then Text_Of (S.Effort) = "xhigh",
+         "Codex's xhigh");
+   end Codex_Takes_Effort_Xhigh;
+
+   procedure Claude_Refuses_Effort_Minimal_Naming_Its_Efforts
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Failure_Of ("Too_Little") =
+           "step 'A' asks Claude for effort 'minimal'; Claude offers "
+           & "low, medium, high, xhigh, max",
+         "refused, with what Claude offers: " & Failure_Of ("Too_Little"));
+   end Claude_Refuses_Effort_Minimal_Naming_Its_Efforts;
+
+   procedure Codex_Refuses_Effort_Extreme (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Ada.Strings.Fixed.Index
+           (Failure_Of ("Too_Much"),
+            "step 'A' asks Codex for effort 'extreme'; Codex offers ") = 1,
+         "refused: " & Failure_Of ("Too_Much"));
+   end Codex_Refuses_Effort_Extreme;
+
+   procedure Opencode_Keeps_A_Variant_As_Written_With_A_Model
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      S : constant Resolved.Step := Resolve_OK ("Efforted").Steps (5);
+   begin
+      Assert
+        (S.Harness = Harnesses.Opencode
+         and then Text_Of (S.Model) = "p/m"
+         and then Text_Of (S.Effort) = "Deep-1",
+         "the variant, as written");
+   end Opencode_Keeps_A_Variant_As_Written_With_A_Model;
+
+   procedure An_Opencode_Variant_Without_A_Model_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Failure_Of ("Modelless") =
+           "step 'A' names an OpenCode variant but no Model; OpenCode takes "
+           & "the variant as part of the model",
+         "refused: " & Failure_Of ("Modelless"));
+   end An_Opencode_Variant_Without_A_Model_Is_Refused;
+
+   procedure The_Effort_Is_Checked_Against_The_Default_Harness
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Text_Of
+           (Resolve_OK
+              ("Defaulted",
+               Harnesses.Kind_Options.Of_Value (Harnesses.Codex))
+            .Steps (1).Effort) = "minimal",
+         "Codex, the default, offers minimal");
+      Assert
+        (Ada.Strings.Fixed.Index
+           (Failure_Of
+              ("Defaulted",
+               Harnesses.Kind_Options.Of_Value (Harnesses.Claude)),
+            "asks Claude for effort 'minimal'") > 0,
+         "Claude, the default, does not");
+   end The_Effort_Is_Checked_Against_The_Default_Harness;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -754,6 +919,37 @@ package body Synapse.Pipeline.Resolution.Tests is
         (T,
          The_Steps_Prompt_Replaces_The_Systems_Whether_Text_Or_Name'Access,
          "The step's Prompt replaces the system's whether text or name");
+      Register_Routine
+        (T, A_Steps_Effort_Overrides_Its_Systems'Access,
+         "A step's Effort overrides its system's");
+      Register_Routine
+        (T, A_Step_Takes_Its_Systems_Effort'Access,
+         "A step takes its system's Effort");
+      Register_Routine
+        (T, A_Step_Without_Effort_Resolves_With_None'Access,
+         "A step without Effort resolves with none");
+      Register_Routine
+        (T, Effort_High_Is_Stored_As_High_For_Claude'Access,
+         "Effort => High is stored as high for Claude");
+      Register_Routine
+        (T, Codex_Takes_Effort_Xhigh'Access,
+         "Codex takes Effort => ""xhigh""");
+      Register_Routine
+        (T, Claude_Refuses_Effort_Minimal_Naming_Its_Efforts'Access,
+         "Claude refuses effort minimal, naming the efforts it offers");
+      Register_Routine
+        (T, Codex_Refuses_Effort_Extreme'Access,
+         "Codex refuses effort extreme");
+      Register_Routine
+        (T, Opencode_Keeps_A_Variant_As_Written_With_A_Model'Access,
+         "OpenCode keeps a variant as written when the step has a Model");
+      Register_Routine
+        (T, An_Opencode_Variant_Without_A_Model_Is_Refused'Access,
+         "An OpenCode variant without a Model is refused");
+      Register_Routine
+        (T, The_Effort_Is_Checked_Against_The_Default_Harness'Access,
+         "The effort is checked against the default harness when the step "
+         & "names none");
    end Register_Tests;
 
 end Synapse.Pipeline.Resolution.Tests;

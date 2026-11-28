@@ -9,6 +9,7 @@ pub mod cli;
 pub mod config;
 pub mod definitions;
 pub mod dispatch;
+pub mod efforts;
 pub mod environment;
 pub mod families;
 pub mod graphs;

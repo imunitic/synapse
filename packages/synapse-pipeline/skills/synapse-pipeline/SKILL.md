@@ -94,6 +94,7 @@ Pipeline Review_Change {
 | `Input` | pipeline | JSON object declaring the input's fields, each with a description (see "Declaring the input") |
 | `Harness` | step, system | `Claude`, `Codex` or `Opencode` |
 | `Model` | step, system | name or string |
+| `Effort` | step, system | name or string: Claude `low` to `max`, Codex `none` to `persistent`, OpenCode a variant of the model (needs `Model`); `check` refuses one the harness does not offer |
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` (default) or `Full_Access` |
 | `Timeout` | step, system | quoted duration: `"90s"`, `"30m"`, `"2h"` (default 30 minutes) |
 | `Retries` | step, system | integer: extra tries after an execution error or an invalid result |

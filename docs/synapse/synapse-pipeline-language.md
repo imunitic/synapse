@@ -123,6 +123,7 @@ Pipeline Name [Description => "..."] {
 | `Input` | pipeline | JSON object | The fields the pipeline's input has, each with what it means. Optional; see [Input](#input). |
 | `Harness` | step, system | `Claude`, `Codex` or `Opencode` | What runs the session. |
 | `Model` | step, system | name or string | The model the harness is asked to use. |
+| `Effort` | step, system | name or string | How much effort the model is asked to put in. Claude: low, medium, high, xhigh, max. Codex: none, minimal, low, medium, high, xhigh, max, ultra, persistent. OpenCode: a variant of the model, which needs a Model. |
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` or `Full_Access` | What the session may do. Default `Workspace_Write`. |
 | `Timeout` | step, system | duration | The most one session may take. |
 | `Retries` | step, system | integer | Extra tries after an execution error or a result that breaks the contract. |
@@ -150,6 +151,8 @@ The values a session runs with come from the step, its system and its agent:
 - The harness comes from the step, else its system, else `SYNAPSE_PIPELINE_HARNESS`. A step that ends
   up with none is an error.
 - A session's time limit is the step's `Timeout`, else `SYNAPSE_PIPELINE_TIMEOUT`, else 30 minutes.
+- The effort comes from the step's `Effort`, else its system's. A step with neither passes none, and
+  the harness uses its own default. `check` refuses an effort the step's harness does not offer.
 
 ## Prompts
 

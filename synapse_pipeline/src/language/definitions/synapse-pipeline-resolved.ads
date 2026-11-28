@@ -50,6 +50,11 @@ package Synapse.Pipeline.Resolved is
       Assignment  : Instruction;
 
       Model       : Synapse.Core.Optional_Text.Option;
+
+      --  How much effort the model is asked to put in, as the harness is
+      --  given it; nothing when neither the step nor its system names one.
+      Effort      : Synapse.Core.Optional_Text.Option;
+
       Permissions : Synapse.Core.Optional_Text.Option;
 
       --  Zero when the configuration's default applies.

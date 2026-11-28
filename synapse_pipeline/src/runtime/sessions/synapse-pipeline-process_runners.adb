@@ -98,6 +98,12 @@ package body Synapse.Pipeline.Process_Runners is
                     Natural (Duration'Max (Taken, 0.0));
                   if not Said.Succeeded then
                      Said.Failure.Step := Step.Name;
+                     if Step.Effort.Found then
+                        Append
+                          (Said.Failure.Message,
+                           " (effort: " & To_String (Step.Effort.Value)
+                           & ")");
+                     end if;
                      return Sessions.Failed (Said.Failure, Said.Usage, Saved);
                   end if;
                   declare

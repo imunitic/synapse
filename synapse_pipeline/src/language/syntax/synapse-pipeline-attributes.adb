@@ -62,7 +62,7 @@ package body Synapse.Pipeline.Attributes is
             String_Only);
       elsif Name = "Harness" or else Name = "Permissions" then
          return (True, Both, Name_Only);
-      elsif Name = "Model" then
+      elsif Name = "Model" or else Name = "Effort" then
          return
            (True, Both,
             [Syntax.Name_Value | Syntax.String_Value => True,
@@ -217,6 +217,10 @@ package body Synapse.Pipeline.Attributes is
         and then Length (Item.Item.Text) = 0
       then
          return At_Value (Item, "'Prompt' is empty");
+      elsif Name = "Effort" and then Item.Item.Kind = Syntax.String_Value
+        and then Length (Item.Item.Text) = 0
+      then
+         return At_Value (Item, "'Effort' is empty");
       elsif Name = "Harness"
         and then not Harnesses.Find (To_String (Item.Item.Name)).Found
       then

@@ -1,6 +1,7 @@
 //! The app's own settings, kept in one JSON file.
 
 use crate::dispatch::HostError;
+use crate::efforts::is_effort_for;
 use crate::environment::{expand_home, Environment};
 use crate::messages::{AppConfig, AppConfigPatch, Harness};
 use regex::Regex;
@@ -23,6 +24,7 @@ fn default_config() -> AppConfig {
         definition_paths: vec![],
         default_harness: None,
         default_models: BTreeMap::new(),
+        default_efforts: BTreeMap::new(),
         env: BTreeMap::new(),
         recent_vaults: vec![],
         terminal_folder: None,
@@ -39,6 +41,8 @@ struct Stored {
     default_harness: Option<Harness>,
     #[serde(default)]
     default_models: BTreeMap<Harness, String>,
+    #[serde(default)]
+    default_efforts: BTreeMap<Harness, String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
     #[serde(default)]
@@ -64,6 +68,7 @@ pub fn load_stored(file: &Path) -> Result<AppConfig, HostError> {
         definition_paths: stored.definition_paths,
         default_harness: stored.default_harness,
         default_models: stored.default_models,
+        default_efforts: stored.default_efforts,
         env: stored.env,
         recent_vaults: stored.recent_vaults,
         terminal_folder: stored.terminal_folder,
@@ -187,6 +192,13 @@ pub fn problem_with(config: &AppConfig) -> Option<String> {
     if let Some(bad) = config.default_models.values().find(|m| !is_model_name(m)) {
         return Some(format!("{bad} is not the name of a model"));
     }
+    if let Some((harness, effort)) = config
+        .default_efforts
+        .iter()
+        .find(|(h, e)| !is_effort_for(**h, e))
+    {
+        return Some(format!("{harness:?} does not offer effort '{effort}'"));
+    }
     if let Some(bad) = config.env.keys().find(|k| !is_env_name(k)) {
         return Some(format!("{bad} is not the name of a variable"));
     }
@@ -229,6 +241,7 @@ pub fn merged(
         definition_paths: patch.definition_paths.unwrap_or(stored.definition_paths),
         default_harness: patch.default_harness.unwrap_or(stored.default_harness),
         default_models: patch.default_models.unwrap_or(stored.default_models),
+        default_efforts: patch.default_efforts.unwrap_or(stored.default_efforts),
         env: patch.env.unwrap_or(stored.env),
         recent_vaults: patch.recent_vaults.unwrap_or(stored.recent_vaults),
         terminal_folder: patch.terminal_folder.unwrap_or(stored.terminal_folder),
