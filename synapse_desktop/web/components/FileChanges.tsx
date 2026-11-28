@@ -309,11 +309,20 @@ function DiffView({
   )
 }
 
+// What is shut in the sidebar's lists, by name. It is kept outside the lists, so that it stays when
+// they are taken off the screen.
+export interface Shut {
+  items: readonly string[]
+  onToggle: (item: string) => void
+}
+
 export function FileChanges({
   set,
   focusFile,
   resetKey,
   readFile,
+  shut,
+  scope,
   review = null,
 }: {
   set: ChangeSet
@@ -323,12 +332,13 @@ export function FileChanges({
   resetKey: string
   // Reads a new file's whole patch when its row is chosen; null when the set has every file's.
   readFile: ((path: string) => Promise<FileDiff | null>) | null
+  shut: Shut
+  // Tells this list's folders from those of the same name in another list.
+  scope: string
   // How the diff is commented on; none where it cannot be.
   review?: DiffReview | null
 }) {
   const [selection, setSelection] = useState<{ key: string; path: string } | null>(null)
-  // The folders of the list that are shut.
-  const [shut, setShut] = useState<ReadonlySet<string>>(new Set())
   const [opened, setOpened] = useState<{ path: string; diff: FileDiff | null } | null>(null)
 
   const files = set.files
@@ -374,35 +384,32 @@ export function FileChanges({
         <span className="changes-removed">−{removed}</span>
       </p>
       <div className="changes-list" role="group" aria-label="Changed files">
-        {groupByFolder(files).map((folder) => (
-          <div key={folder.folder} className="changes-group">
-            {folder.folder !== '' && (
-              <button
-                className="changes-folder mono muted small"
-                aria-expanded={!shut.has(folder.folder)}
-                onClick={() =>
-                  setShut((before) => {
-                    const next = new Set(before)
-                    if (!next.delete(folder.folder)) next.add(folder.folder)
-                    return next
-                  })
-                }
-              >
-                <span aria-hidden="true">{shut.has(folder.folder) ? '▸' : '▾'}</span>{' '}
-                {folder.folder}/
-              </button>
-            )}
-            {!shut.has(folder.folder) &&
-              folder.files.map((file) => (
-                <FileRow
-                  key={file.path}
-                  file={file}
-                  selected={file.path === current?.path}
-                  onSelect={() => setSelection({ key: resetKey, path: file.path })}
-                />
-              ))}
-          </div>
-        ))}
+        {groupByFolder(files).map((folder) => {
+          const item = `${scope}\n${folder.folder}`
+          const closed = shut.items.includes(item)
+          return (
+            <div key={folder.folder} className="changes-group">
+              {folder.folder !== '' && (
+                <button
+                  className="changes-folder mono muted small"
+                  aria-expanded={!closed}
+                  onClick={() => shut.onToggle(item)}
+                >
+                  <span aria-hidden="true">{closed ? '▸' : '▾'}</span> {folder.folder}/
+                </button>
+              )}
+              {!closed &&
+                folder.files.map((file) => (
+                  <FileRow
+                    key={file.path}
+                    file={file}
+                    selected={file.path === current?.path}
+                    onSelect={() => setSelection({ key: resetKey, path: file.path })}
+                  />
+                ))}
+            </div>
+          )
+        })}
       </div>
       {current !== null && (
         <DiffView key={current.path} file={current} diff={diff} review={review} />

@@ -3,7 +3,7 @@
 // left to the agent in the terminal.
 
 import type { Commit } from '../../shared/changes.ts'
-import { Counts, FileChanges, type DiffReview } from '../components/FileChanges.tsx'
+import { Counts, FileChanges, type DiffReview, type Shut } from '../components/FileChanges.tsx'
 import { timeAgo } from '../domain/format.ts'
 import type { FileDiff } from '../domain/unified-diff.ts'
 import type { CommitListState, CommitViewState } from '../state/useCommits.ts'
@@ -38,6 +38,7 @@ export function GitTab({
   onLoadMore,
   review,
   focusFile,
+  shut,
 }: {
   list: CommitListState
   view: CommitViewState
@@ -50,6 +51,7 @@ export function GitTab({
   review: DiffReview | null
   // A file of the shown commit to show, as a comment in the review asked.
   focusFile: string | null
+  shut: Shut
 }) {
   const now = new Date()
 
@@ -88,6 +90,8 @@ export function GitTab({
             focusFile={focusFile}
             resetKey={`${view.hash}|${focusFile ?? ''}`}
             readFile={readFile}
+            shut={shut}
+            scope={view.hash}
             review={review}
           />
         )}

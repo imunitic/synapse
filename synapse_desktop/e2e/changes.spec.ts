@@ -755,6 +755,52 @@ test('the folder of the Changes sidebar is moved by typing the path of another o
   }
 })
 
+test('a repository and a folder that are shut stay shut after another page was shown', async ({
+  page,
+}) => {
+  const first = repository()
+  const second = repository()
+  try {
+    await startShellIn(page, first)
+    await toggle(page).click()
+    await sidebar(page).getByRole('button', { name: 'Add a repository' }).click()
+    const input = sidebar(page).getByLabel('Repository to add')
+    await input.fill(second)
+    await input.press('Enter')
+    await expect(sidebar(page).getByRole('list', { name: 'Repositories added' })).toContainText(
+      basename(second),
+    )
+    writeFileSync(join(first, 'b.txt'), 'new in the first\n')
+    mkdirSync(join(second, 'docs'))
+    writeFileSync(join(second, 'docs', 'c.txt'), 'new in a folder\n')
+    await sidebar(page).getByRole('button', { name: 'Read the changes again' }).click()
+
+    const heading = (folder: string) =>
+      sidebar(page)
+        .getByRole('region', { name: basename(folder), exact: true })
+        .getByRole('button', { name: new RegExp(basename(folder)) })
+        .first()
+    const docs = sidebar(page).getByRole('button', { name: 'docs/' })
+    await expect(docs).toHaveAttribute('aria-expanded', 'true')
+    await docs.click()
+    await heading(first).click()
+    await expect(heading(first)).toHaveAttribute('aria-expanded', 'false')
+
+    // The home page has no changes, so the lists leave the screen.
+    await page.getByRole('tab', { name: 'Home' }).click()
+    await expect(sidebar(page).getByRole('region')).toHaveCount(0)
+    await page.getByRole('tab', { name: 'Terminals' }).click()
+
+    await expect(heading(first)).toHaveAttribute('aria-expanded', 'false')
+    await expect(heading(second)).toHaveAttribute('aria-expanded', 'true')
+    await expect(docs).toHaveAttribute('aria-expanded', 'false')
+    await expect(sidebar(page)).not.toContainText('c.txt')
+  } finally {
+    rmSync(first, { recursive: true, force: true })
+    rmSync(second, { recursive: true, force: true })
+  }
+})
+
 test('in a terminal session a second repository is added with the +, and a comment in it names it', async ({
   page,
 }) => {

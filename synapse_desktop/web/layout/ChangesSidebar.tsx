@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { RefreshIcon } from '../components/icons.tsx'
-import { FileChanges } from '../components/FileChanges.tsx'
+import { FileChanges, type Shut } from '../components/FileChanges.tsx'
 import {
   baseName,
   groupTotals,
@@ -75,13 +75,15 @@ function fileReader(origin: ChangeGroup['origin']): (path: string) => Promise<Fi
 function RepositoryGroup({
   group,
   focusFile,
+  shut,
   review,
 }: {
   group: ChangeGroup
   focusFile: string | null
+  shut: Shut
   review: DiffReview | null
 }) {
-  const [open, setOpen] = useState(true)
+  const open = !shut.items.includes(group.origin.folder)
   const readFile = useMemo(() => fileReader(group.origin), [group.origin])
   const totals = groupTotals(group.set)
   return (
@@ -90,7 +92,7 @@ function RepositoryGroup({
         className="changes-folder"
         aria-expanded={open}
         title={group.folder}
-        onClick={() => setOpen((before) => !before)}
+        onClick={() => shut.onToggle(group.origin.folder)}
       >
         <span aria-hidden="true">{open ? '▾' : '▸'}</span> <strong>{group.name}</strong>{' '}
         <span className="muted small">
@@ -105,6 +107,8 @@ function RepositoryGroup({
           focusFile={focusFile}
           resetKey={`${group.id}|${focusFile ?? ''}`}
           readFile={readFile}
+          shut={shut}
+          scope={group.origin.folder}
           review={review}
         />
       )}
@@ -125,6 +129,7 @@ export function ChangesSidebar({
   comments: reviewSession,
   folders,
   activity,
+  shut,
 }: {
   state: ChangesState
   onRefresh: () => void
@@ -143,6 +148,8 @@ export function ChangesSidebar({
   // The Activity tab of a terminal session: the kinds of action it shows, and showing a file the
   // conversation changed; none on a run's page.
   activity: SessionActivity | null
+  // The repositories and folders shut in the lists of the session or the run shown.
+  shut: Shut
 }) {
   const { width, handleProps } = useResizableWidth({ ...CHANGES_WIDTH, edge: 'right' })
 
@@ -241,6 +248,7 @@ export function ChangesSidebar({
           onCommit={git.onCommit}
           onLoadMore={git.onLoadMore}
           review={reviewFor(git.commit)}
+          shut={shut}
           focusFile={shown !== null && shown.commit === git.commit ? shown.path : null}
         />
       )}
@@ -326,6 +334,8 @@ export function ChangesSidebar({
               focusFile={changesFocus}
               resetKey={`${single.id}|${changesFocus ?? ''}`}
               readFile={readFile}
+              shut={shut}
+              scope={single.origin.folder}
               review={reviewFor(null)}
             />
           )}
@@ -337,6 +347,7 @@ export function ChangesSidebar({
                 key={g.id}
                 group={g}
                 focusFile={changesFocus}
+                shut={shut}
                 review={reviewFor(null, g.name)}
               />
             ))}
