@@ -3,11 +3,13 @@
 // own, so that it can stop it without stopping the suite's.
 
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
+import { rmSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { WebSocket } from 'ws'
 import { BUS_PATH, E2E_WEB_PORT, TOKEN_HEADER } from '../shared/constants.ts'
 import { expect, test } from './fixtures.ts'
+import { world } from './helpers.ts'
 
 const TOKEN = 'quit-test-token'
 
@@ -93,6 +95,7 @@ test('stopping the host ends its terminal sessions and the runs it started', asy
   })
   const exited = new Promise<number | null>((resolve) => host.once('exit', (code) => resolve(code)))
   const pids: number[] = []
+  let record = ''
   try {
     const socket = await connect(port)
     let output = ''
@@ -137,6 +140,7 @@ test('stopping the host ends its terminal sessions and the runs it started', asy
     const run = await ask('run.start', { pipeline: 'Held_Run', input: null })
     expect(run.error).toBeUndefined()
     const { executionId } = run.result as { executionId: string }
+    record = join(world().work, 'pipelines', executionId)
     const leader = processes().find(
       (p) => p.command.includes('synapse-pipeline') && p.command.includes(executionId),
     )
@@ -167,5 +171,7 @@ test('stopping the host ends its terminal sessions and the runs it started', asy
         // already gone
       }
     }
+    // The stopped run's record would show as an interrupted run to the tests that follow.
+    if (record !== '') rmSync(record, { recursive: true, force: true })
   }
 })

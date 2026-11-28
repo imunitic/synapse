@@ -11,7 +11,13 @@ set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ "${1:-}" = "clone" ]; then
+# The subcommand is the first word after any leading `-c name=value` pairs.
+command_at=1
+while [ "${!command_at:-}" = "-c" ]; do
+  command_at=$((command_at + 2))
+done
+
+if [ "${!command_at:-}" = "clone" ]; then
   [ -n "${FAKE_GIT_LOG:-}" ] && printf '%s\n' "$*" >> "$FAKE_GIT_LOG"
   args=("$@")
   dest="${args[$((${#args[@]}-1))]}"
