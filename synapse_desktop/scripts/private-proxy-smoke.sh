@@ -13,7 +13,8 @@ cat > "$config" <<'CADDY'
   admin off
   auto_https off
 }
-http://127.0.0.1:5181 {
+:5181 {
+  bind 127.0.0.1
   reverse_proxy 127.0.0.1:5180 {
     header_up Host staging.example.test
     header_up X-Synapse-Proxy-Token aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
