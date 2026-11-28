@@ -201,6 +201,7 @@ cookie=$(proxy_curl -fsS -D - -o /dev/null \
     }
   ')
 [[ -n "$cookie" ]]
+SYNAPSE_CI_COOKIE="$cookie" bash scripts/private-proxy-smoke.sh
 session_status() {
   proxy_curl -sS -o /dev/null -w '%{http_code}' \
     -H 'Host: staging.example.test' \
