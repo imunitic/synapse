@@ -84,7 +84,11 @@ function contextFor(
       const stdout = listings.shift() ?? ''
       return Promise.resolve({ code: 0, stdout, stderr: '' })
     },
-    runs: { start: () => Promise.reject(new Error('not used')), stop: () => undefined },
+    runs: {
+      start: () => Promise.reject(new Error('not used')),
+      stop: () => undefined,
+      stopAll: () => undefined,
+    },
     agent: () => Promise.reject(new Error('not used')),
     noteRuns: createNoteRuns(),
     noteSession: (run) => {

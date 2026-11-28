@@ -306,6 +306,40 @@ wait
     }
 
     #[tokio::test]
+    async fn stopping_all_runs_stops_every_run_this_app_started() {
+        let (dir, work) = setup();
+        let starter = RunStarter::new(
+            &script(dir.path(), "stub", STUB),
+            std::env::vars().collect(),
+        );
+        let cfg = config(Some(&work));
+        let first = starter
+            .start("P", &json!({ "task": "one" }), &cfg, None, None)
+            .await
+            .unwrap();
+        let second = starter
+            .start("P", &json!({ "task": "two" }), &cfg, None, None)
+            .await
+            .unwrap();
+        let a = pids_of(&work, &first).await;
+        let b = pids_of(&work, &second).await;
+        let pids = [a.0, a.1, b.0, b.1];
+        assert!(pids.iter().all(|&pid| alive(pid)));
+
+        starter.stop_all();
+        for _ in 0..40 {
+            if pids.iter().all(|&pid| !alive(pid)) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        // Neither run nor what it started is left.
+        for pid in pids {
+            assert!(!alive(pid), "process {pid} is still running");
+        }
+    }
+
+    #[tokio::test]
     async fn two_runs_of_the_same_pipeline_and_input_have_an_id_each_and_stopping_one_leaves_the_other(
     ) {
         let (dir, work) = setup();

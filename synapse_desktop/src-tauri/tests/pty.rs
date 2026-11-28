@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use synapse_desktop_host::pty::{system_spawn, PtyEvent, SpawnOptions};
+use synapse_desktop_host::pty::{system_spawn, EndSignal, PtyEvent, SpawnOptions};
 
 fn options(cwd: &str) -> SpawnOptions {
     SpawnOptions {
@@ -91,4 +91,45 @@ async fn a_program_that_is_not_there_is_refused_with_the_reason() {
     let (_, on_event) = collecting();
     let error = (system_spawn())("/no/such/program", &[], options("/"), on_event).err();
     assert!(error.is_some());
+}
+
+#[tokio::test]
+async fn terminating_the_group_ends_what_the_program_started() {
+    let (seen, on_event) = collecting();
+    let args = vec!["-c".to_string(), "sleep 60 & echo $!; wait".to_string()];
+    let pty = (system_spawn())("/bin/sh", &args, options("/"), on_event).unwrap();
+    until(|| text(&seen).contains('\n')).await;
+    let pid: i32 = text(&seen)
+        .lines()
+        .next()
+        .and_then(|line| line.trim().parse().ok())
+        .expect("the background pid");
+    pty.signal(EndSignal::Terminate);
+    // SAFETY: `kill` with signal 0 only asks whether the process is there.
+    until(|| unsafe { libc::kill(pid, 0) } != 0).await;
+}
+
+#[tokio::test]
+async fn terminating_an_interactive_shell_ends_its_background_jobs() {
+    // An interactive shell puts each background job in a process group of its own; the SIGHUP it
+    // gets reaches the job because the shell passes it on, as when a terminal window is closed.
+    let (seen, on_event) = collecting();
+    let args = vec![
+        "--norc".to_string(),
+        "--noprofile".to_string(),
+        "-i".to_string(),
+    ];
+    let pty = (system_spawn())("/bin/bash", &args, options("/"), on_event).unwrap();
+    pty.write("sleep 60 & echo \"BG=$!=GB\"\r");
+    let background = || {
+        let text = text(&seen);
+        let start = text.rfind("BG=")? + 3;
+        let end = start + text[start..].find("=GB")?;
+        text[start..end].parse::<i32>().ok()
+    };
+    until(|| background().is_some()).await;
+    let pid = background().unwrap();
+    pty.signal(EndSignal::Terminate);
+    // SAFETY: `kill` with signal 0 only asks whether the process is there.
+    until(|| unsafe { libc::kill(pid, 0) } != 0).await;
 }

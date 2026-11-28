@@ -9,6 +9,7 @@ package body Synapse.Adapters.Git_Sync is
 
    use Ada.Strings.Unbounded;
    use type Ada.Directories.File_Kind;
+   use type Core.Text_Lists.Vector;
 
    LF : constant Character := Character'Val (10);
 
@@ -76,10 +77,15 @@ package body Synapse.Adapters.Git_Sync is
       return Result;
    end Words;
 
+   --  Every git call goes through here. core.fsmonitor=false: git would
+   --  otherwise start an fsmonitor daemon on a vault that enables it, and
+   --  that daemon would outlive the program that ran the command.
    function Git
      (R    : in out Runner.Runner'Class; Vault : String;
       Args :        Core.Text_Lists.Vector) return Runner.Result is
-     (R.Run ("git", Args, (Cwd => To_Unbounded_String (Vault), others => <>)));
+     (R.Run
+        ("git", Words ("-c", "core.fsmonitor=false") & Args,
+         (Cwd => To_Unbounded_String (Vault), others => <>)));
 
    function Upstream_Of
      (R : in out Runner.Runner'Class; Vault : String)

@@ -187,7 +187,11 @@ describe('generateDefinition', () => {
       environment: { env: { PATH: path }, home: dir },
       configFile: join(dir, 'config.json'),
       runCli: () => Promise.reject(new Error('not used')),
-      runs: { start: () => Promise.reject(new Error('not used')), stop: () => undefined },
+      runs: {
+        start: () => Promise.reject(new Error('not used')),
+        stop: () => undefined,
+        stopAll: () => undefined,
+      },
       agent,
       noteRuns: createNoteRuns(),
       noteSession: () => Promise.reject(new Error('not used')),

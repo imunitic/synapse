@@ -51,6 +51,7 @@ beforeEach(async () => {
         stop: () => {
           throw new NotStartedHere('stub')
         },
+        stopAll: () => undefined,
       },
       agent: () => Promise.reject(new Error('not used')),
       noteSession: () => Promise.reject(new Error('not used')),

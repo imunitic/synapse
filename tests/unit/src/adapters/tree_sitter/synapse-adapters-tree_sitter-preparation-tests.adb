@@ -136,6 +136,8 @@ package body Synapse.Adapters.Tree_Sitter.Preparation.Tests is
       --  Which of them then compile: y, or n for a failure with a message.
       Compiles   : String (1 .. 4) := "nnnn";
       Cannot_Run : Boolean         := False;
+      --  Every git run fails, as a clone of an unreachable repository does.
+      Git_Fails  : Boolean         := False;
       --  Compile errors that run to hundreds of characters.
       Verbose    : Boolean         := False;
    end record;
@@ -160,6 +162,12 @@ package body Synapse.Adapters.Tree_Sitter.Preparation.Tests is
          Append (Line, " " & To_String (A));
       end loop;
       Append (R.Log, To_String (Line) & "|" & To_String (Opts.Cwd) & LF);
+      if Program = "git" and then R.Git_Fails then
+         Result.Exit_Code := 128;
+         Result.Errors    :=
+           To_Unbounded_String ("fatal: no such repository" & LF);
+         return Result;
+      end if;
       if Which = 0 then
          return Result;
       end if;
@@ -716,6 +724,35 @@ package body Synapse.Adapters.Tree_Sitter.Preparation.Tests is
          raise;
    end A_Git_That_Cannot_Be_Started_Is_A_Clone_Failure;
 
+   procedure The_Clones_Git_Never_Starts_An_Fsmonitor_Daemon
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir    : constant Scratch := Make;
+      R      : Scripted_Runner;
+      Prefix : constant String  := "git -c core.fsmonitor=false clone ";
+   begin
+      R.Git_Fails := True;
+      Assert
+        (Clone_Fails_With
+           (Ensure_Cloned (R, "https://host/tree-sitter-x", Path (Dir, "r")),
+            Clone_Failed),
+         "the scripted clone fails");
+      declare
+         Log : constant String := To_String (R.Log);
+      begin
+         Assert
+           (Log'Length >= Prefix'Length
+            and then Log (Log'First .. Log'First + Prefix'Length - 1) = Prefix,
+            "git starts with -c core.fsmonitor=false clone: " & Log);
+      end;
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end The_Clones_Git_Never_Starts_An_Fsmonitor_Daemon;
+
    --  Creates a directory or a file a moment after it is started: the other
    --  process finishing while this one waits.
    task type Creator is
@@ -913,6 +950,9 @@ package body Synapse.Adapters.Tree_Sitter.Preparation.Tests is
       Register_Routine
         (T, A_Git_That_Cannot_Be_Started_Is_A_Clone_Failure'Access,
          "A git that cannot be started is a clone failure");
+      Register_Routine
+        (T, The_Clones_Git_Never_Starts_An_Fsmonitor_Daemon'Access,
+         "The clone's git never starts an fsmonitor daemon");
       Register_Routine
         (T, A_Waiter_Returns_As_Soon_As_The_Clone_Appears'Access,
          "A waiter returns as soon as the clone appears");

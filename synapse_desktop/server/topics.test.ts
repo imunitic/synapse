@@ -32,7 +32,11 @@ beforeEach(async () => {
   context = {
     environment: { env: { XDG_CONFIG_HOME: join(dir, 'xdg') }, home: dir },
     configFile: join(dir, 'config.json'),
-    runs: { start: () => Promise.reject(new Error('no')), stop: () => undefined },
+    runs: {
+      start: () => Promise.reject(new Error('no')),
+      stop: () => undefined,
+      stopAll: () => undefined,
+    },
     agent: () => Promise.reject(new Error('no')),
     noteRuns: createNoteRuns(),
     noteSession: () => Promise.reject(new Error('no')),

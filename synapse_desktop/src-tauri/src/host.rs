@@ -13,9 +13,13 @@ use crate::terminal_bus::{terminal_handlers, terminal_stream, ChannelSink};
 use crate::topics::{subscriber, TopicTiming};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// The one user this host serves, to whom a session belongs.
 const LOCAL_USER: &str = "local";
+
+/// How long a terminal session has after SIGHUP before what is left of it gets SIGKILL.
+const SESSION_GRACE: Duration = Duration::from_secs(2);
 
 pub struct Host {
     context: Arc<Context>,
@@ -55,6 +59,16 @@ impl Host {
     /// The models of the harnesses are read again, behind whatever is kept of them.
     pub async fn refresh_models(&self) {
         self.context.models.refresh_all().await;
+    }
+
+    /// Stops the runs this app started and ends every terminal session; returns by `limit`, whatever
+    /// the sessions do.
+    pub async fn shutdown(&self, limit: Duration) {
+        let _ = tokio::time::timeout(limit, async {
+            self.context.runs.stop_all();
+            self.sessions.shutdown(SESSION_GRACE).await;
+        })
+        .await;
     }
 
     /// Serves one connection until it closes. A connection that goes leaves its sessions running.

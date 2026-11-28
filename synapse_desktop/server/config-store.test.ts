@@ -24,7 +24,11 @@ function contextFor(): Context {
     environment: { env: { XDG_CONFIG_HOME: dir }, home: dir },
     configFile: file,
     runCli: () => Promise.reject(new Error('not used')),
-    runs: { start: () => Promise.reject(new Error('not used')), stop: () => undefined },
+    runs: {
+      start: () => Promise.reject(new Error('not used')),
+      stop: () => undefined,
+      stopAll: () => undefined,
+    },
     agent: () => Promise.reject(new Error('not used')),
     noteSession: () => Promise.reject(new Error('not used')),
     noteRuns: createNoteRuns(),

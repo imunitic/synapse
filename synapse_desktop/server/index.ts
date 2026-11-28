@@ -68,3 +68,19 @@ server.listen(SERVER_PORT, '127.0.0.1', () => {
   void models.refreshAll()
   if (!suppliedToken) console.log(`token: ${token}`)
 })
+
+// How long a terminal session has to end after SIGHUP before it is killed, and how long the whole
+// shutdown may take before the host exits anyway.
+const SESSION_GRACE_MS = 2000
+const SHUTDOWN_LIMIT_MS = 3000
+
+// Stopping the host ends everything it started: the runs it started and every terminal session.
+async function shutdown(): Promise<void> {
+  setTimeout(() => process.exit(0), SHUTDOWN_LIMIT_MS).unref()
+  context.runs.stopAll()
+  await sessions.shutdown(SESSION_GRACE_MS)
+  server.close()
+  process.exit(0)
+}
+process.once('SIGINT', () => void shutdown())
+process.once('SIGTERM', () => void shutdown())

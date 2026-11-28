@@ -7,6 +7,7 @@ import {
   changesSince,
   commitChanges,
   commitLog,
+  GIT_BASE_ARGS,
   headPosition,
   headTree,
   pinSnapshot,
@@ -49,6 +50,15 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
+})
+
+describe('git', () => {
+  it('never starts an fsmonitor daemon', () => {
+    const at = GIT_BASE_ARGS.findIndex(
+      (word, i) => word === '-c' && GIT_BASE_ARGS[i + 1] === 'core.fsmonitor=false',
+    )
+    expect(at).toBeGreaterThanOrEqual(0)
+  })
 })
 
 describe('snapshotTree', () => {

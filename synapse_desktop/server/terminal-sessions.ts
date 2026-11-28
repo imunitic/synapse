@@ -16,6 +16,11 @@ import { watchTranscripts, type Watcher } from './transcripts.ts'
 // A session with no client attached for this long is ended. A fixed value.
 export const DETACHED_TTL_MS = 12 * 60 * 60 * 1000
 
+// How often a shutdown looks whether the sessions it ended have exited.
+const SHUTDOWN_POLL_MS = 50
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 // What the screen keeps above what shows, which a client that attaches is given.
 const SCROLLBACK_LINES = 100
 
@@ -94,6 +99,9 @@ export interface Sessions {
   // Ends a session and its program.
   close(id: string, owner: string): void
   list(owner: string): TerminalInfo[]
+  // Ends every session and its process group: SIGHUP, then SIGKILL to what is left after
+  // graceMs. Resolves when every session is gone.
+  shutdown(graceMs: number): Promise<void>
 }
 
 export function createSessions(deps: SessionsDeps): Sessions {
@@ -275,6 +283,17 @@ export function createSessions(deps: SessionsDeps): Sessions {
 
     list(owner) {
       return [...sessions.values()].filter((s) => s.owner === owner).map(infoOf)
+    },
+
+    async shutdown(graceMs) {
+      const all = [...sessions.values()]
+      const running = (session: Session) => session.exited === null
+      const ending = all.filter(running)
+      for (const session of ending) session.pty.signal('terminate')
+      const deadline = Date.now() + graceMs
+      while (ending.some(running) && Date.now() < deadline) await sleep(SHUTDOWN_POLL_MS)
+      for (const session of ending.filter(running)) session.pty.signal('kill')
+      for (const session of all) destroy(session)
     },
   }
 }

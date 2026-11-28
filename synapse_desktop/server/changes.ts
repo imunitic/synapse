@@ -27,6 +27,17 @@ interface GitResult {
 // diff is git's own.
 const REPOSITORY_VARIABLES = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']
 
+// The words every git command of the host starts with: no pager, paths as they are, no fsmonitor
+// daemon started on the app's behalf, and no path read as a pattern.
+export const GIT_BASE_ARGS = [
+  '--no-pager',
+  '-c',
+  'core.quotepath=off',
+  '-c',
+  'core.fsmonitor=false',
+  '--literal-pathspecs',
+] as const
+
 function git(
   folder: string,
   args: readonly string[],
@@ -35,7 +46,7 @@ function git(
   return new Promise((resolve, reject) => {
     const child = execFile(
       'git',
-      ['--no-pager', '-c', 'core.quotepath=off', '--literal-pathspecs', ...args],
+      [...GIT_BASE_ARGS, ...args],
       {
         cwd: folder,
         env: {

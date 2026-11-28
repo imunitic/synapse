@@ -13,7 +13,7 @@ use synapse_desktop_host::link::link_pair;
 use synapse_desktop_host::protocol::{
     Capabilities, ClientMessage, ErrorCode, HostKind, HostMessage, ReplyError,
 };
-use synapse_desktop_host::pty::{OnEvent, Pty, PtyEvent, SpawnOptions, SpawnPty};
+use synapse_desktop_host::pty::{EndSignal, OnEvent, Pty, PtyEvent, SpawnOptions, SpawnPty};
 use synapse_desktop_host::status::LoginEnvironment;
 use synapse_desktop_host::terminal::{PlanFn, Schedule, Sessions, TerminalDeps, DETACHED_TTL};
 use synapse_desktop_host::terminal_bus::{terminal_handlers, terminal_stream, ChannelSink};
@@ -30,6 +30,8 @@ struct FakePty {
     written: Mutex<Vec<String>>,
     resized: Mutex<Vec<(u16, u16)>>,
     killed: AtomicBool,
+    signals: Mutex<Vec<EndSignal>>,
+    ignores_terminate: AtomicBool,
     on_event: Mutex<Option<OnEvent>>,
 }
 
@@ -51,6 +53,13 @@ impl FakePty {
     fn killed(&self) -> bool {
         self.killed.load(Ordering::SeqCst)
     }
+    fn signals(&self) -> Vec<EndSignal> {
+        self.signals.lock().unwrap().clone()
+    }
+    /// Makes the program go on running when it gets `EndSignal::Terminate`.
+    fn ignore_terminate(&self) {
+        self.ignores_terminate.store(true, Ordering::SeqCst);
+    }
 }
 
 struct Handle(Arc<FakePty>);
@@ -64,6 +73,14 @@ impl Pty for Handle {
     }
     fn kill(&self) {
         self.0.killed.store(true, Ordering::SeqCst);
+    }
+    fn signal(&self, signal: EndSignal) {
+        self.0.signals.lock().unwrap().push(signal);
+        match signal {
+            EndSignal::Terminate if self.0.ignores_terminate.load(Ordering::SeqCst) => {}
+            EndSignal::Terminate => self.0.end(143),
+            EndSignal::Kill => self.0.end(137),
+        }
     }
 }
 
@@ -1318,4 +1335,56 @@ async fn a_shell_is_given_the_folder_its_commands_note_runs_in_and_follows_nothi
         .await
         .unwrap();
     assert_ne!(dir0, rig.watch_dirs.lock().unwrap()[1]);
+}
+
+// ---- Shutting the host down -------------------------------------------------------------------------
+
+#[tokio::test]
+async fn shutdown_ends_every_session_with_sigterm_first() {
+    let rig = rig();
+    let client = connect(&rig, "local");
+    rig.begin(&client, json!({ "session": "first" }))
+        .await
+        .unwrap();
+    rig.begin(&client, json!({ "session": "second" }))
+        .await
+        .unwrap();
+    rig.sessions.shutdown(Duration::from_secs(2)).await;
+    for index in 0..2 {
+        assert_eq!(rig.pty(index).signals(), [EndSignal::Terminate]);
+    }
+    assert!(rig.sessions.list("local").is_empty());
+}
+
+#[tokio::test]
+async fn shutdown_kills_a_session_that_ignores_sigterm_when_the_grace_runs_out() {
+    let rig = rig();
+    let client = connect(&rig, "local");
+    rig.begin(&client, json!({ "session": "main" }))
+        .await
+        .unwrap();
+    rig.pty(0).ignore_terminate();
+    let started = std::time::Instant::now();
+    rig.sessions.shutdown(Duration::from_millis(200)).await;
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(
+        rig.pty(0).signals(),
+        [EndSignal::Terminate, EndSignal::Kill]
+    );
+    assert!(rig.sessions.list("local").is_empty());
+}
+
+#[tokio::test]
+async fn shutdown_sends_nothing_to_a_session_whose_program_has_ended() {
+    let rig = rig();
+    let client = connect(&rig, "local");
+    rig.begin(&client, json!({ "session": "main" }))
+        .await
+        .unwrap();
+    rig.pty(0).end(0);
+    until(|| rig.sessions.list("local")[0].exited.is_some()).await;
+    rig.sessions.shutdown(Duration::from_secs(2)).await;
+    assert!(rig.pty(0).signals().is_empty());
+    assert!(!rig.pty(0).killed());
+    assert!(rig.sessions.list("local").is_empty());
 }

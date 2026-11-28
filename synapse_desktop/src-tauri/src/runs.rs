@@ -213,6 +213,15 @@ impl RunStarter {
         kill_tree(pid);
         Ok(())
     }
+
+    /// Stops every run this app started, and what each started. Runs started outside the app are
+    /// never in `children`, so they are left alone.
+    pub fn stop_all(&self) {
+        let pids: Vec<u32> = self.children.lock().unwrap().values().copied().collect();
+        for pid in pids {
+            kill_tree(pid);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
