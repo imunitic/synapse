@@ -195,9 +195,10 @@ async function checkSnapshot(folder: string, tree: string): Promise<void> {
   }
 }
 
-// Where a run's snapshot is pinned, under `refs/synapse/`; checked again here, so that nothing else
-// is ever written.
-const PIN_REF = /^runs\/[A-Za-z0-9_-]{1,64}\/(start|end)$/
+// Where the app pins a snapshot, under `refs/synapse/`:
+// `desktop/<execution-id>/<folder-key>/(start|end)`. Checked again here, so that nothing else is
+// ever written.
+const PIN_REF = /^desktop\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(start|end)$/
 
 function pinnedRef(ref: string): string {
   if (!PIN_REF.test(ref)) throw new HostError('bad_request', `'${ref}' is not a snapshot ref`)
@@ -206,7 +207,7 @@ function pinnedRef(ref: string): string {
 
 // Pins the snapshot `tree` as `refs/synapse/<ref>`, which keeps it through `git gc`. A ref outside
 // `refs/heads/` and `refs/tags/` is not a branch or a tag, and a normal push does not send it. The
-// folder must be the root of its repository: two folders of one repository would pin the same ref.
+// folder must be the root of its repository.
 export async function pinSnapshot(folder: string, ref: string, tree: string): Promise<void> {
   const name = pinnedRef(ref)
   if (!(await inRepository(folder))) {

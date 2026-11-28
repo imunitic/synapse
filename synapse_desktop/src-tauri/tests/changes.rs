@@ -579,7 +579,7 @@ async fn an_after_snapshot_that_is_not_there_is_not_found() {
     assert_eq!(error.code, ErrorCode::NotFound);
 }
 
-const REF: &str = "runs/exec-1/start";
+const REF: &str = "desktop/exec-1/key-1/start";
 
 #[tokio::test]
 async fn a_pinned_snapshot_survives_gc_under_refs_synapse_and_is_not_a_branch_or_a_tag() {
@@ -616,14 +616,14 @@ async fn unpinning_removes_the_ref_and_unpinning_twice_is_not_an_error() {
 }
 
 #[tokio::test]
-async fn a_ref_that_is_not_a_run_snapshot_and_a_tree_that_is_not_there_are_refused() {
+async fn a_ref_that_is_not_one_of_the_apps_and_a_tree_that_is_not_there_are_refused() {
     let dir = repository();
     let tree = snapshot_tree(dir.path()).await.unwrap().unwrap();
     let branch = pin_snapshot(dir.path(), "heads/main", &tree)
         .await
         .unwrap_err();
     assert_eq!(branch.code, ErrorCode::BadRequest);
-    let climb = unpin_snapshot(dir.path(), "runs/../start")
+    let climb = unpin_snapshot(dir.path(), "desktop/exec-1/../start")
         .await
         .unwrap_err();
     assert_eq!(climb.code, ErrorCode::BadRequest);
@@ -631,6 +631,62 @@ async fn a_ref_that_is_not_a_run_snapshot_and_a_tree_that_is_not_there_are_refus
         .await
         .unwrap_err();
     assert_eq!(missing.code, ErrorCode::NotFound);
+}
+
+#[tokio::test]
+async fn pinning_from_a_linked_worktree_leaves_the_refs_of_the_run_unchanged_and_refuses_their_names(
+) {
+    let dir = repository();
+    let tree = snapshot_tree(dir.path()).await.unwrap().unwrap();
+    for end in ["start", "end"] {
+        let name = format!("refs/synapse/runs/exec-1/{end}");
+        git(dir.path(), &["update-ref", &name, &tree]);
+    }
+    let run_refs = || {
+        git(
+            dir.path(),
+            &[
+                "for-each-ref",
+                "--format=%(refname) %(objectname)",
+                "refs/synapse/runs/",
+            ],
+        )
+    };
+    let before = run_refs();
+    let parent = tempdir().unwrap();
+    let linked = parent.path().join("linked");
+    git(
+        dir.path(),
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            linked.to_str().unwrap(),
+        ],
+    );
+    put(&linked, "a.txt", "changed in the worktree\n");
+    let other = snapshot_tree(&linked).await.unwrap().unwrap();
+    assert_ne!(other, tree);
+    for end in ["start", "end"] {
+        let own = format!("desktop/exec-1/key-1/{end}");
+        pin_snapshot(&linked, &own, &other).await.unwrap();
+        assert_eq!(
+            git(dir.path(), &["rev-parse", &format!("refs/synapse/{own}")]).trim(),
+            other
+        );
+        unpin_snapshot(&linked, &own).await.unwrap();
+        let theirs = format!("runs/exec-1/{end}");
+        let pinned = pin_snapshot(&linked, &theirs, &other).await.unwrap_err();
+        assert_eq!(pinned.code, ErrorCode::BadRequest);
+        let unpinned = unpin_snapshot(&linked, &theirs).await.unwrap_err();
+        assert_eq!(unpinned.code, ErrorCode::BadRequest);
+    }
+    assert_eq!(run_refs(), before);
+    assert_eq!(
+        git(dir.path(), &["for-each-ref", "refs/synapse/desktop/"]).trim(),
+        ""
+    );
 }
 
 #[tokio::test]

@@ -106,7 +106,7 @@ pub struct ChangesDiffParams {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ChangesPinParams {
     pub folder: String,
-    /// `runs/<execution-id>/start` or `runs/<execution-id>/end`.
+    /// `desktop/<execution-id>/<folder-key>/start` or `end`.
     #[serde(rename = "ref")]
     pub reference: String,
     pub tree: String,
@@ -1304,16 +1304,18 @@ impl Validate for ChangesDiffParams {
     }
 }
 
-/// Where a run's snapshot is pinned, under `refs/synapse/`: `runs/<execution-id>/start` or
-/// `runs/<execution-id>/end`, the id 1 to 64 letters, digits, `_` and `-`.
+/// Where the app pins a snapshot of a folder it shows for a run, under `refs/synapse/`:
+/// `desktop/<execution-id>/<folder-key>/start` or `end`, the id and the key each 1 to 64 letters,
+/// digits, `_` and `-`.
 pub fn is_pin_ref(reference: &str) -> bool {
-    let Some(rest) = reference.strip_prefix("runs/") else {
+    let Some(rest) = reference.strip_prefix("desktop/") else {
         return false;
     };
-    let Some((id, end)) = rest.split_once('/') else {
+    let parts: Vec<&str> = rest.split('/').collect();
+    let [id, key, end] = parts[..] else {
         return false;
     };
-    session_ok(id) && (end == "start" || end == "end")
+    session_ok(id) && session_ok(key) && (end == "start" || end == "end")
 }
 
 impl Validate for ChangesPinParams {

@@ -243,6 +243,36 @@ fn a_snapshot_must_be_a_tree_id_so_that_it_can_never_be_taken_for_an_option() {
 }
 
 #[test]
+fn a_snapshot_is_pinned_only_as_the_start_or_the_end_the_app_keeps_for_a_folder_of_a_run() {
+    let long = "a".repeat(64);
+    for name in ["changes.pin", "changes.unpin"] {
+        for reference in [
+            "desktop/exec-1/key-1/start".to_string(),
+            "desktop/exec-1/key-1/end".to_string(),
+            format!("desktop/{long}/{long}/end"),
+        ] {
+            allowed(name, "ref", json!(reference));
+        }
+        for reference in [
+            "runs/exec-1/start".to_string(),
+            "runs/exec-1/end".to_string(),
+            "heads/main".to_string(),
+            "desktop/exec-1/start".to_string(),
+            "desktop//key-1/start".to_string(),
+            "desktop/exec-1//start".to_string(),
+            "desktop/../key-1/start".to_string(),
+            "desktop/exec-1/../start".to_string(),
+            "desktop/exec-1/key-1/other".to_string(),
+            "desktop/exec-1/key-1/start/x".to_string(),
+            format!("desktop/{long}a/key-1/start"),
+            format!("desktop/exec-1/{long}a/start"),
+        ] {
+            refused(name, "ref", json!(reference));
+        }
+    }
+}
+
+#[test]
 fn a_run_id_of_an_agent_run_is_the_form_of_a_run_name_and_a_stop_needs_one() {
     let kinds = [
         json!({ "kind": "definition", "what": "pipeline", "prompt": "x", "definitions": [] }),

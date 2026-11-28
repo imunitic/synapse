@@ -14,8 +14,8 @@ export interface FolderBarProps {
   known: string[]
   // The other repositories shown next to the folder, in the order they were added.
   added: string[]
-  // Moves to another folder; null where the folder cannot change, as for a run.
-  onChange: ((typed: string) => Promise<string | null>) | null
+  // Moves to another folder.
+  onChange: (typed: string) => Promise<string | null>
   onAdd: (typed: string) => Promise<string | null>
   onRemove: (folder: string) => void
 }
@@ -31,8 +31,8 @@ function FolderPath({ path }: { path: string }) {
 }
 
 // The folder a terminal session's or a run's changes are of, and the other repositories shown next
-// to it. A session's folder can be moved to another one: an agent that works in a worktree of its
-// own is looked at by typing that folder's path. The + adds a repository, typed the same way.
+// to it. The folder can be moved to another one: work done in a worktree of its own is looked at by
+// typing that folder's path. The + adds a repository, typed the same way.
 export function FolderBar({
   folder,
   head,
@@ -58,7 +58,6 @@ export function FolderBar({
   const submit = (event: FormEvent) => {
     event.preventDefault()
     const act = typing === 'change' ? onChange : onAdd
-    if (act === null) return
     void act(text).then((problem) => {
       if (problem === null) close()
       else setError(problem)
@@ -96,22 +95,15 @@ export function FolderBar({
         </form>
       ) : (
         <>
-          {onChange === null ? (
-            <span className="folder-current" title={folder}>
-              <FolderPath path={folder} />
-              {head !== null && <span className="folder-head">{head}</span>}
-            </span>
-          ) : (
-            <button
-              className="folder-current"
-              title={`${folder}: click to look at another folder`}
-              aria-label={`Folder: ${folder}. Change it`}
-              onClick={() => open('change')}
-            >
-              <FolderPath path={folder} />
-              {head !== null && <span className="folder-head">{head}</span>}
-            </button>
-          )}
+          <button
+            className="folder-current"
+            title={`${folder}: click to look at another folder`}
+            aria-label={`Folder: ${folder}. Change it`}
+            onClick={() => open('change')}
+          >
+            <FolderPath path={folder} />
+            {head !== null && <span className="folder-head">{head}</span>}
+          </button>
           <button
             className="icon-button"
             aria-label="Add a repository"

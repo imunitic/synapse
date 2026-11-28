@@ -323,8 +323,8 @@ async fn check_snapshot(folder: &Path, tree: &str) -> Result<(), HostError> {
     }
 }
 
-/// The full name of the ref a run's snapshot is pinned as, checked again here, so that nothing else
-/// is ever written.
+/// The full name of the ref the app pins a snapshot as, checked again here, so that nothing else is
+/// ever written.
 fn pinned_ref(reference: &str) -> Result<String, HostError> {
     if is_pin_ref(reference) {
         Ok(format!("refs/synapse/{reference}"))
@@ -337,8 +337,7 @@ fn pinned_ref(reference: &str) -> Result<String, HostError> {
 
 /// Pins the snapshot `tree` as `refs/synapse/<reference>`, which keeps it through `git gc`. A ref
 /// outside `refs/heads/` and `refs/tags/` is not a branch or a tag, and a normal push does not send
-/// it. The folder must be the root of its repository: two folders of one repository would pin the
-/// same ref.
+/// it. The folder must be the root of its repository.
 pub async fn pin_snapshot(folder: &Path, reference: &str, tree: &str) -> Result<(), HostError> {
     let name = pinned_ref(reference)?;
     if !in_repository(folder).await? {

@@ -313,7 +313,9 @@ export function ChangesSidebar({
           {state.status === 'ready' && files.length === 0 && !state.gone && (
             <p className="panel-empty">
               {state.kind === 'run'
-                ? 'This run has changed nothing.'
+                ? state.moved
+                  ? 'Nothing has changed in the folders shown.'
+                  : 'This run has changed nothing.'
                 : state.base === 'commit'
                   ? 'Everything is committed.'
                   : state.position === null

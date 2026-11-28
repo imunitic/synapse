@@ -361,9 +361,10 @@ test("a run's changes are everything it changed in its folder, and a repository 
     await expect(sidebar(page).getByRole('group', { name: 'Compared with' })).toHaveCount(0)
     await expect(sidebar(page).locator('.diff-pick')).toHaveCount(0)
     await expect(reviewBar(page)).toHaveCount(0)
-    // Its folder is shown, and cannot be changed.
-    await expect(sidebar(page)).toContainText(world().project)
-    await expect(sidebar(page).getByRole('button', { name: /^Folder: / })).toHaveCount(0)
+    // Its folder is shown, and is the one the run works in until another one is typed.
+    await expect(
+      sidebar(page).getByRole('button', { name: /^Folder: .* Change it$/ }),
+    ).toContainText(world().project)
 
     // A file that existed is shown at once; a new file is a row to open.
     const files = sidebar(page).getByRole('group', { name: 'Changed files' })
@@ -399,6 +400,141 @@ test("a run's changes are everything it changed in its folder, and a repository 
     await expect(added).not.toContainText('later.txt')
   } finally {
     rmSync(other, { recursive: true, force: true })
+  }
+})
+
+test("a run's folder is changed to a linked worktree, and changed back, leaving the run's own record as it was", async ({
+  page,
+}) => {
+  const project = world().project
+  const worktree = mkdtempSync(join(tmpdir(), 'sd-worktree-'))
+  const plain = mkdtempSync(join(tmpdir(), 'sd-plain-'))
+  const clean = repositoryWith(['first'])
+  const git = (folder: string, ...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=A', '-c', 'user.email=a@example.com', ...args], {
+      cwd: folder,
+      encoding: 'utf8',
+    })
+  const refsUnder = (prefix: string) =>
+    git(project, 'for-each-ref', '--format=%(refname) %(objectname)', prefix)
+      .split('\n')
+      .filter((line) => line !== '')
+  const appRefs = () => refsUnder('refs/synapse/desktop/exec-fixture1/')
+  // What the run itself keeps: the engine's refs, and what the command line says it changed.
+  const runKeeps = () => ({
+    refs: refsUnder('refs/synapse/runs/exec-fixture1/'),
+    changes: execFileSync('synapse-pipeline', ['changes', 'exec-fixture1', '--format', 'json'], {
+      encoding: 'utf8',
+    }),
+  })
+  const openChanges = async () => {
+    await openSection(page, 'Executions')
+    await sidePanel(page).locator('.list-row[data-execution="exec-fixture1"] .list-item').click()
+    await expect(page.getByRole('heading', { level: 1, name: 'exec-fixture1' })).toBeVisible()
+    await toggle(page).click()
+  }
+  const folder = sidebar(page).getByRole('button', { name: /^Folder: .* Change it$/ })
+  const files = sidebar(page).getByRole('group', { name: 'Changed files' })
+  const again = sidebar(page).getByRole('button', { name: 'Read the changes again' })
+  try {
+    // A linked worktree of the run's repository, with one change committed and one not.
+    git(project, 'worktree', 'add', '-q', '--detach', worktree)
+    writeFileSync(join(worktree, 'committed.txt'), 'committed before the move\n')
+    git(worktree, 'add', 'committed.txt')
+    git(worktree, 'commit', '-q', '-m', 'in the worktree')
+    writeFileSync(join(worktree, 'notes.txt'), 'changed in the worktree\n')
+    const before = runKeeps()
+    expect(before.refs).toHaveLength(2)
+
+    await page.goto('/')
+    await openChanges()
+    await expect(sidebar(page)).toContainText('3 files changed')
+
+    // Added with the +, it has refs of the app's own, and removing it leaves none.
+    await sidebar(page).getByRole('button', { name: 'Add a repository' }).click()
+    const toAdd = sidebar(page).getByLabel('Repository to add')
+    await toAdd.fill(worktree)
+    await toAdd.press('Enter')
+    await expect(
+      sidebar(page).getByRole('region', { name: basename(worktree), exact: true }),
+    ).toContainText('notes.txt')
+    await expect.poll(() => appRefs().length).toBe(2)
+    await sidebar(page)
+      .getByRole('button', { name: `Remove ${worktree}` })
+      .click()
+    await expect.poll(appRefs).toEqual([])
+    await expect(sidebar(page)).toContainText('3 files changed')
+    expect(runKeeps()).toEqual(before)
+
+    // A folder that is not in a repository is refused, and the view stays where it was.
+    await folder.click()
+    const input = sidebar(page).getByLabel('Folder to look at')
+    await input.fill(plain)
+    await input.press('Enter')
+    await expect(sidebar(page).getByRole('alert')).toContainText('not in a git repository')
+    await input.press('Escape')
+    await expect(folder).toContainText(project)
+    await expect(sidebar(page)).toContainText('3 files changed')
+
+    // Moved to the worktree, its changes are shown in place of the run's own: what was not
+    // committed there, and not what was.
+    await folder.click()
+    await input.fill(worktree)
+    await input.press('Enter')
+    await expect(folder).toContainText(worktree)
+    await expect(sidebar(page)).toContainText('1 file changed')
+    await expect(files.getByRole('button', { name: /notes\.txt/ })).toBeVisible()
+    await expect(sidebar(page).getByRole('region', { name: 'Changes in notes.txt' })).toContainText(
+      'changed in the worktree',
+    )
+    await expect(sidebar(page)).not.toContainText('committed.txt')
+    for (const own of ['render.adb', 'fresh.adb', 'result.txt']) {
+      await expect(sidebar(page)).not.toContainText(own)
+    }
+    expect(runKeeps()).toEqual(before)
+
+    // The run is over, so what is written there from now on is not its change.
+    writeFileSync(join(worktree, 'later.txt'), 'after the end\n')
+    await again.click()
+    await expect(sidebar(page)).toContainText('1 file changed')
+    await expect(sidebar(page)).not.toContainText('later.txt')
+
+    // The choice is kept for the run: a page loaded again reads the same folder.
+    await page.reload()
+    await openChanges()
+    await expect(folder).toContainText(worktree)
+    await expect(sidebar(page)).toContainText('1 file changed')
+    await expect(files.getByRole('button', { name: /notes\.txt/ })).toBeVisible()
+    await expect(sidebar(page)).not.toContainText('later.txt')
+
+    // A folder with nothing changed since the move: that is said of what is shown, not of the run.
+    await folder.click()
+    await input.fill(clean)
+    await input.press('Enter')
+    await expect(folder).toContainText(clean)
+    await expect(sidebar(page)).toContainText('Nothing has changed in the folders shown.')
+    await expect(sidebar(page)).not.toContainText('This run has changed nothing.')
+
+    // The run's own folder typed again shows what the run recorded.
+    await folder.click()
+    await input.fill(project)
+    await input.press('Enter')
+    await expect(folder).toContainText(project)
+    await expect(sidebar(page)).toContainText('3 files changed')
+    await expect(
+      sidebar(page)
+        .getByRole('region', { name: 'Changes in src/render.adb' })
+        .locator('.diff-row[data-kind="add"]'),
+    ).toContainText('True')
+    await expect(sidebar(page)).not.toContainText('notes.txt')
+    expect(runKeeps()).toEqual(before)
+  } finally {
+    // The fixture run's repository is shared: neither the app's refs nor the worktree stay in it.
+    for (const line of appRefs()) git(project, 'update-ref', '-d', line.split(' ')[0]!)
+    rmSync(worktree, { recursive: true, force: true })
+    git(project, 'worktree', 'prune')
+    rmSync(plain, { recursive: true, force: true })
+    rmSync(clean, { recursive: true, force: true })
   }
 })
 
