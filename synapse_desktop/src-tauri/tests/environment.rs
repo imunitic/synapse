@@ -178,3 +178,32 @@ fn a_conf_file_is_under_xdg_config_home_else_dot_config_when_there_is_one_and_el
         home.join(".config/synapse/x.conf")
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_program_is_started_by_the_full_path_path_would_find_it_at() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let (first, second) = (root.path().join("first"), root.path().join("second"));
+    for (folder, mode) in [(&first, 0o644), (&second, 0o755)] {
+        std::fs::create_dir(folder).unwrap();
+        let file = folder.join("widget");
+        std::fs::write(&file, "").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    let path = |value: String| std::collections::BTreeMap::from([("PATH".to_string(), value)]);
+    let both = format!("{}:{}", first.display(), second.display());
+    let found = |name: &str, value: &str| {
+        synapse_desktop_host::environment::program_path(name, &path(value.to_string()))
+    };
+
+    // A file that cannot be run is passed over.
+    assert_eq!(found("widget", &both), second.join("widget"));
+    assert_eq!(found("gadget", &both), std::path::Path::new("gadget"));
+    assert_eq!(found("./widget", &both), std::path::Path::new("./widget"));
+    // A relative entry is read from the folder the program starts in, so the name is left as it is.
+    for relative in ["bin", ""] {
+        let value = format!("{relative}:{}", second.display());
+        assert_eq!(found("widget", &value), std::path::Path::new("widget"));
+    }
+}
