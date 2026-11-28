@@ -43,7 +43,7 @@ function PromptText({
       {authored === '' ? (
         <p className="muted">This step has no text of its own.</p>
       ) : (
-        <pre className="source mono prompt-text">{authored}</pre>
+        <pre className="mono prompt-text">{authored}</pre>
       )}
       <details className="prompt-added" open={openAdded}>
         <summary>
@@ -52,7 +52,7 @@ function PromptText({
             (the input, the result before, and how to report, from the step&apos;s outcomes)
           </span>
         </summary>
-        <pre className="source mono prompt-added-text">{added}</pre>
+        <pre className="mono prompt-added-text">{added}</pre>
       </details>
     </>
   )

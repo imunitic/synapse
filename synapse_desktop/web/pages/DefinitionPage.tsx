@@ -1,4 +1,5 @@
 import { Fragment, useCallback } from 'react'
+import { CodeEditor } from '../components/CodeEditor.tsx'
 import { describeDefinition, valueLabel, type DefinitionInfo } from '../domain/definition-info.ts'
 import { transport } from '../transport/index.ts'
 import { DEFINITION_LABELS, type DefinitionKind, type Page } from '../state/state.ts'
@@ -14,7 +15,9 @@ export function SourceCard({ path }: { path: string }) {
       <p className="muted mono">{path}</p>
       {state.status === 'loading' && <p className="muted">Loading…</p>}
       {state.status === 'failed' && <p role="alert">Could not read the file: {state.error}</p>}
-      {state.status === 'ready' && <pre className="source mono">{state.data}</pre>}
+      {state.status === 'ready' && (
+        <CodeEditor initial={state.data} label="Source text" language="synapse" readOnly />
+      )}
     </section>
   )
 }
