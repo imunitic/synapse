@@ -103,6 +103,30 @@ test('a step page shows what its author wrote, and what Synapse adds apart from 
   )
 })
 
+test('the authored and added prompt texts are padded, set off from the card, and wrap', async ({
+  page,
+}) => {
+  await openDefinition(page, 'Pipelines', 'Develop_Feature')
+  await page.getByText('The prompt', { exact: true }).click()
+  await page.locator('.prompt-added').getByText('Added by Synapse when it runs').click()
+  // The background is a colour of the theme, so it is compared with what the page makes of it.
+  const background = await page.evaluate(() => {
+    const probe = document.body.appendChild(document.createElement('div'))
+    probe.style.background = 'var(--tabbar)'
+    const color = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return color
+  })
+  expect(background).not.toBe('rgba(0, 0, 0, 0)')
+  for (const text of ['.prompt-text', '.prompt-added-text']) {
+    const prompt = page.locator(text)
+    await expect(prompt).toBeVisible()
+    await expect(prompt).toHaveCSS('padding', '14px')
+    await expect(prompt).toHaveCSS('background-color', background)
+    await expect(prompt).toHaveCSS('white-space', 'pre-wrap')
+  }
+})
+
 test('the run dialog shows the first step prompt with the input that is typed', async ({
   page,
 }) => {

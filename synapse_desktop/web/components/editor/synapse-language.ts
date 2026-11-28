@@ -61,6 +61,17 @@ export const synapseHighlight = syntaxHighlighting(
   ]),
 )
 
+// An editor that takes changes keeps its height within fixed limits.
+export const editingHeight = EditorView.theme({
+  '.cm-scroller': { minHeight: '220px', maxHeight: '460px' },
+})
+
+// A read-only editor is as tall as its text, up to most of the window, so that the bar that
+// scrolls a wide line stays in reach.
+export const readingHeight = EditorView.theme({
+  '.cm-scroller': { maxHeight: '70vh' },
+})
+
 export const editorTheme = EditorView.theme(
   {
     '&': {
@@ -73,7 +84,7 @@ export const editorTheme = EditorView.theme(
     '&.cm-focused': { outline: '2px solid var(--accent-text)', outlineOffset: '2px' },
     '.cm-content': { fontFamily: 'var(--mono)', caretColor: 'var(--caret)', padding: '8px 0' },
     '.cm-cursor': { borderLeftColor: 'var(--caret)' },
-    '.cm-scroller': { overflow: 'auto', minHeight: '220px', maxHeight: '460px' },
+    '.cm-scroller': { overflow: 'auto' },
     '.cm-gutters': { backgroundColor: 'var(--code-bg)', color: 'var(--faint)', border: 'none' },
     '.cm-activeLine': { backgroundColor: 'var(--active-line)' },
     '.cm-activeLineGutter': { backgroundColor: 'var(--active-line)' },
