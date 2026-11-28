@@ -218,6 +218,33 @@ fn uuid() -> String {
     )
 }
 
+/// A program started from the desktop has no locale unless the user's start-up files set one, and in
+/// the default locale a shell and the programs in it take the bytes of a character such as an
+/// umlaut for several. When none of the variables that choose the character set names UTF-8, the
+/// category for it is set to it.
+fn ensure_utf8_locale(env: &mut BTreeMap<String, String>) {
+    let is_utf8 = |name: &str| {
+        env.get(name).is_some_and(|value| {
+            let value = value.to_ascii_lowercase();
+            value.contains("utf-8") || value.contains("utf8")
+        })
+    };
+    // The first of these that is set is the one that counts.
+    let chosen = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .into_iter()
+        .find(|name| env.get(*name).is_some_and(|value| !value.is_empty()));
+    if chosen.is_some_and(is_utf8) {
+        return;
+    }
+    let utf8 = if cfg!(target_os = "macos") {
+        "en_US.UTF-8"
+    } else {
+        "C.UTF-8"
+    };
+    env.remove("LC_ALL");
+    env.insert("LC_CTYPE".into(), utf8.into());
+}
+
 /// What a harness is started to do: build a code graph, rebuild what changed in it, or rebuild it from
 /// scratch. The harness is given a plain sentence as its first prompt, as a person would type it, and
 /// finds the skill of Synapse that it names by the skill's description.
@@ -414,6 +441,8 @@ async fn prepare(
     env.extend(plan.env.clone());
     env.extend(extra);
     env.insert("TERM".into(), "xterm-256color".into());
+    env.insert("COLORTERM".into(), "truecolor".into());
+    ensure_utf8_locale(&mut env);
     let options = SpawnOptions {
         cwd: cwd.clone(),
         env,

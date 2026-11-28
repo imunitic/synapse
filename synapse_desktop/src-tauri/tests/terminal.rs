@@ -690,9 +690,11 @@ async fn a_session_runs_the_program_the_plan_names_and_relays_what_it_prints_and
             ("FROM_APP", "yes"),
             ("PLAN_ENV", "p"),
             ("TERM", "xterm-256color"),
+            ("COLORTERM", "truecolor"),
         ] {
             assert_eq!(env.get(name).map(String::as_str), Some(value), "{name}");
         }
+        assert!(env.get("LC_CTYPE").is_some_and(|v| v.ends_with("UTF-8")));
     }
     rig.pty(0).print("hello");
     until(|| !client.watch("main").is_empty()).await;
