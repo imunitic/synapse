@@ -64,10 +64,10 @@ async function probe(port, expected) {
       'X-Synapse-Proxy-Token: attacker',
       'X-Forwarded-For: 198.51.100.7, 203.0.113.8',
       '', '',
-    ].join('\\r\\n')))
+    ].join('\r\n')))
     socket.on('data', (chunk) => {
       data += chunk.toString('latin1')
-      if (data.includes('\\r\\n')) {
+      if (data.includes('\r\n')) {
         const match = /^HTTP\/1\.1 (\d{3}) /.exec(data)
         socket.destroy()
         match ? resolve(Number(match[1])) : reject(new Error('invalid handshake response'))
