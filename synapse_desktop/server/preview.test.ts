@@ -36,6 +36,7 @@ beforeEach(async () => {
     runs: {
       start: () => Promise.reject(new Error('not used')),
       stop: () => undefined,
+      stopAll: () => undefined,
     },
   }
 })

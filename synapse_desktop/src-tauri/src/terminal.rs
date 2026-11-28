@@ -9,7 +9,7 @@ use crate::dispatch::HostError;
 use crate::environment::{expand_home, Environment};
 use crate::inject::{plan_session, plan_shell, InjectDeps, SessionPlan};
 use crate::messages::{Harness, TerminalInfo, TerminalKind, TerminalStartParams, TerminalTask};
-use crate::pty::{OnEvent, Pty, PtyEvent, SpawnOptions, SpawnPty};
+use crate::pty::{EndSignal, OnEvent, Pty, PtyEvent, SpawnOptions, SpawnPty};
 use crate::screen::Screen;
 use crate::status::{harness_environment, LoginEnvironment};
 use crate::transcripts::{
@@ -813,6 +813,27 @@ impl Sessions {
         let session = self.owned(id, owner)?;
         self.destroy(&session);
         Ok(())
+    }
+
+    /// Ends every session and its process group: SIGHUP, then SIGKILL to what is left after
+    /// `grace`. Returns when every session is gone.
+    pub async fn shutdown(&self, grace: Duration) {
+        let all: Vec<Arc<Session>> = self.0.sessions.lock().unwrap().values().cloned().collect();
+        let running = |session: &Arc<Session>| session.state.lock().unwrap().exited.is_none();
+        let ending: Vec<Arc<Session>> = all.iter().filter(|s| running(s)).cloned().collect();
+        for session in &ending {
+            session.pty.signal(EndSignal::Terminate);
+        }
+        let deadline = tokio::time::Instant::now() + grace;
+        while ending.iter().any(running) && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        for session in ending.iter().filter(|s| running(s)) {
+            session.pty.signal(EndSignal::Kill);
+        }
+        for session in &all {
+            self.destroy(session);
+        }
     }
 
     pub fn list(&self, owner: &str) -> Vec<TerminalInfo> {

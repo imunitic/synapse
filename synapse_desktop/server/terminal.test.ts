@@ -9,7 +9,7 @@ import type { Params } from '../shared/messages.ts'
 import type { TerminalHostStream } from '../shared/terminal.ts'
 import { terminalHandlers, terminalStream } from './terminal-bus.ts'
 import { createSessions, DETACHED_TTL_MS, type Sessions, type Sink } from './terminal-sessions.ts'
-import type { Pty, SpawnPty } from './terminal.ts'
+import type { EndSignal, Pty, SpawnPty } from './terminal.ts'
 import type { Registration, TranscriptEvents, Watcher } from './transcripts.ts'
 
 class FakeWatcher implements Watcher {
@@ -30,6 +30,8 @@ class FakePty implements Pty {
   written: string[] = []
   resized: [number, number][] = []
   killed = false
+  signals: EndSignal[] = []
+  private ignoresTerminate = false
   private data: ((d: string) => void) | null = null
   private exit: ((e: { exitCode: number }) => void) | null = null
   onData(listener: (d: string) => void) {
@@ -46,6 +48,13 @@ class FakePty implements Pty {
   }
   kill() {
     this.killed = true
+  }
+  signal(kind: EndSignal) {
+    this.signals.push(kind)
+    if (kind === 'kill' || !this.ignoresTerminate) this.end(kind === 'kill' ? 137 : 143)
+  }
+  ignoreTerminate() {
+    this.ignoresTerminate = true
   }
   print(d: string) {
     this.data?.(d)
@@ -740,5 +749,40 @@ describe('following the conversation of a harness', () => {
     // Each terminal has a folder of its own.
     await startKind('Shell')
     expect(watchDirs[0]).not.toBe(watchDirs[1])
+  })
+})
+
+describe('shutting down', () => {
+  it('ends every session with SIGTERM first', async () => {
+    const client = connect()
+    await begin(client, { session: 'one' })
+    await begin(client, { session: 'two' })
+
+    await sessions.shutdown(2000)
+    expect(ptys.map((pty) => pty.signals)).toEqual([['terminate'], ['terminate']])
+    expect(sessions.list('local')).toEqual([])
+  })
+
+  it('kills a session that ignores SIGTERM when the grace runs out', async () => {
+    const client = connect()
+    await begin(client, { session: 'stubborn' })
+    ptys[0]?.ignoreTerminate()
+
+    const started = Date.now()
+    await sessions.shutdown(200)
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(ptys[0]?.signals).toEqual(['terminate', 'kill'])
+    expect(sessions.list('local')).toEqual([])
+  })
+
+  it('sends nothing to a session whose program has ended', async () => {
+    const client = connect()
+    await begin(client, { session: 'done' })
+    ptys[0]?.end(0)
+
+    await sessions.shutdown(2000)
+    expect(ptys[0]?.signals).toEqual([])
+    expect(ptys[0]?.killed).toBe(false)
+    expect(sessions.list('local')).toEqual([])
   })
 })

@@ -68,7 +68,8 @@ package body Synapse.Pipeline.Git_Working_Trees is
    begin
       Request.Program := U ("git");
       for Item of Words
-        ("--no-pager", "-c", "core.quotepath=off", "--literal-pathspecs")
+        ("--no-pager", "-c", "core.quotepath=off", "-c",
+         "core.fsmonitor=false", "--literal-pathspecs")
       loop
          Request.Arguments.Append (Item);
       end loop;

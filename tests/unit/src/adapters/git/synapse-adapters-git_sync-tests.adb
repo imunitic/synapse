@@ -40,15 +40,17 @@ package body Synapse.Adapters.Git_Sync.Tests is
       end loop;
       Ada.Strings.Unbounded.Append
         (R.Log, To_String (Line) & "|" & To_String (Opts.Cwd) & LF);
-      if not Args.Is_Empty then
+      --  Every command leads with -c core.fsmonitor=false; the words that
+      --  say what it does come after them.
+      if Args.Length > 2 then
          declare
-            First : constant String := To_String (Args (1));
+            First : constant String := To_String (Args (3));
          begin
-            if First = "-c" and then Args.Length > 2
-              and then To_String (Args (3)) = "diff"
+            if First = "-c" and then Args.Length > 4
+              and then To_String (Args (5)) = "diff"
             then
                Result.Output := R.Staged;
-            elsif First = "config" and then Args.Length = 2 then
+            elsif First = "config" and then Args.Length = 4 then
                Result.Exit_Code := (if R.Identity then 0 else 1);
                if R.Identity then
                   Result.Output := To_Unbounded_String ("a@b" & LF);
@@ -60,6 +62,10 @@ package body Synapse.Adapters.Git_Sync.Tests is
    end Run;
 
    Real : Adapters.System_Process.System_Runner;
+
+   --  How every git command line starts: git never starts an fsmonitor
+   --  daemon on the vault.
+   Git_Line : constant String := "git -c core.fsmonitor=false ";
 
    procedure Commit_Messages_Name_The_Paths (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
@@ -87,10 +93,11 @@ package body Synapse.Adapters.Git_Sync.Tests is
       Commit_If_Dirty (R, "/v");
       Assert
         (To_String (R.Log) =
-         "git add -A|/v" & LF &
-         "git -c core.quotePath=false diff --cached --name-only|/v" & LF &
-         "git config user.email|/v" & LF &
-         "git commit --quiet -m vault: a.md, b.md|/v" & LF,
+         Git_Line & "add -A|/v" & LF &
+         Git_Line & "-c core.quotePath=false diff --cached --name-only|/v" &
+         LF &
+         Git_Line & "config user.email|/v" & LF &
+         Git_Line & "commit --quiet -m vault: a.md, b.md|/v" & LF,
          "add, list, identity, commit: " & To_String (R.Log));
 
       R.Log      := Null_Unbounded_String;
@@ -99,12 +106,12 @@ package body Synapse.Adapters.Git_Sync.Tests is
       Assert
         (Ada.Strings.Fixed.Index
            (To_String (R.Log),
-            "git config user.email " & "vault@synapse.local|/v") >
+            Git_Line & "config user.email " & "vault@synapse.local|/v") >
          0
          and then
            Ada.Strings.Fixed.Index
              (To_String (R.Log),
-              "git config user.name " & "Synapse Vault|/v") >
+              Git_Line & "config user.name " & "Synapse Vault|/v") >
            0,
          "a missing identity is set");
 

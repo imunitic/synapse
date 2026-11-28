@@ -318,6 +318,10 @@ package body Synapse.Adapters.Tree_Sitter.Preparation is
       Result  : Runner.Result;
       Started : Boolean         := True;
    begin
+      --  Git starts no fsmonitor daemon on the app's behalf: nothing it
+      --  starts may outlive Synapse Desktop.
+      Add (Args, "-c");
+      Add (Args, "core.fsmonitor=false");
       Add (Args, "clone");
       Add (Args, "--depth");
       Add (Args, "1");

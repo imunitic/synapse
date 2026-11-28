@@ -118,6 +118,22 @@ describe.skipIf(process.platform === 'win32')('createRunStarter', () => {
     expect(alive(childPid)).toBe(false)
   })
 
+  it('stops every run it started', async () => {
+    const starter = createRunStarter(await script('stub', STUB), process.env)
+    const first = await starter.start('P', { task: 'a' }, config())
+    const second = await starter.start('P', { task: 'b' }, config())
+    const runs = [await pidsOf(first.executionId), await pidsOf(second.executionId)]
+    const pids = runs.flatMap(({ pid, childPid }) => [pid, childPid])
+    expect(pids.every(alive)).toBe(true)
+
+    starter.stopAll()
+    for (let i = 0; i < 40 && pids.some(alive); i++) {
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    // Neither run, nor the process each started, is left.
+    expect(pids.filter(alive)).toEqual([])
+  })
+
   it('gives two runs of the same pipeline and input an id each, so neither is mistaken for the other', async () => {
     const starter = createRunStarter(await script('stub', STUB), process.env)
     const [first, second] = await Promise.all([

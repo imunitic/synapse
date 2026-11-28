@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use synapse_desktop_host::environment::{join_paths, split_paths, Environment};
 use synapse_desktop_host::host::Host;
 use synapse_desktop_host::link::link_pair;
@@ -17,6 +18,9 @@ use synapse_desktop_host::status::{read_login_path, user_shell, with_login_path}
 use tauri::ipc::Channel;
 use tauri::{Manager, State};
 use tokio::sync::mpsc::UnboundedSender;
+
+/// How long quitting waits for the host to stop its runs and end its terminal sessions.
+const SHUTDOWN_LIMIT: Duration = Duration::from_secs(3);
 
 type Connections = Arc<Mutex<HashMap<u64, UnboundedSender<ClientMessage>>>>;
 
@@ -131,6 +135,16 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![bus_connect, bus_send, bus_close])
-        .run(tauri::generate_context!())
-        .expect("the app failed to run");
+        .build(tauri::generate_context!())
+        .expect("the app failed to start")
+        .run(|app, event| {
+            // Tauri sends Exit once, just before the process ends, whatever started the quit:
+            // nothing the app started may outlive it.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<App>() {
+                    let host = state.host.clone();
+                    tauri::async_runtime::block_on(host.shutdown(SHUTDOWN_LIMIT));
+                }
+            }
+        });
 }

@@ -48,6 +48,21 @@ package body Synapse.Pipeline.Git_Working_Trees.Tests is
       return False;
    end Has_Ending;
 
+   --  Whether some item is First and the item right after it is Second.
+   function Has_Pair
+     (Items : Synapse.Core.Text_Lists.Vector; First, Second : String)
+      return Boolean is
+   begin
+      for Index in Items.First_Index .. Items.Last_Index - 1 loop
+         if To_String (Items.Element (Index)) = First
+           and then To_String (Items.Element (Index + 1)) = Second
+         then
+            return True;
+         end if;
+      end loop;
+      return False;
+   end Has_Pair;
+
    procedure A_Snapshot_Is_Made_From_A_Temporary_Index
      (T : in out Test_Cases_Class)
    is
@@ -101,6 +116,9 @@ package body Synapse.Pipeline.Git_Working_Trees.Tests is
                and then Has (Request.Environment, "GIT_OPTIONAL_LOCKS=0")
                and then Has (Request.Environment, "GIT_TERMINAL_PROMPT=0"),
                "no path is a pattern, and git does not wait or ask");
+            Assert
+              (Has_Pair (Request.Arguments, "-c", "core.fsmonitor=false"),
+               "git never starts an fsmonitor daemon");
          end loop;
       end;
    end A_Snapshot_Is_Made_From_A_Temporary_Index;

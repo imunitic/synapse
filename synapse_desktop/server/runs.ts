@@ -58,6 +58,8 @@ export interface RunStarter {
     runName?: string,
   ): Promise<{ executionId: string }>
   stop(executionId: string): void
+  // Stops every run this host started, and what each started.
+  stopAll(): void
 }
 
 // `binary` is looked up on PATH unless it is a path. `home` is the folder a run
@@ -121,6 +123,10 @@ export function createRunStarter(
       const child = children.get(executionId)
       if (child === undefined) throw new NotStartedHere('this run was not started by this app')
       killTree(child)
+    },
+
+    stopAll() {
+      for (const child of children.values()) killTree(child)
     },
   }
 }

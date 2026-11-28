@@ -15,6 +15,17 @@ use tokio::process::Command;
 pub const MAX_PATCH_BYTES: usize = 4 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(60);
 
+/// The words every git command of the host starts with: no pager, paths as they are, no
+/// fsmonitor daemon started on the app's behalf, and no path read as a pattern.
+pub const GIT_BASE_ARGS: [&str; 6] = [
+    "--no-pager",
+    "-c",
+    "core.quotepath=off",
+    "-c",
+    "core.fsmonitor=false",
+    "--literal-pathspecs",
+];
+
 struct Git {
     ok: bool,
     stdout: String,
@@ -28,9 +39,7 @@ async fn git(folder: &Path, args: &[&str], index: Option<&Path>) -> Result<Git, 
     let failed = |why: String| HostError::unavailable(format!("git could not be run: {why}"));
     let mut command = Command::new("git");
     command
-        .arg("--no-pager")
-        .args(["-c", "core.quotepath=off"])
-        .arg("--literal-pathspecs")
+        .args(GIT_BASE_ARGS)
         .args(args)
         .current_dir(folder)
         .env("GIT_OPTIONAL_LOCKS", "0")

@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Command;
 use synapse_desktop_host::changes::{
     changes_between, changes_since, commit_changes, commit_log, head_position, head_tree,
-    pin_snapshot, snapshot_tree, unpin_snapshot,
+    pin_snapshot, snapshot_tree, unpin_snapshot, GIT_BASE_ARGS,
 };
 use synapse_desktop_host::messages::AddedFile;
 use synapse_desktop_host::protocol::ErrorCode;
@@ -49,6 +49,16 @@ fn repository() -> TempDir {
 
 fn is_tree_id(id: &str) -> bool {
     id.len() == 40 && id.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+#[test]
+fn git_never_starts_an_fsmonitor_daemon() {
+    assert!(
+        GIT_BASE_ARGS
+            .windows(2)
+            .any(|pair| pair == ["-c", "core.fsmonitor=false"]),
+        "every git command carries -c core.fsmonitor=false: {GIT_BASE_ARGS:?}"
+    );
 }
 
 #[tokio::test]

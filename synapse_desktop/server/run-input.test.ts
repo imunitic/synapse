@@ -110,7 +110,11 @@ function contextFor(input: unknown, answers: CliResult[], checks: CliResult[] = 
       if (run.args[0] === 'check') return Promise.resolve(checks.shift() ?? ok(''))
       return Promise.reject(new Error(`not used: ${run.args.join(' ')}`))
     },
-    runs: { start: () => Promise.reject(new Error('not used')), stop: () => undefined },
+    runs: {
+      start: () => Promise.reject(new Error('not used')),
+      stop: () => undefined,
+      stopAll: () => undefined,
+    },
     agent: () => Promise.reject(new Error('not used')),
     noteRuns: createNoteRuns(),
     noteSession: (run) => {

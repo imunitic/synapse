@@ -22,11 +22,23 @@ pub struct SpawnOptions {
     pub rows: u16,
 }
 
+/// How a program and its process group are ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EndSignal {
+    /// SIGHUP to the group, as closing a terminal window sends; on Windows the process tree is
+    /// ended at once.
+    Terminate,
+    /// SIGKILL to the group; on Windows the process tree is ended at once.
+    Kill,
+}
+
 /// A program that is running in a pty.
 pub trait Pty: Send + Sync {
     fn write(&self, data: &str);
     fn resize(&self, cols: u16, rows: u16);
     fn kill(&self);
+    /// Sends `signal` to the program's process group.
+    fn signal(&self, signal: EndSignal);
 }
 
 /// Where a pty's events go.
@@ -41,6 +53,9 @@ struct SystemPty {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn portable_pty::ChildKiller + Send + Sync>>,
+    /// The program's process id. It leads its own session and process group in the pty, so the
+    /// group is everything it started that did not leave it.
+    pid: Option<u32>,
 }
 
 impl Pty for SystemPty {
@@ -61,6 +76,43 @@ impl Pty for SystemPty {
 
     fn kill(&self) {
         let _ = self.killer.lock().unwrap().kill();
+    }
+
+    fn signal(&self, signal: EndSignal) {
+        if let Some(pid) = self.pid {
+            signal_group(pid, signal);
+        }
+    }
+}
+
+/// Ends the process group `pid` leads, or `pid` alone when there is no such group, in the same way
+/// as `kill_tree` in `runs.rs`. On Windows both signals end the process tree at once. A shell's
+/// background jobs leave its group, each into a group of its own, so `Terminate` sends SIGHUP, as
+/// closing a terminal window does: the shell passes it on to its jobs before it exits. A SIGTERM
+/// right after it would end bash before it does.
+fn signal_group(pid: u32, signal: EndSignal) {
+    #[cfg(windows)]
+    {
+        let _ = signal;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/pid", &pid.to_string(), "/T", "/F"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+    #[cfg(unix)]
+    {
+        let pid = pid as i32;
+        let number = match signal {
+            EndSignal::Terminate => libc::SIGHUP,
+            EndSignal::Kill => libc::SIGKILL,
+        };
+        // SAFETY: `kill` takes no pointers; a process group that is gone is an error, not a fault.
+        unsafe {
+            if libc::kill(-pid, number) != 0 {
+                libc::kill(pid, number);
+            }
+        }
     }
 }
 
@@ -104,6 +156,7 @@ pub fn system_spawn() -> SpawnPty {
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
         let killer = child.clone_killer();
+        let pid = child.process_id();
         // One thread reads until the program's end, and then says how it ended, so that nothing it
         // printed comes after its exit.
         std::thread::spawn(move || {
@@ -138,6 +191,7 @@ pub fn system_spawn() -> SpawnPty {
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
             killer: Mutex::new(killer),
+            pid,
         }))
     })
 }

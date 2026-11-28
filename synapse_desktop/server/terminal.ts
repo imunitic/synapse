@@ -1,6 +1,7 @@
 // What starting a terminal takes: where it runs, the program the plan gives and the arguments each
 // harness is started with. The sessions that hold what it starts are in terminal-sessions.ts.
 
+import { spawn } from 'node:child_process'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -19,12 +20,16 @@ import type { Environment } from './roots.ts'
 import type { Watcher, watchTranscripts } from './transcripts.ts'
 import { isDirectory } from './fs-checks.ts'
 
+export type EndSignal = 'terminate' | 'kill'
+
 export interface Pty {
   onData(listener: (data: string) => void): void
   onExit(listener: (exit: { exitCode: number }) => void): void
   write(data: string): void
   resize(cols: number, rows: number): void
   kill(): void
+  // Sends SIGHUP or SIGKILL to the program's process group; on Windows ends its process tree.
+  signal(kind: EndSignal): void
 }
 
 export type SpawnPty = (
@@ -33,8 +38,50 @@ export type SpawnPty = (
   options: { cwd: string; env: Record<string, string>; cols: number; rows: number },
 ) => Pty
 
-export const spawnPty: SpawnPty = (file, args, options) =>
-  nodePty.spawn(file, args, { name: 'xterm-256color', ...options })
+// The program leads its own session and process group in its pty, so the group is everything it
+// started that did not leave it. A shell's background jobs do leave it, each into a group of its
+// own, so ending one sends SIGHUP, as closing a terminal window does: the shell passes it on to its
+// jobs before it exits. A SIGTERM right after it would end bash before it does.
+function signalGroup(pid: number, kind: EndSignal): void {
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
+    return
+  }
+  const name = kind === 'terminate' ? 'SIGHUP' : 'SIGKILL'
+  try {
+    process.kill(-pid, name)
+  } catch {
+    try {
+      process.kill(pid, name)
+    } catch {
+      // It has ended already.
+    }
+  }
+}
+
+export const spawnPty: SpawnPty = (file, args, options) => {
+  const pty = nodePty.spawn(file, args, { name: 'xterm-256color', ...options })
+  return {
+    onData: (listener) => {
+      pty.onData(listener)
+    },
+    onExit: (listener) => {
+      pty.onExit(listener)
+    },
+    write: (data) => {
+      pty.write(data)
+    },
+    resize: (cols, rows) => {
+      pty.resize(cols, rows)
+    },
+    kill: () => {
+      pty.kill()
+    },
+    signal: (kind) => {
+      signalGroup(pty.pid, kind)
+    },
+  }
+}
 
 export interface TerminalDeps {
   environment: Environment
