@@ -786,6 +786,35 @@ describe('the Changes sidebar', () => {
     expect(closed.activityKinds).toEqual({})
   })
 
+  it('keeps what is shut in its lists for each session and run, until that one is closed', () => {
+    let state = run(
+      [
+        { type: 'openTerminal', kind: 'Shell', cwd: '/w', id: 's1' },
+        { type: 'openTerminal', kind: 'Shell', cwd: '/w', id: 's2' },
+        { type: 'openPage', page: { kind: 'execution', id: 'exec-1' } },
+      ],
+      startState,
+    )
+    const shut = (owner: string, item: string) =>
+      reduce(state, { type: 'toggleChangesShut', owner, item })
+    state = shut('s1', '/w/one')
+    state = shut('s1', '/w/two')
+    state = shut('s2', '/w/one')
+    state = shut('exec-1', '/w/one')
+    // Toggling again opens that one, and nothing else.
+    state = shut('s1', '/w/one')
+    expect(state.changesShut).toEqual({
+      s1: ['/w/two'],
+      s2: ['/w/one'],
+      'exec-1': ['/w/one'],
+    })
+    state = reduce(state, { type: 'activateTab', id: 'home' })
+    expect(state.changesShut['exec-1']).toEqual(['/w/one'])
+    state = reduce(state, { type: 'closeTerminal', id: 's1' })
+    state = reduce(state, { type: 'closeTab', id: 'execution:exec-1' })
+    expect(state.changesShut).toEqual({ s2: ['/w/one'] })
+  })
+
   it('is opened at a file when an activity names it, and asking for all of them lets it go', () => {
     const shown = reduce(startState, { type: 'showChanges', path: '/w/src/a.txt' })
     expect(shown).toMatchObject({ changesOpen: true, changesFile: '/w/src/a.txt' })

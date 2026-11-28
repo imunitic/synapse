@@ -160,6 +160,9 @@ export interface ShellState {
   activityKinds: Record<string, ActionKind[]>
   // The file each session's Activity tab shows the actions on; none is every file.
   activityFiles: Record<string, string | null>
+  // The repositories and folders shut in the sidebar's lists of files, by the id of the session or
+  // the run whose they are; none is all open.
+  changesShut: Record<string, string[]>
   definitionKind: DefinitionKind
   tabs: Tab[]
   activeId: string | null
@@ -183,6 +186,7 @@ export const initialState: ShellState = {
   gitCommits: {},
   activityKinds: {},
   activityFiles: {},
+  changesShut: {},
   definitionKind: 'pipeline',
   tabs: [],
   activeId: null,
@@ -212,6 +216,8 @@ export type Action =
   | { type: 'setGitCommit'; session: string; commit: string | null }
   | { type: 'setActivityKinds'; session: string; kinds: ActionKind[] }
   | { type: 'setActivityFile'; session: string; file: string | null }
+  // A repository or a folder of a session's or a run's lists is shut, or opened again.
+  | { type: 'toggleChangesShut'; owner: string; item: string }
   | { type: 'showChanges'; path?: string }
   | { type: 'selectDefinitionKind'; kind: DefinitionKind }
   | { type: 'openPage'; page: Page }
@@ -402,6 +408,14 @@ function step(state: ShellState, action: Action): ShellState {
         ...state,
         activityFiles: { ...state.activityFiles, [action.session]: action.file },
       }
+
+    case 'toggleChangesShut': {
+      const shut = state.changesShut[action.owner] ?? []
+      const next = shut.includes(action.item)
+        ? shut.filter((one) => one !== action.item)
+        : [...shut, action.item]
+      return { ...state, changesShut: { ...state.changesShut, [action.owner]: next } }
+    }
 
     case 'showChanges':
       return {
@@ -601,6 +615,7 @@ function step(state: ShellState, action: Action): ShellState {
         gitCommits: without(state.gitCommits, action.id),
         activityKinds: without(state.activityKinds, action.id),
         activityFiles: without(state.activityFiles, action.id),
+        changesShut: without(state.changesShut, action.id),
       }
       // The page has nothing to show without a session.
       return shells.length === 0 ? reduce(next, { type: 'closeTab', id: 'terminals' }) : next
@@ -650,6 +665,9 @@ function step(state: ShellState, action: Action): ShellState {
         state.activeId === action.id
           ? (tabs[Math.min(index, tabs.length - 1)]?.id ?? null)
           : state.activeId
+      // What the sidebar kept for a run goes with the run's page.
+      if (closing?.kind === 'execution')
+        return { ...state, tabs, activeId, changesShut: without(state.changesShut, closing.id) }
       // Closing the terminals page ends the sessions in it, except an interactive run that is going
       // on: closing the tab is not stopping the run, which stays where it can be shown again.
       if (action.id !== 'terminals') return { ...state, tabs, activeId }

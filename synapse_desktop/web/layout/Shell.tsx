@@ -111,6 +111,13 @@ export function Shell() {
         ? { kind: 'run', executionId: active.page.id }
         : null
   // The running session of the run whose page shows, followed through its transcript.
+  // Whose lists the sidebar shows: what is shut in them is kept for each.
+  const shutOwner =
+    changesSource === null
+      ? null
+      : changesSource.kind === 'session'
+        ? changesSource.session
+        : changesSource.executionId
   const liveRun = useLiveRun(active?.page.kind === 'execution' ? active.page.id : null)
   const changes = useChanges(changesSource, state.changesOpen, liveRun.calls)
   // A terminal session also has the Git tab: the commits of the branch its harness is on.
@@ -363,6 +370,12 @@ export function Shell() {
             }
             comments={gitSession}
             folders={folders}
+            shut={{
+              items: shutOwner === null ? [] : (state.changesShut[shutOwner] ?? []),
+              onToggle: (item) =>
+                shutOwner !== null &&
+                dispatch({ type: 'toggleChangesShut', owner: shutOwner, item }),
+            }}
             activity={
               gitSession === null
                 ? null
