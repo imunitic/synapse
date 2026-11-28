@@ -1,0 +1,17 @@
+FROM node:24-bookworm-slim AS build
+WORKDIR /opt/synapse
+COPY synapse_desktop/package.json synapse_desktop/package-lock.json ./
+RUN npm ci
+COPY synapse_desktop/ ./
+RUN npm run build
+
+FROM node:24-bookworm-slim
+WORKDIR /opt/synapse
+COPY synapse_desktop/package.json synapse_desktop/package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=build /opt/synapse/dist ./dist
+COPY synapse_desktop/server ./server
+COPY synapse_desktop/shared ./shared
+ENV NODE_ENV=production
+USER node
+CMD ["node", "server/private-gateway-server.ts"]

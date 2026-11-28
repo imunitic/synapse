@@ -16,16 +16,32 @@ import { createNoteRuns } from './note-runs.ts'
 import { createRunStarter } from './runs.ts'
 import { defaultPlan, sessionsRoot, spawnPty } from './terminal.ts'
 import { createSessions } from './terminal-sessions.ts'
+import { requireSupportedHostMode } from './host-mode.ts'
+import { privateBackendOrigin } from './private-backend-origin.ts'
+import { privateNetworkBind } from './private-network-bind.ts'
 import { createUsage, systemProviders } from './usage.ts'
+
+requireSupportedHostMode(process.env)
 
 const { web: WEB_PORT, server: SERVER_PORT } = ports(process.env)
 const environment = { env: process.env, home: homedir() }
 const suppliedToken = process.env.SYNAPSE_DESKTOP_TOKEN
+const bindAddress = privateNetworkBind(process.env)
+// The backend credential belongs to the bus policy, not to spawned programs.
+delete process.env.SYNAPSE_DESKTOP_TOKEN
 const token = suppliedToken ? suppliedToken : randomBytes(24).toString('hex')
 
 const policy = {
-  allowedHosts: new Set([`127.0.0.1:${SERVER_PORT}`, `localhost:${SERVER_PORT}`]),
-  allowedOrigins: new Set([`http://127.0.0.1:${WEB_PORT}`, `http://localhost:${WEB_PORT}`]),
+  allowedHosts: new Set([
+    `127.0.0.1:${SERVER_PORT}`,
+    `localhost:${SERVER_PORT}`,
+    `${bindAddress}:${SERVER_PORT}`,
+  ]),
+  allowedOrigins: new Set([
+    `http://127.0.0.1:${WEB_PORT}`,
+    `http://localhost:${WEB_PORT}`,
+    ...privateBackendOrigin(process.env),
+  ]),
   token,
 }
 
@@ -62,8 +78,8 @@ const sessions = createSessions({
   onExit: usage.nudge,
 })
 attachBus(server, { policy, context, sessions })
-server.listen(SERVER_PORT, '127.0.0.1', () => {
-  console.log(`synapse-desktop server on http://127.0.0.1:${SERVER_PORT}`)
+server.listen(SERVER_PORT, bindAddress, () => {
+  console.log(`synapse-desktop server listening on ${bindAddress}:${SERVER_PORT}`)
   // The models of the harnesses are read again, behind whatever is kept of them.
   void models.refreshAll()
   if (!suppliedToken) console.log(`token: ${token}`)

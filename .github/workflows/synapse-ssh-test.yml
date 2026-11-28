@@ -1,0 +1,34 @@
+name: Synapse SSH-only connection test
+
+on:
+  push:
+    branches:
+      - feature/pwa-remote-host-foundation
+    paths:
+      - .github/workflows/synapse-ssh-test.yml
+
+permissions: {}
+
+jobs:
+  ssh-test:
+    runs-on: ubuntu-latest
+    environment: live
+    timeout-minutes: 3
+    steps:
+      - name: Verify deployment user and rootless Docker
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          fingerprint: ${{ secrets.VPS_FINGERPRINT }}
+          script: |
+            set -eu
+            test "$(whoami)" = synapse-deploy
+            whoami
+            export DOCKER_HOST=unix:///run/user/1001/docker.sock
+            security_options=$(docker info --format '{{json .SecurityOptions}}')
+            printf '%s\n' "$security_options"
+            printf '%s\n' "$security_options" | grep -q '"name=rootless"'
+            docker compose version

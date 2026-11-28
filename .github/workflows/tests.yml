@@ -184,6 +184,85 @@ jobs:
       - name: Desktop app checks
         run: just desktop-check
 
+      # Preserve Prettier's actual output when the desktop check fails, so a
+      # formatting-only failure can be repaired without guessing its layout.
+      - name: Generate formatter output for failed desktop check
+        if: failure()
+        working-directory: synapse_desktop
+        run: npx prettier --write server/private-gateway-server.test.ts
+
+      - name: Upload formatter output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-prettier-output
+          path: synapse_desktop/server/private-gateway-server.test.ts
+          retention-days: 1
+
+  # Detached, loopback-only private PWA gateway browser smoke. No VPS, agent,
+  # private production credentials or remote host mode involved.
+  gateway-browser:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: synapse_desktop/package-lock.json
+
+      - name: Install Chromium and desktop dependencies
+        working-directory: synapse_desktop
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Build production frontend
+        working-directory: synapse_desktop
+        run: npm run build
+
+      - name: Verify protected gateway in Chromium
+        working-directory: synapse_desktop
+        run: npm run check:gateway-browser
+
+  # Verify the isolated private Node host image builds and loads its native PTY.
+  # No containers are started, ports published, or credentials provisioned.
+  private-host-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build private Node host image
+        run: docker build -f synapse_desktop/Dockerfile.private-host -t synapse-private-host:ci .
+      - name: Build private gateway image
+        run: docker build -f synapse_desktop/Dockerfile.private-gateway -t synapse-private-gateway:ci .
+      - name: Verify gateway image contains built frontend
+        run: |
+          docker run --rm --network none --entrypoint node synapse-private-gateway:ci \
+            -e "require('node:fs').accessSync('dist/.vite/manifest.json'); require('node:fs').accessSync('dist/index.html')"
+      - name: Verify native PTY module loads as unprivileged user
+        run: |
+          docker run --rm --network none --entrypoint node synapse-private-host:ci \
+            -e "import('@lydell/node-pty').then(() => console.log('private PTY dependency loaded'))"
+
+      - name: Verify private Node host starts on loopback inside container
+        run: |
+          docker run -d --name synapse-private-host-smoke --network none \
+            -e SYNAPSE_DESKTOP_TOKEN=ci-fixture-token synapse-private-host:ci
+          trap 'docker rm -f synapse-private-host-smoke >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec synapse-private-host-smoke node -e "fetch('http://127.0.0.1:5174').then(r => process.exit(r.status === 404 ? 0 : 1)).catch(() => process.exit(1))"; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs synapse-private-host-smoke
+          exit 1
+
+      - name: Verify private Compose networking and isolation
+        run: bash synapse_desktop/scripts/private-staging-smoke.sh
+
   # The Rust host of the desktop app: format, lint and its tests, on the platforms
   # the app is built for. It always runs, like `desktop`.
   desktop-host:
