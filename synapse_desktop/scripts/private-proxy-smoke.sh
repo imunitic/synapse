@@ -44,31 +44,39 @@ done
   http://127.0.0.1:5180/login)" == 403 ]]
 node --input-type=module <<'NODE'
 import assert from 'node:assert/strict'
-import { WebSocket } from 'ws'
+import { connect } from 'node:net'
+import { randomBytes } from 'node:crypto'
 
 async function probe(port, expected) {
-  await new Promise((resolve, reject) => {
-    const ws = new WebSocket('ws://127.0.0.1:' + port + '/api/bus', {
-      headers: {
-        Host: 'staging.example.test',
-        Origin: 'https://staging.example.test',
-        Cookie: process.env.SYNAPSE_CI_COOKIE,
-        'X-Synapse-Proxy-Token': 'attacker',
-        'X-Forwarded-For': '198.51.100.7, 203.0.113.8',
-      },
-      handshakeTimeout: 5000,
+  const status = await new Promise((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1')
+    let data = ''
+    socket.setTimeout(5000, () => socket.destroy(new Error('handshake timeout')))
+    socket.once('connect', () => socket.write([
+      'GET /api/bus HTTP/1.1',
+      'Host: staging.example.test',
+      'Origin: https://staging.example.test',
+      'Cookie: ' + process.env.SYNAPSE_CI_COOKIE,
+      'Connection: Upgrade',
+      'Upgrade: websocket',
+      'Sec-WebSocket-Version: 13',
+      'Sec-WebSocket-Key: ' + randomBytes(16).toString('base64'),
+      'X-Synapse-Proxy-Token: attacker',
+      'X-Forwarded-For: 198.51.100.7, 203.0.113.8',
+      '', '',
+    ].join('\\r\\n')))
+    socket.on('data', (chunk) => {
+      data += chunk.toString('latin1')
+      if (data.includes('\\r\\n')) {
+        const match = /^HTTP\/1\.1 (\d{3}) /.exec(data)
+        socket.destroy()
+        match ? resolve(Number(match[1])) : reject(new Error('invalid handshake response'))
+      }
     })
-    ws.once('open', () => {
-      ws.terminate()
-      expected === 101 ? resolve() : reject(new Error('unexpected upgrade'))
-    })
-    ws.once('unexpected-response', (_request, response) => {
-      response.resume()
-      ws.terminate()
-      try { assert.equal(response.statusCode, expected); resolve() } catch (error) { reject(error) }
-    })
-    ws.once('error', (error) => { if (expected === 101) reject(error) })
+    socket.once('error', reject)
+    socket.once('close', () => reject(new Error('connection closed before handshake')))
   })
+  assert.equal(status, expected)
 }
 await probe(5180, 403)
 await probe(5181, 101)
