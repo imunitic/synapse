@@ -26,7 +26,7 @@ The app brings its own `synapse`, `synapse-hook` and `synapse-pipeline`, of the 
 
 ## First launch
 
-The app opens on its Home page. The rail on the left leads to every area: Home, Code graph and Terminals at the top, then Definitions, Executions, Vault and Settings, which open in the side panel. The tab bar at the top keeps the pages you opened. See [Home page](home.md) for what Home shows.
+The app opens on its Home page. The rail on the left leads to every area: Home, Code graph and Terminals at the top, then Definitions, Executions, Vault and Settings, which open in the side panel. Drag the side panel's right edge to make it wider or narrower; it keeps that width. With the edge focused, the arrow keys move it, and a double click puts it back. The tab bar at the top keeps the pages you opened. See [Home page](home.md) for what Home shows.
 
 On a new machine Home says "No vault is chosen." The next step fixes that.
 

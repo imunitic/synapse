@@ -1,5 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
-import type { PointerEvent } from 'react'
+import { useMemo, useState } from 'react'
 import { RefreshIcon } from '../components/icons.tsx'
 import { FileChanges } from '../components/FileChanges.tsx'
 import {
@@ -23,6 +22,8 @@ import type { ReviewComment } from '../domain/review.ts'
 import { addComment } from '../state/reviews.ts'
 import type { FileDiff } from '../domain/unified-diff.ts'
 import { transport } from '../transport/index.ts'
+import { useResizableWidth } from './use-resizable-width.ts'
+import { ResizeHandle } from './ResizeHandle.tsx'
 
 const TAB_NAMES: Record<ChangesTab, string> = {
   changes: 'Changes',
@@ -30,27 +31,13 @@ const TAB_NAMES: Record<ChangesTab, string> = {
   activity: 'Activity',
 }
 
-const WIDTH_KEY = 'synapse-desktop.changes-width'
-export const MIN_WIDTH = 300
-export const MAX_WIDTH = 900
-const START_WIDTH = 460
-
-export function readWidth(): number {
-  try {
-    const stored = Number(localStorage.getItem(WIDTH_KEY))
-    if (stored >= MIN_WIDTH && stored <= MAX_WIDTH) return stored
-  } catch {
-    // Not kept.
-  }
-  return START_WIDTH
-}
-
-export function keepWidth(width: number): void {
-  try {
-    localStorage.setItem(WIDTH_KEY, String(width))
-  } catch {
-    // Not kept.
-  }
+// The width the Changes sidebar starts at and may be dragged to, kept under `key`; the Outline
+// sidebar shares it.
+export const CHANGES_WIDTH = {
+  key: 'synapse-desktop.changes-width',
+  min: 300,
+  max: 900,
+  initial: 460,
 }
 
 // What the sidebar has of a terminal session's commits: the Git tab, which only a session has.
@@ -59,7 +46,6 @@ export interface SessionActivity {
   onKinds: (kinds: ActionKind[]) => void
   file: string | null
   onFile: (file: string | null) => void
-  onShowChange: (path: string) => void
 }
 
 export interface SessionGit {
@@ -158,8 +144,7 @@ export function ChangesSidebar({
   // conversation changed; none on a run's page.
   activity: SessionActivity | null
 }) {
-  const [width, setWidth] = useState(readWidth)
-  const dragging = useRef(false)
+  const { width, handleProps } = useResizableWidth({ ...CHANGES_WIDTH, edge: 'right' })
 
   const groups: ChangeGroup[] = state.status === 'ready' ? state.groups : []
   const single = groups.length === 1 ? groups[0] : undefined
@@ -200,31 +185,12 @@ export function ChangesSidebar({
       ? baseName(changesFocus)
       : null
 
-  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
-    dragging.current = true
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-  const drag = (event: PointerEvent<HTMLDivElement>) => {
-    if (!dragging.current) return
-    setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - event.clientX)))
-  }
-  const endDrag = () => {
-    if (!dragging.current) return
-    dragging.current = false
-    keepWidth(width)
-  }
-
   return (
     <aside className="changes" aria-label="Changes" style={{ width }}>
-      <div
+      <ResizeHandle
         className="changes-resize"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize the Changes sidebar"
-        onPointerDown={startDrag}
-        onPointerMove={drag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+        label="Resize the Changes sidebar"
+        handleProps={handleProps}
       />
       <div className="panel-header">
         {git === null ? (
@@ -264,7 +230,6 @@ export function ChangesSidebar({
           onKinds={activity.onKinds}
           file={activity.file}
           onFile={activity.onFile}
-          onShowChange={activity.onShowChange}
         />
       )}
       {onGit && (

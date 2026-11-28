@@ -373,14 +373,6 @@ export function Shell() {
                     file: state.activityFiles[gitSession] ?? null,
                     onFile: (file) =>
                       dispatch({ type: 'setActivityFile', session: gitSession, file }),
-                    // A file the conversation changed is shown in the Changes tab, compared with
-                    // where the session started: what was committed since is in that comparison
-                    // and not in the one with the last commit.
-                    onShowChange: (path) => {
-                      dispatch({ type: 'setChangesBase', session: gitSession, base: 'start' })
-                      dispatch({ type: 'setChangesTab', session: gitSession, tab: 'changes' })
-                      dispatch({ type: 'showChanges', path })
-                    },
                   }
             }
             git={
